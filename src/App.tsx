@@ -6,7 +6,7 @@ type View = "home" | "library" | "book" | "reader" | "progress" | "librarian" | 
 
 const text = {
   ar: {
-    name: "المكتبة الشخصية الذكية", version: "نموذج GitHub التجريبي — V0.3.1",
+    name: "المكتبة الشخصية الذكية", version: "نموذج GitHub التجريبي — V0.4",
     search: "ابحث في كتبك وأفكارك…", hello: "صباح المعرفة، عبدالرحمن",
     intro: "مكتبتك لا تختصر الكتاب بدلًا عنك؛ بل تمنحك خريطته وتعيدك إلى المواضع التي تستحق القراءة.",
     add: "أضف كتابًا", continue: "واصل القراءة", books: "الكتب", ready: "جاهز للتحليل",
@@ -20,7 +20,7 @@ const text = {
     journalSub: "ملاحظاتك هنا تساعدنا في تطوير المنتج وصياغة الدراسة العلمية لاحقًا.",
   },
   en: {
-    name: "Smart Personal Library", version: "GitHub prototype — V0.3.1",
+    name: "Smart Personal Library", version: "GitHub prototype — V0.4",
     search: "Search your books and ideas…", hello: "Good morning, Abdel Rahman",
     intro: "Your library does not replace the book. It maps it, then leads you back to the passages worth reading.",
     add: "Add a book", continue: "Continue reading", books: "Books", ready: "Ready to explore",
@@ -72,7 +72,7 @@ export default function Home() {
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark">ك</div><div><h1>{t.name}</h1><span>{t.version}</span></div></div>
       <nav className="main-nav">{navigation[lang].map(([id,label,icon])=><button key={id} className={view===id?"active":""} onClick={()=>go(id)}><i>{icon}</i><span>{label}</span>{id==="progress"&&<b>3</b>}</button>)}</nav>
-      <div className="prototype-note"><strong>{rtl?"اختبار توافق العربية V0.3.1":"Arabic PDF test V0.3.1"}</strong><p>{rtl?"العرض المطابق للأصل هو الافتراضي. التحليل والصوت ما زالا محاكاة موضحة.":"Original-fidelity view is the default. Analysis and audio remain labelled simulations."}</p></div>
+      <div className="prototype-note"><strong>{rtl?"مختبر القارئ العربي V0.4":"Arabic Reader Lab V0.4"}</strong><p>{rtl?"العرض المطابق للأصل هو المرجع، ووضع الكتاب لا يعمل قبل اجتياز اختبار سلامة العربية.":"Original view is the reference; Book mode stays locked until the Arabic fidelity check passes."}</p></div>
       <div className="profile"><span>ع</span><div><strong>عبدالرحمن</strong><small>{rtl?"المكتبة الخاصة":"Private library"}</small></div><button>⋮</button></div>
     </aside>
     <main>
