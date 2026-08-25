@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import Reader from "./Reader";
+import { getBookResults, getPrivateAudioUrl, invokeBookAI, listPilotBooks, saveLegalConsent, uploadPilotBook, type OutputLanguage, type PilotBook } from "./lib/library";
+import { supabaseConfigured } from "./lib/supabase";
 
 type Lang = "ar" | "en";
-type View = "home" | "library" | "book" | "reader" | "progress" | "librarian" | "feedback";
+type View = "home" | "library" | "book" | "pilot" | "reader" | "progress" | "librarian" | "feedback";
 
 const text = {
   ar: {
-    name: "المكتبة الشخصية الذكية", version: "نموذج GitHub التجريبي — V0.4",
+    name: "المكتبة الشخصية الذكية", version: "النموذج الوظيفي — V0.5",
     search: "ابحث في كتبك وأفكارك…", hello: "صباح المعرفة، عبدالرحمن",
     intro: "مكتبتك لا تختصر الكتاب بدلًا عنك؛ بل تمنحك خريطته وتعيدك إلى المواضع التي تستحق القراءة.",
     add: "أضف كتابًا", continue: "واصل القراءة", books: "الكتب", ready: "جاهز للتحليل",
@@ -16,11 +18,11 @@ const text = {
     uploadSub: "الملف يبقى خاصًا، ولن يُنشر أو يُشارك مع مستخدم آخر.", choose: "اختر PDF أو EPUB",
     rights1: "أقرّ أنني أملك حق استخدام هذا الملف أو لدي تصريح بمعالجته للاستخدام الشخصي.",
     rights2: "أفهم أن المنصة لا تسمح بنشر الكتاب أو إنشاء قراءة حرفية كاملة لعمل محمي.",
-    start: "ابدأ التحليل التجريبي", cancel: "إلغاء", journal: "سجل التجربة",
+    start: "احفظ الكتاب وابدأ التحليل", cancel: "إلغاء", journal: "سجل التجربة",
     journalSub: "ملاحظاتك هنا تساعدنا في تطوير المنتج وصياغة الدراسة العلمية لاحقًا.",
   },
   en: {
-    name: "Smart Personal Library", version: "GitHub prototype — V0.4",
+    name: "Smart Personal Library", version: "Functional pilot — V0.5",
     search: "Search your books and ideas…", hello: "Good morning, Abdel Rahman",
     intro: "Your library does not replace the book. It maps it, then leads you back to the passages worth reading.",
     add: "Add a book", continue: "Continue reading", books: "Books", ready: "Ready to explore",
@@ -30,7 +32,7 @@ const text = {
     uploadSub: "Your file stays private and is never published or shared with another user.", choose: "Choose PDF or EPUB",
     rights1: "I confirm that I own this file or have permission to process it for personal use.",
     rights2: "I understand that the platform does not allow publishing the book or generating a full verbatim narration of a protected work.",
-    start: "Start demo analysis", cancel: "Cancel", journal: "Experience journal",
+    start: "Save book and start analysis", cancel: "Cancel", journal: "Experience journal",
     journalSub: "Your notes will guide product improvements and the future academic study.",
   },
 };
@@ -53,7 +55,10 @@ export default function Home() {
   const [upload,setUpload] = useState(false);
   const [rights1,setRights1] = useState(false);
   const [rights2,setRights2] = useState(false);
-  const [file,setFile] = useState("");
+  const [file,setFile] = useState<File|null>(null);
+  const [outputLanguage,setOutputLanguage] = useState<OutputLanguage>("ar");
+  const [pilotBooks,setPilotBooks] = useState<PilotBook[]>([]);
+  const [activePilotBook,setActivePilotBook] = useState<PilotBook|null>(null);
   const [processing,setProcessing] = useState(false);
   const [percent,setPercent] = useState(0);
   const [notice,setNotice] = useState("");
@@ -61,11 +66,22 @@ export default function Home() {
   const rtl = lang === "ar";
   useEffect(()=>{const saved=localStorage.getItem("spl-lang");if(saved==="ar"||saved==="en")setLang(saved)},[]);
   useEffect(()=>{if("serviceWorker" in navigator)navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(()=>undefined)},[]);
+  useEffect(()=>{if(supabaseConfigured)listPilotBooks().then(setPilotBooks).catch(()=>undefined)},[]);
   const switchLang=()=>{const next=lang==="ar"?"en":"ar";setLang(next);localStorage.setItem("spl-lang",next)};
   const pageTitle=useMemo(()=>navigation[lang].find(x=>x[0]===view)?.[1]||t.name,[lang,view,t.name]);
-  const startDemo=()=>{
-    if(!file||!rights1||!rights2)return; setProcessing(true); setPercent(12);
-    [32,56,79,100].forEach((p,i)=>setTimeout(()=>{setPercent(p);if(p===100){setProcessing(false);setUpload(false);setNotice(rtl?"اكتملت المحاكاة: أصبح الكتاب جاهزًا للمراجعة.":"Demo complete: your book is ready to review.");setTimeout(()=>setNotice(""),4500)}},700*(i+1)));
+  const startProcessing=async()=>{
+    if(!file||!rights1||!rights2)return;
+    if(!supabaseConfigured){setNotice(rtl?"لم تُضف إعدادات Supabase إلى بيئة النشر بعد.":"Supabase deployment settings are missing.");return;}
+    setProcessing(true);setPercent(12);
+    try{
+      setPercent(30);const book=await uploadPilotBook(file,outputLanguage);await saveLegalConsent(book.id,rights1,rights2);
+      setPercent(55);await invokeBookAI(book.id,"process");setPercent(100);
+      const all=await listPilotBooks();const refreshed=all.find(item=>item.id===book.id)??{...book,status:"ready" as const};
+      setPilotBooks(all);setActivePilotBook(refreshed);setUpload(false);setView("pilot");
+      setNotice(rtl?"حُفظ الكتاب واكتمل التحليل الحقيقي.":"The book was saved and genuinely analysed.");
+      setFile(null);setRights1(false);setRights2(false);
+    }catch(error){setNotice(`${rtl?"تعذر إكمال المعالجة":"Processing failed"}: ${error instanceof Error?error.message:"Unknown error"}`)}
+    finally{setProcessing(false);setTimeout(()=>setNotice(""),7000)}
   };
   const go=(id:string)=>id==="upload"?setUpload(true):setView(id as View);
   return <div className={dark?"app dark":"app"} dir={rtl?"rtl":"ltr"} lang={lang}>
@@ -78,15 +94,16 @@ export default function Home() {
     <main>
       <header className="topbar"><button className="mobile-brand" onClick={()=>setView("home")}>ك</button><label className="search"><span>⌕</span><input placeholder={t.search}/></label><div className="top-actions"><button onClick={switchLang} className="lang-switch">{rtl?"EN":"ع"}</button><button onClick={()=>setDark(!dark)}>{dark?"☀":"◐"}</button><button className="bell">♧<b>2</b></button></div></header>
       {view==="home"&&<Dashboard rtl={rtl} t={t} onUpload={()=>setUpload(true)} setView={setView}/>} 
-      {view==="library"&&<Library rtl={rtl} title={pageTitle} onUpload={()=>setUpload(true)} onOpen={()=>setView("book")}/>} 
+      {view==="library"&&<Library rtl={rtl} title={pageTitle} onUpload={()=>setUpload(true)} onOpen={()=>setView("book")} pilotBooks={pilotBooks} onOpenPilot={book=>{setActivePilotBook(book);setView("pilot")}}/>}
       {view==="book"&&<BookDetail rtl={rtl} onBack={()=>setView("library")}/>} 
+      {view==="pilot"&&activePilotBook&&<PilotWorkspace rtl={rtl} book={activePilotBook} onBack={()=>setView("library")}/>}
       {view==="reader"&&<Reader rtl={rtl}/>} 
       {view==="progress"&&<Progress rtl={rtl} title={pageTitle}/>} 
       {view==="librarian"&&<Librarian rtl={rtl} title={pageTitle}/>} 
       {view==="feedback"&&<Feedback rtl={rtl} t={t}/>} 
     </main>
     <nav className="mobile-nav">{navigation[lang].slice(0,5).map(([id,label,icon])=><button key={id} className={view===id?"active":""} onClick={()=>go(id)}><i>{icon}</i><span>{label}</span></button>)}</nav>
-    {upload&&<Upload rtl={rtl} t={t} file={file} setFile={setFile} rights1={rights1} rights2={rights2} setRights1={setRights1} setRights2={setRights2} processing={processing} percent={percent} close={()=>!processing&&setUpload(false)} start={startDemo}/>} 
+    {upload&&<Upload rtl={rtl} t={t} file={file} setFile={setFile} outputLanguage={outputLanguage} setOutputLanguage={setOutputLanguage} rights1={rights1} rights2={rights2} setRights1={setRights1} setRights2={setRights2} processing={processing} percent={percent} close={()=>!processing&&setUpload(false)} start={startProcessing}/>}
     {notice&&<div className="toast">✓ {notice}</div>}
   </div>;
 }
@@ -109,7 +126,16 @@ function BookCover({tone,title}:{tone:string;title:string}){return <div classNam
 function BookCard({book,rtl,onOpen}:{book:typeof books[number];rtl:boolean;onOpen?:()=>void}){return <button className="book-card" onClick={onOpen}><BookCover tone={book.tone} title={rtl?book.title.split(" ").slice(0,3).join(" "):book.en.split(" ").slice(0,3).join(" ")}/><div><span className="tag">{book.subject}</span><h4>{rtl?book.title:book.en}</h4><p>{book.author}</p><Bar value={book.progress}/><small>{book.progress?`${book.progress}% — ${book.status}`:(rtl?"جاهز للبدء":"Ready to start")}</small></div></button>}
 function PageTitle({title,description,action,onAction}:{title:string;description:string;action?:string;onAction?:()=>void}){return <header className="page-title"><div><span>المكتبة الشخصية الذكية</span><h2>{title}</h2><p>{description}</p></div>{action&&<button className="primary" onClick={onAction}>＋ {action}</button>}</header>}
 
-function Library({rtl,title,onUpload,onOpen}:{rtl:boolean;title:string;onUpload:()=>void;onOpen:()=>void}){return <div className="page"><PageTitle title={title} description={rtl?"مجموعة شخصية تنمو وتترابط مع كل كتاب تضيفه.":"A private collection that grows and connects with every book."} action={rtl?"أضف كتابًا":"Add a book"} onAction={onUpload}/><div className="filters"><button className="active">{rtl?"الكل 3":"All 3"}</button><button>{rtl?"أقرأ الآن 1":"Reading 1"}</button><button>{rtl?"ملخص جاهز 1":"Summary ready 1"}</button><button>{rtl?"لم أبدأ 1":"Not started 1"}</button></div><div className="library-full">{books.map(b=><BookCard key={b.title} book={b} rtl={rtl} onOpen={onOpen}/>)}</div></div>}
+function Library({rtl,title,onUpload,onOpen,pilotBooks,onOpenPilot}:{rtl:boolean;title:string;onUpload:()=>void;onOpen:()=>void;pilotBooks:PilotBook[];onOpenPilot:(book:PilotBook)=>void}){return <div className="page"><PageTitle title={title} description={rtl?"مجموعة شخصية تنمو وتترابط مع كل كتاب تضيفه.":"A private collection that grows and connects with every book."} action={rtl?"أضف كتابًا":"Add a book"} onAction={onUpload}/>{pilotBooks.length>0&&<section className="panel live-books"><span className="eyebrow">{rtl?"كتب V0.5 المحفوظة":"Saved V0.5 books"}</span><h3>{rtl?"مكتبتك الفعلية":"Your live library"}</h3><div className="live-book-list">{pilotBooks.map(book=><button key={book.id} onClick={()=>onOpenPilot(book)}><i>▤</i><span><strong>{book.title}</strong><small>{book.source_language.toUpperCase()} · {book.status}</small></span><b>←</b></button>)}</div></section>}<div className="filters"><button className="active">{rtl?`الكل ${pilotBooks.length+3}`:`All ${pilotBooks.length+3}`}</button><button>{rtl?"نماذج العرض":"Display samples"}</button></div><div className="library-full">{books.map(b=><BookCard key={b.title} book={b} rtl={rtl} onOpen={onOpen}/>)}</div></div>}
+
+function PilotWorkspace({rtl,book,onBack}:{rtl:boolean;book:PilotBook;onBack:()=>void}){
+  const [loading,setLoading]=useState(true);const[results,setResults]=useState<Record<string,unknown>|null>(null);const[q,setQ]=useState("");const[answer,setAnswer]=useState<Record<string,unknown>|null>(null);const[audioUrls,setAudioUrls]=useState<string[]>([]);const[busy,setBusy]=useState("");const[error,setError]=useState("");
+  useEffect(()=>{getBookResults(book.id).then(data=>{const first=data.analyses[0]?.content as Record<string,unknown>|undefined;setResults(first??null)}).catch(e=>setError(e.message)).finally(()=>setLoading(false))},[book.id]);
+  const ask=async()=>{if(!q.trim())return;setBusy("ask");setError("");try{const data=await invokeBookAI(book.id,"ask",{question:q,language:rtl?"ar":"en"});setAnswer(data.answer)}catch(e){setError(e instanceof Error?e.message:"Question failed")}finally{setBusy("")}};
+  const audio=async()=>{setBusy("audio");setError("");try{const data=await invokeBookAI(book.id,"audio",{language:rtl?"ar":"en",voice:"marin"});setAudioUrls(await Promise.all(data.audio.map((item:{storage_path:string})=>getPrivateAudioUrl(item.storage_path))))}catch(e){setError(e instanceof Error?e.message:"Audio failed")}finally{setBusy("")}};
+  const audioUrl=audioUrls[0]??"";
+  return <div className="page"><button className="back" onClick={onBack}>→ {rtl?"العودة إلى مكتبتي":"Back to my library"}</button><PageTitle title={book.title} description={rtl?"كتاب محفوظ فعليًا في مساحة خاصة داخل مشروع الفلاح.":"A genuinely saved private pilot book inside the Al-Falah project."}/>{loading?<section className="panel">{rtl?"جارٍ تحميل النتائج…":"Loading results…"}</section>:<div className="pilot-grid"><article className="panel reading-surface"><span className="eyebrow">{rtl?"التحليل الحقيقي V0.5":"Live V0.5 analysis"}</span><h3>{rtl?"الخلاصة والتحليل والفصول":"Summary, analysis and chapters"}</h3><pre className="result-json">{results?JSON.stringify(results,null,2):(rtl?"لم تظهر نتائج بعد.":"No results yet.")}</pre></article><aside className="detail-aside"><section className="panel"><h3>{rtl?"اسأل الكتاب":"Ask the book"}</h3><textarea value={q} onChange={e=>setQ(e.target.value)} placeholder={rtl?"اكتب سؤالك…":"Type your question…"}/><button className="primary" disabled={busy==="ask"||!q.trim()} onClick={ask}>{busy==="ask"?"…":rtl?"إرسال السؤال":"Ask"}</button>{answer&&<pre className="answer-live">{JSON.stringify(answer,null,2)}</pre>}</section><section className="panel"><h3>{rtl?"الصوت الذكي":"AI audio"}</h3><button className="primary" disabled={busy==="audio"} onClick={audio}>{busy==="audio"?"…":rtl?"أنشئ الخلاصة الصوتية":"Generate audio summary"}</button>{audioUrl&&<><audio controls src={audioUrl}/><small>{rtl?"هذا الصوت مولد بالذكاء الاصطناعي.":"This voice is AI-generated."}</small></>}</section>{error&&<div className="reader-error inline">{error}</div>}</aside></div>}</div>;
+}
 
 function BookDetail({rtl,onBack}:{rtl:boolean;onBack:()=>void}){
   const [tab,setTab]=useState("summary");
@@ -143,4 +169,4 @@ function Librarian({rtl,title}:{rtl:boolean;title:string}){const[q,setQ]=useStat
 
 function Feedback({rtl,t}:{rtl:boolean;t:typeof text.ar}){const[saved,setSaved]=useState(false);return <div className="page"><PageTitle title={t.journal} description={t.journalSub}/><form className="feedback panel" onSubmit={e=>{e.preventDefault();setSaved(true)}}><label>{rtl?"ما الذي جربته؟":"What did you test?"}<select><option>{rtl?"رفع كتاب وتحليله":"Upload and analyse a book"}</option><option>{rtl?"الملخص العام":"Book overview"}</option><option>{rtl?"ملخصات الفصول":"Chapter summaries"}</option><option>{rtl?"الاستماع":"Audio"}</option><option>{rtl?"أمين المكتبة":"AI librarian"}</option></select></label><label>{rtl?"هل ساعدك على الفهم؟":"Did it improve understanding?"}<div className="rating">{[1,2,3,4,5].map(n=><button type="button" key={n}>{n}</button>)}</div></label><label>{rtl?"ملاحظتك بالتفصيل":"Your detailed note"}<textarea placeholder={rtl?"ما الذي نجح؟ ما الذي أربكك؟ وما الذي أعادك إلى الكتاب؟":"What worked, what confused you, and what led you back to the book?"}/></label><button className="primary" type="submit">{rtl?"حفظ الملاحظة":"Save note"}</button>{saved&&<span className="saved">✓ {rtl?"حُفظت الملاحظة في هذه الجلسة التجريبية":"Note saved for this demo session"}</span>}</form></div>}
 
-function Upload({rtl,t,file,setFile,rights1,rights2,setRights1,setRights2,processing,percent,close,start}:{rtl:boolean;t:typeof text.ar;file:string;setFile:(v:string)=>void;rights1:boolean;rights2:boolean;setRights1:(v:boolean)=>void;setRights2:(v:boolean)=>void;processing:boolean;percent:number;close:()=>void;start:()=>void}){return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&close()}><section className="modal"><button className="modal-close" onClick={close}>×</button><div className="modal-icon">⇧</div><span className="eyebrow">{rtl?"الخطوة الأولى":"First step"}</span><h2>{t.uploadTitle}</h2><p>{t.uploadSub}</p>{!processing?<><label className="dropzone"><input type="file" accept=".pdf,.epub" onChange={e=>setFile(e.target.files?.[0]?.name||"")}/><i>▤</i><strong>{file||t.choose}</strong><span>{rtl?"حتى 50 ميجابايت في النموذج":"Up to 50 MB in this prototype"}</span></label><div className="rights-box"><h3>{rtl?"بوابة الثقة والحقوق":"Trust & rights gate"}</h3><label><input type="checkbox" checked={rights1} onChange={e=>setRights1(e.target.checked)}/><span>{t.rights1}</span></label><label><input type="checkbox" checked={rights2} onChange={e=>setRights2(e.target.checked)}/><span>{t.rights2}</span></label><small>{rtl?"هذا الإقرار جزء من منظومة حماية ومراجعة أوسع، وليس حماية قانونية منفردة.":"This declaration is one part of a broader protection and review system."}</small></div><div className="modal-actions"><button className="secondary" onClick={close}>{t.cancel}</button><button className="primary" disabled={!file||!rights1||!rights2} onClick={start}>{t.start}</button></div></>:<div className="processing"><div className="processing-ring"><strong>{percent}%</strong></div><h3>{rtl?"نحاكي معالجة كتابك…":"Simulating book processing…"}</h3><p>{percent<35?(rtl?"استخراج النص والتعرف إلى البنية":"Extracting text and structure"):percent<65?(rtl?"إنشاء البطاقة والفصول":"Creating metadata and chapters"):percent<90?(rtl?"إعداد الخلاصة وبطاقة الثقة":"Preparing summary and trust card"):(rtl?"حفظ النتائج في المكتبة":"Saving results to your library")}</p><Bar value={percent}/></div>}</section></div>}
+function Upload({rtl,t,file,setFile,outputLanguage,setOutputLanguage,rights1,rights2,setRights1,setRights2,processing,percent,close,start}:{rtl:boolean;t:typeof text.ar;file:File|null;setFile:(v:File|null)=>void;outputLanguage:OutputLanguage;setOutputLanguage:(v:OutputLanguage)=>void;rights1:boolean;rights2:boolean;setRights1:(v:boolean)=>void;setRights2:(v:boolean)=>void;processing:boolean;percent:number;close:()=>void;start:()=>void}){return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&close()}><section className="modal"><button className="modal-close" onClick={close}>×</button><div className="modal-icon">⇧</div><span className="eyebrow">{rtl?"الخطوة الأولى":"First step"}</span><h2>{t.uploadTitle}</h2><p>{t.uploadSub}</p>{!processing?<><label className="dropzone"><input type="file" accept=".pdf,.epub" onChange={e=>setFile(e.target.files?.[0]??null)}/><i>▤</i><strong>{file?.name||t.choose}</strong><span>{rtl?"حتى 50 ميجابايت في النموذج":"Up to 50 MB in this prototype"}</span></label><label className="select-label output-language">{rtl?"لغة النتائج المطلوبة":"Output language"}<select value={outputLanguage} onChange={e=>setOutputLanguage(e.target.value as OutputLanguage)}><option value="ar">العربية</option><option value="en">English</option><option value="bilingual">{rtl?"العربية والإنجليزية":"Arabic and English"}</option></select></label><div className="rights-box"><h3>{rtl?"بوابة الثقة والحقوق":"Trust & rights gate"}</h3><label><input type="checkbox" checked={rights1} onChange={e=>setRights1(e.target.checked)}/><span>{t.rights1}</span></label><label><input type="checkbox" checked={rights2} onChange={e=>setRights2(e.target.checked)}/><span>{t.rights2}</span></label><small>{rtl?"لن يبدأ الرفع قبل التأشير على الإقرارين.":"Upload cannot start until both declarations are accepted."}</small></div><div className="modal-actions"><button className="secondary" onClick={close}>{t.cancel}</button><button className="primary" disabled={!file||!rights1||!rights2} onClick={start}>{t.start}</button></div></>:<div className="processing"><div className="processing-ring"><strong>{percent}%</strong></div><h3>{rtl?"نعالج كتابك فعليًا…":"Processing your book…"}</h3><p>{percent<35?(rtl?"رفع آمن وحفظ الكتاب":"Secure upload and storage"):percent<65?(rtl?"تحليل اللغة والبنية":"Detecting language and structure"):percent<90?(rtl?"إعداد الخلاصة والفصول":"Preparing summary and chapters"):(rtl?"حفظ النتائج في المكتبة":"Saving results to your library")}</p><Bar value={percent}/></div>}</section></div>}
