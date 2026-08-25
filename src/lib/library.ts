@@ -6,6 +6,7 @@ export type PilotBook = {
   id: string;
   title: string;
   file_name: string;
+  file_size: number;
   source_language: "ar" | "en" | "mixed" | "unknown";
   output_language: OutputLanguage;
   status: "uploaded" | "processing" | "ready" | "failed";
@@ -20,7 +21,7 @@ export async function listPilotBooks(): Promise<PilotBook[]> {
   await ensurePilotSession();
   const { data, error } = await supabase!
     .from("spl_books")
-    .select("id,title,file_name,source_language,output_language,status,created_at")
+    .select("id,title,file_name,file_size,source_language,output_language,status,created_at")
     .order("created_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as PilotBook[];
