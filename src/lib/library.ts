@@ -14,7 +14,8 @@ export type PilotBook = {
 };
 
 function safeName(name: string) {
-  return name.normalize("NFKC").replace(/[^\p{L}\p{N}._-]+/gu, "-").slice(-120);
+  const extension = name.match(/\.([a-z0-9]{1,8})$/i)?.[1]?.toLowerCase() || "pdf";
+  return `book.${extension}`;
 }
 
 export async function listPilotBooks(): Promise<PilotBook[]> {

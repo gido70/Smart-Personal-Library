@@ -79,7 +79,7 @@ export default function Home() {
       setPilotBooks(all);setActivePilotBook(refreshed);setUpload(false);setView("pilot");
       setNotice(rtl?"حُفظ الكتاب فقط. لم يُرسل إلى OpenAI ولم يُخصم من رصيدك.":"Book saved only. Nothing was sent to OpenAI and no API credit was used.");
       setFile(null);setRights1(false);setRights2(false);
-    }catch(error){setNotice(`${rtl?"تعذر إكمال المعالجة":"Processing failed"}: ${error instanceof Error?error.message:"Unknown error"}`)}
+    }catch(error){setNotice(`${rtl?"تعذر حفظ الكتاب":"Could not save the book"}: ${error instanceof Error?error.message:"Unknown error"}`)}
     finally{setProcessing(false);setTimeout(()=>setNotice(""),7000)}
   };
   const go=(id:string)=>id==="upload"?setUpload(true):setView(id as View);
