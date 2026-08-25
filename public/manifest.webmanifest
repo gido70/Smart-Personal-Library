@@ -1,0 +1,15 @@
+{
+  "name": "المكتبة الشخصية الذكية",
+  "short_name": "مكتبتي الذكية",
+  "description": "قارئ ومكتبة شخصية ذكية تعيد القارئ إلى الكتاب.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f8f5ed",
+  "theme_color": "#123f33",
+  "lang": "ar",
+  "dir": "rtl",
+  "icons": [
+    { "src": "./favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

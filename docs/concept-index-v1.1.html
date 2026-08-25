@@ -1,0 +1,1004 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="المرجع التأسيسي الشامل لفكرة المكتبة الشخصية الذكية">
+<title>المكتبة الشخصية الذكية — فهرس الفكرة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  /* Fonts */
+  --font-title: 'Amiri', serif;
+  --font-body: 'Noto Naskh Arabic', serif;
+  --font-code: 'IBM Plex Mono', monospace;
+  --font-en: 'Plus Jakarta Sans', sans-serif;
+
+  /* Illuminated Royal Scholar Palette (Light & Radiant) */
+  --bg-page: #f9f7f2;
+  --bg-gradient: radial-gradient(circle at 12% 8%, rgba(207, 163, 43, 0.12), transparent 32%),
+                 radial-gradient(circle at 88% 85%, rgba(18, 37, 63, 0.06), transparent 35%),
+                 #f9f7f2;
+  
+  --card-bg: #ffffff;
+  --card-subtle: #fcfaf5;
+  --card-hover: #ffffff;
+  
+  --gold: #b3841d;
+  --gold-light: #d6a738;
+  --gold-glow: rgba(179, 132, 29, 0.18);
+  --gold-bg: rgba(179, 132, 29, 0.08);
+
+  --navy: #0f2744;
+  --navy-light: #1b3d68;
+  --navy-subtle: #edf3fa;
+  
+  --ink: #162433;
+  --ink-soft: #32465c;
+  --muted: #6f859c;
+  
+  --line: rgba(179, 132, 29, 0.28);
+  --line-soft: #e8e2d4;
+  
+  --green: #1f7a4d;
+  --green-bg: #eaf6ef;
+  --red: #b83324;
+  --red-bg: #fdf0ee;
+  
+  --shadow: 0 10px 30px rgba(15, 39, 68, 0.06);
+  --shadow-lg: 0 20px 50px rgba(15, 39, 68, 0.12);
+  --radius: 16px;
+  --radius-sm: 10px;
+}
+
+body.dark {
+  --bg-page: #091322;
+  --bg-gradient: radial-gradient(circle at 10% 10%, rgba(207, 163, 43, 0.1), transparent 35%),
+                 radial-gradient(circle at 90% 90%, rgba(52, 152, 219, 0.08), transparent 35%),
+                 #091322;
+  
+  --card-bg: #12253f;
+  --card-subtle: #193254;
+  --card-hover: #162d4c;
+  
+  --gold: #cfa32b;
+  --gold-light: #fada75;
+  --gold-glow: rgba(207, 163, 43, 0.28);
+  --gold-bg: rgba(207, 163, 43, 0.14);
+
+  --navy: #e2eeff;
+  --navy-light: #ffffff;
+  --navy-subtle: #1a3557;
+  
+  --ink: #f4ecda;
+  --ink-soft: #d3dfed;
+  --muted: #a1b5cc;
+  
+  --line: rgba(207, 163, 43, 0.32);
+  --line-soft: rgba(207, 163, 43, 0.15);
+  
+  --green: #2ecc71;
+  --green-bg: rgba(46, 204, 113, 0.15);
+  --red: #e74c3c;
+  --red-bg: rgba(231, 76, 60, 0.15);
+  
+  --shadow: 0 20px 50px rgba(0,0,0,0.5);
+  --shadow-lg: 0 24px 60px rgba(0,0,0,0.7);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 85px; }
+
+body {
+  margin: 0;
+  background: var(--bg-gradient);
+  background-attachment: fixed;
+  color: var(--ink);
+  font-family: var(--font-body);
+  line-height: 1.85;
+  font-size: 16px;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+html[lang="en"] body,
+html[lang="en"] button,
+html[lang="en"] input {
+  font-family: var(--font-en);
+}
+html[lang="en"] h1,
+html[lang="en"] h2,
+html[lang="en"] h3,
+html[lang="en"] .brand-mark,
+html[lang="en"] .eyebrow {
+  font-family: var(--font-en);
+}
+
+h1, h2, h3 {
+  font-family: var(--font-title);
+  color: var(--gold);
+  font-weight: 700;
+  margin: 0;
+}
+body.dark h1, body.dark h2, body.dark h3 {
+  color: var(--gold-light);
+}
+
+a {
+  color: var(--navy-light);
+  text-decoration: none;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+body.dark a {
+  color: #72b6f3;
+}
+a:hover {
+  color: var(--gold);
+  text-decoration: underline;
+}
+
+button, input {
+  font-family: inherit;
+}
+
+/* Layout Shell */
+.shell {
+  display: grid;
+  grid-template-columns: 310px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+/* Sidebar Styling (Matching Catalog Aesthetic) */
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: 26px 18px 30px;
+  border-left: 2px solid var(--line);
+  background: color-mix(in srgb, var(--card-bg) 92%, transparent);
+  backdrop-filter: blur(18px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--gold) transparent;
+  display: flex;
+  flex-direction: column;
+}
+html[dir="ltr"] .sidebar {
+  border-left: 0;
+  border-right: 2px solid var(--line);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid var(--line);
+}
+.brand-mark {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--gold), #7c5d14);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  font-family: var(--font-title);
+  font-weight: 700;
+  box-shadow: 0 0 25px var(--gold-glow);
+  flex-shrink: 0;
+}
+.brand h2 {
+  font-size: 19px;
+  line-height: 1.35;
+  margin: 0 0 2px;
+}
+.brand small {
+  color: var(--muted);
+  font-size: 12.5px;
+  display: block;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 20px 0;
+  flex: 1;
+}
+.nav a {
+  color: var(--ink-soft);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+.nav a:hover {
+  background: var(--gold-bg);
+  color: var(--gold);
+  border-color: var(--line);
+  transform: translateX(-4px);
+  text-decoration: none;
+}
+html[dir="ltr"] .nav a:hover {
+  transform: translateX(4px);
+}
+
+.side-note {
+  font-size: 12.5px;
+  color: var(--muted);
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card-subtle);
+  line-height: 1.6;
+}
+
+/* Main Area */
+main {
+  min-width: 0;
+  padding: 26px clamp(18px, 4vw, 54px) 80px;
+}
+
+/* Floating Toolbar */
+.toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  position: sticky;
+  top: 14px;
+  z-index: 40;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  background: color-mix(in srgb, var(--card-bg) 94%, transparent);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow);
+  max-width: 1160px;
+  margin: 0 auto 24px;
+}
+.toolbar:focus-within {
+  border-color: var(--gold);
+  box-shadow: 0 0 15px var(--gold-glow);
+}
+
+.search {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  outline: none;
+  padding: 7px 12px;
+  min-width: 110px;
+  font-size: 14.5px;
+}
+.search::placeholder {
+  color: var(--muted);
+}
+
+.tool {
+  border: 1px solid var(--line);
+  background: var(--card-subtle);
+  color: var(--ink);
+  padding: 7px 14px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+.tool:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: var(--gold-bg);
+}
+
+/* Hero Section (Illuminated & Royal) */
+.hero {
+  max-width: 1160px;
+  margin: 0 auto 24px;
+  padding: clamp(30px, 5vw, 54px);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: linear-gradient(135deg, rgba(207, 163, 43, 0.15) 0%, rgba(18, 37, 63, 0.08) 50%, rgba(207, 163, 43, 0.05) 100%), var(--card-bg);
+  border: 2px solid var(--line);
+  box-shadow: var(--shadow);
+  position: relative;
+  overflow: hidden;
+}
+body.dark .hero {
+  background: linear-gradient(180deg, rgba(18, 37, 63, 0.95), rgba(11, 24, 41, 0.95));
+  color: var(--ink);
+}
+
+.hero::after {
+  content: "";
+  position: absolute;
+  width: 420px;
+  height: 420px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  left: -120px;
+  top: -200px;
+  box-shadow: 0 0 0 35px var(--gold-glow);
+  pointer-events: none;
+}
+
+.eyebrow {
+  display: inline-block;
+  font-family: var(--font-title);
+  border: 1px solid var(--line);
+  background: var(--gold-bg);
+  color: var(--gold);
+  border-radius: 30px;
+  padding: 6px 18px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  margin-bottom: 12px;
+}
+body.dark .eyebrow {
+  color: var(--gold-light);
+}
+
+.hero h1 {
+  font-size: clamp(28px, 4.5vw, 44px);
+  line-height: 1.3;
+  margin: 6px 0 12px;
+}
+.hero p {
+  font-size: clamp(16px, 2vw, 18.5px);
+  line-height: 1.8;
+  color: var(--ink-soft);
+  max-width: 900px;
+  margin: 0;
+}
+
+.hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+}
+.hero-tags span {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: var(--card-subtle);
+  color: var(--ink);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+}
+
+/* Stats Section */
+.stats {
+  max-width: 1160px;
+  margin: 0 auto 24px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+.stat {
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 20px 18px;
+  text-align: center;
+  transition: transform 0.2s, border-color 0.2s;
+}
+.stat:hover {
+  transform: translateY(-3px);
+  border-color: var(--gold);
+}
+.stat strong {
+  display: block;
+  font-size: 32px;
+  font-family: var(--font-title);
+  color: var(--gold);
+  line-height: 1.1;
+  margin-bottom: 4px;
+}
+body.dark .stat strong {
+  color: var(--gold-light);
+}
+.stat span {
+  font-size: 13.5px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* Section Cards & Details */
+.section {
+  max-width: 1160px;
+  margin: 0 auto 18px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  transition: all 0.2s;
+}
+.section[hidden] {
+  display: none;
+}
+.section:hover {
+  border-color: var(--gold);
+}
+
+.section > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 20px 24px;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  background: var(--card-bg);
+  transition: background 0.2s;
+}
+.section > summary::-webkit-details-marker {
+  display: none;
+}
+.section[open] > summary {
+  background: var(--card-subtle);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.num {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 12px;
+  background: var(--gold-bg);
+  color: var(--gold);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 18px;
+}
+body.dark .num {
+  color: var(--gold-light);
+}
+
+.section-title {
+  flex: 1;
+}
+.section-title h2 {
+  font-size: 1.45rem;
+  line-height: 1.3;
+  margin: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.section-title p {
+  font-size: 13.5px;
+  color: var(--muted);
+  margin: 2px 0 0;
+}
+
+.chev {
+  font-size: 20px;
+  color: var(--gold);
+  transition: transform 0.25s ease;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  background: var(--card-bg);
+}
+.section[open] .chev {
+  transform: rotate(180deg);
+  background: var(--gold-bg);
+}
+
+/* Content Styling */
+.content {
+  padding: 22px 26px 30px;
+}
+.content h3 {
+  font-size: 1.25rem;
+  margin: 24px 0 10px;
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 6px;
+}
+.content h4 {
+  font-family: var(--font-title);
+  font-size: 1.15rem;
+  color: var(--navy-light);
+  margin: 14px 0 6px;
+}
+body.dark .content h4 {
+  color: var(--gold-light);
+}
+.content p {
+  margin: 8px 0;
+  color: var(--ink-soft);
+}
+
+.lead {
+  font-size: 17.5px;
+  line-height: 1.85;
+}
+
+.quote {
+  margin: 18px 0;
+  padding: 16px 20px;
+  border-right: 4px solid var(--gold);
+  background: var(--gold-bg);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: var(--ink);
+}
+html[dir="ltr"] .quote {
+  border-right: 0;
+  border-left: 4px solid var(--gold);
+}
+
+.callout {
+  padding: 16px 20px;
+  border-radius: var(--radius-sm);
+  background: var(--navy-subtle);
+  border: 1px solid var(--line);
+  margin: 16px 0;
+}
+.risk {
+  background: var(--red-bg);
+  border-color: rgba(231, 76, 60, 0.4);
+  color: var(--red);
+}
+body.dark .risk {
+  color: #fcdbd7;
+}
+
+.cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.grid.three {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.mini {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card-subtle);
+  transition: transform 0.2s, border-color 0.2s;
+}
+.mini:hover {
+  transform: translateY(-2px);
+  border-color: var(--gold);
+}
+.mini h4 {
+  margin: 0 0 6px;
+}
+
+ul, ol {
+  padding-right: 22px;
+  margin: 10px 0;
+}
+html[dir="ltr"] ul, html[dir="ltr"] ol {
+  padding-right: 0;
+  padding-left: 22px;
+}
+li {
+  margin: 5px 0;
+  color: var(--ink-soft);
+}
+
+.checks {
+  list-style: none;
+  padding: 0;
+}
+.checks li {
+  position: relative;
+  padding-right: 28px;
+  margin: 7px 0;
+}
+html[dir="ltr"] .checks li {
+  padding-right: 0;
+  padding-left: 28px;
+}
+.checks li:before {
+  content: "✓";
+  position: absolute;
+  right: 0;
+  color: var(--green);
+  font-weight: bold;
+  font-size: 16px;
+}
+html[dir="ltr"] .checks li:before {
+  right: auto;
+  left: 0;
+}
+
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 18px 0;
+  font-size: 14.5px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+th, td {
+  padding: 12px 15px;
+  border: 1px solid var(--line);
+  vertical-align: top;
+  text-align: right;
+}
+html[dir="ltr"] th, html[dir="ltr"] td {
+  text-align: left;
+}
+th {
+  background: var(--gold-bg);
+  color: var(--gold);
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+body.dark th {
+  color: var(--gold-light);
+}
+td {
+  color: var(--ink-soft);
+}
+
+/* Flow & Badges */
+.flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+}
+.flow span {
+  padding: 8px 15px;
+  border: 1px solid var(--line);
+  background: var(--card-subtle);
+  border-radius: 12px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.flow b {
+  color: var(--gold);
+  font-size: 17px;
+}
+
+.badge {
+  display: inline-block;
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--gold-bg);
+  color: var(--gold);
+  border: 1px solid var(--line);
+  margin: 2px;
+}
+body.dark .badge {
+  color: var(--gold-light);
+}
+
+.decision {
+  border-right: 4px solid var(--green);
+}
+html[dir="ltr"] .decision {
+  border-right: 0;
+  border-left: 4px solid var(--green);
+}
+.openq {
+  border-right: 4px solid var(--gold);
+}
+html[dir="ltr"] .openq {
+  border-right: 0;
+  border-left: 4px solid var(--gold);
+}
+
+/* External Link Buttons */
+.source-list a, .content a {
+  background: var(--card-subtle);
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  font-size: 13.5px;
+  margin: 2px;
+}
+.source-list a:hover, .content a:hover {
+  background: var(--gold-bg);
+  border-color: var(--gold);
+  text-decoration: none;
+}
+.source-list a::after, .content a[target="_blank"]::after {
+  content: " ↗";
+  font-size: 11px;
+  font-family: var(--font-code);
+}
+
+.footer {
+  max-width: 1160px;
+  margin: 35px auto 0;
+  padding: 25px 20px;
+  border-top: 2px solid var(--line);
+  color: var(--muted);
+  font-size: 13.5px;
+  text-align: center;
+  line-height: 1.8;
+}
+
+.no-results {
+  display: none;
+  max-width: 1160px;
+  margin: 20px auto;
+  padding: 30px;
+  text-align: center;
+  background: var(--gold-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--gold);
+}
+.no-results.show {
+  display: block;
+}
+
+/* Responsive */
+@media(max-width: 960px) {
+  .shell { display: block; }
+  .sidebar { display: none; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  main { padding: 18px 14px 60px; }
+  .toolbar { top: 8px; }
+  .cols, .grid.three { grid-template-columns: 1fr; }
+}
+@media(max-width: 560px) {
+  .stats { grid-template-columns: 1fr 1fr; }
+  .stat { padding: 14px; }
+  .stat strong { font-size: 24px; }
+  .tool span { display: none; }
+  .section > summary { padding: 16px 14px; }
+  .content { padding: 0 15px 22px; }
+  .num { width: 36px; height: 36px; flex-basis: 36px; font-size: 15px; }
+  .hero { padding: 24px 18px; border-radius: 12px; }
+  .toolbar { flex-wrap: wrap; }
+  .search { width: 100%; order: 2; flex-basis: 100%; }
+  table { display: block; overflow-x: auto; }
+}
+
+@media print {
+  .sidebar, .toolbar { display: none !important; }
+  .shell { display: block !important; }
+  main { padding: 0 !important; }
+  .hero { box-shadow: none !important; border: 1px solid #ccc !important; }
+  .section { break-inside: avoid; box-shadow: none !important; border: 1px solid #ccc !important; }
+  .section:not([open]) .content { display: block !important; }
+  .chev { display: none !important; }
+  body { background: #fff !important; color: #000 !important; }
+  .stats { grid-template-columns: repeat(4, 1fr) !important; }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+<aside class="sidebar">
+  <div class="brand">
+    <div class="brand-mark">ك</div>
+    <div>
+      <h2>المكتبة الشخصية الذكية</h2>
+      <small>فهرس الفكرة — النسخة التأسيسية 1.1</small>
+    </div>
+  </div>
+  <nav class="nav">
+    <a href="#vision">01 الرؤية والرسالة</a>
+    <a href="#boundaries">02 ما هي وما ليست</a>
+    <a href="#journey">03 رحلة المستخدم</a>
+    <a href="#outputs">04 مخرجات الكتاب</a>
+    <a href="#languages">04+ اللغات والتحليل العابر</a>
+    <a href="#library">05 المكتبة الشخصية</a>
+    <a href="#librarian">06 أمين المكتبة الذكي</a>
+    <a href="#return">07 العودة إلى الكتاب</a>
+    <a href="#reader">07+ قارئ الأصل الذكي</a>
+    <a href="#reminders">08 المتابعة والتنبيهات</a>
+    <a href="#market">09 النماذج المشابهة</a>
+    <a href="#edge">10 التميز المقترح</a>
+    <a href="#accounts">11 الحسابات والتخزين</a>
+    <a href="#subscription">12 الاشتراك</a>
+    <a href="#rights">13 الحقوق والخصوصية</a>
+    <a href="#trust-gate">13+ بوابة الثقة والحقوق</a>
+    <a href="#engine">14 محرك التحليل</a>
+    <a href="#duplicates">15 تكرار الكتب</a>
+    <a href="#cost">16 التكلفة والتوسع</a>
+    <a href="#proscons">17 الإيجابيات والتحديات</a>
+    <a href="#roadmap">18 مراحل التطوير</a>
+    <a href="#decisions">19 القرارات المعتمدة</a>
+    <a href="#questions">20 الأسئلة المفتوحة</a>
+    <a href="#sources">21 المصادر</a>
+  </nav>
+  <div class="side-note">وثيقة تأسيسية حية تجمع الفكرة والقرارات والأسئلة، وليست منصة منفذة بعد.</div>
+</aside>
+
+<main>
+  <div class="toolbar">
+    <input id="search" class="search" type="search" placeholder="ابحث: الاشتراك، التلخيص، الحقوق، التنبيهات…" aria-label="البحث">
+    <button class="tool" id="language" type="button" aria-label="تغيير لغة الواجهة">🌐 <span>English</span></button>
+    <button class="tool" id="expand">＋ <span>فتح الكل</span></button>
+    <button class="tool" id="collapse">− <span>إغلاق الكل</span></button>
+    <button class="tool" id="theme">◐ <span>المظهر</span></button>
+    <button class="tool" onclick="window.print()">⌁ <span>طباعة</span></button>
+  </div>
+
+  <header class="hero">
+    <div class="eyebrow">المرجع التأسيسي الشامل</div>
+    <h1>مكتبة تعيد الإنسان إلى الكتاب بطريقة حديثة</h1>
+    <p>منصة تمنح كل مستخدم مكتبة ذكية فارغة يملؤها بكتبه بنفسه؛ فتفهمها وتفهرسها وتلخصها وتحوّل خلاصاتها إلى صوت، ثم تتابع قراءته وتربط المعرفة بين كتبه دون أن تستبدل الكتاب أو تنشره.</p>
+    <div class="hero-tags">
+      <span>خلاصة 15–20 دقيقة</span>
+      <span>ملخص الفصول</span>
+      <span>العربية ↔ English</span>
+      <span>صوت بلغتين</span>
+      <span>أمين مكتبة شخصي</span>
+      <span>توثيق بالصفحات</span>
+      <span>متابعة وتذكير</span>
+      <span>قارئ أصل محلي</span>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="stat"><strong>20</strong><span>دقيقة للخلاصة الأساسية</span></div>
+    <div class="stat"><strong>4</strong><span>طبقات لفهم كل كتاب</span></div>
+    <div class="stat"><strong>1</strong><span>مكتبة خاصة لكل مستخدم</span></div>
+    <div class="stat"><strong>0</strong><span>كتب محمية مثبتة مسبقًا</span></div>
+  </section>
+
+  <div id="noResults" class="no-results">لم يظهر محور مطابق. جرّب كلمة مختلفة.</div>
+
+  <details class="section" id="vision" open data-keywords="الرؤية الرسالة الهدف القراءة المعرفة الوقت"><summary><span class="num">01</span><span class="section-title"><h2>الرؤية والرسالة</h2><p>لماذا يوجد هذا المشروع؟</p></span><span class="chev">⌄</span></summary><div class="content"><p class="lead"><strong>الرؤية:</strong> إعادة الناس إلى الكتب والمعلومات الأصيلة بطريقة تناسب سرعة العصر، وتساعدهم على الفهم الصحيح دون أن تجعل الذكاء الاصطناعي بديلًا عن المصدر.</p><div class="quote">افهم خريطة الكتاب بسرعة، ثم ارجع بوعي إلى المواضع التي تستحق القراءة.</div><h3>المشكلة</h3><div class="cols"><div class="mini"><h4>ضيق الوقت</h4><p>كتب وقوائم قراءة تتراكم بلا بداية أو إكمال.</p></div><div class="mini"><h4>تشتت المعرفة</h4><p>ملفات وكتب وملاحظات منفصلة يصعب استرجاعها.</p></div><div class="mini"><h4>الاختصار المخل</h4><p>ملخصات عامة قد تبتعد عن الكتاب ولا توثق أفكارها.</p></div><div class="mini"><h4>نسيان القراءة</h4><p>يبدأ القارئ ثم ينسى موضعه وما تعلمه.</p></div></div><h3>الجمهور الأولي</h3><p>القارئ العربي، الطالب، الباحث والمهني الذي يملك كتبًا رقمية مشروعة ويريد فهمها وتنظيمها ومتابعتها. تبدأ التجربة شخصية ثم تُفتح للآخرين بعد إثبات الجودة والتكلفة.</p></div></details>
+
+  <details class="section" id="boundaries" open data-keywords="تعريف ناشر مكتبة pdf دردشة صوت"><summary><span class="num">02</span><span class="section-title"><h2>ما هي المنصة وما ليست؟</h2><p>حدود الهوية</p></span><span class="chev">⌄</span></summary><div class="content"><table><thead><tr><th>هي</th><th>ليست</th></tr></thead><tbody><tr><td>مكتبة شخصية تبدأ فارغة</td><td>مكتبة عامة بكتب جاهزة</td></tr><tr><td>أداة للفهم والتنظيم والعودة إلى الأصل</td><td>بديلًا يلغي قراءة الكتاب</td></tr><tr><td>تلخيص وتحليل موثق</td><td>مجرد روبوت يسأل PDF</td></tr><tr><td>متابعة طويلة المدى لمجموعة القارئ</td><td>ملخصًا مؤقتًا لملف واحد</td></tr><tr><td>صوت للخلاصة وملخصات الفصول</td><td>كتابًا صوتيًا حرفيًا لكتاب محمي</td></tr></tbody></table><div class="callout"><strong>الوعد:</strong> كل شخص يأتي بكتابه، والمنصة تمنحه طريقة أسرع وأوثق لفهمه، ثم تحفظ الكتاب ومخرجاته داخل مكتبته الخاصة.</div></div></details>
+
+  <details class="section" id="journey" open data-keywords="رحلة موافقة حساب رفع pdf epub صور ocr حذف حفظ حقوق"><summary><span class="num">03</span><span class="section-title"><h2>رحلة المستخدم من الحساب إلى المعرفة</h2><p>المسار الكامل مع بوابة الحقوق</p></span><span class="chev">⌄</span></summary><div class="content"><div class="flow"><span>موافقة الحساب</span><b>←</b><span>حساب خاص</span><b>←</b><span>إقرار حق الكتاب</span><b>←</b><span>رفع PDF / EPUB / صور</span><b>←</b><span>استخراج وفهرسة</span><b>←</b><span>تحليل</span><b>←</b><span>خلاصة وصوت</span><b>←</b><span>حفظ ومتابعة</span></div><ol><li>يقرأ المستخدم ملخص الشروط وسياسة الخصوصية وحقوق الكتب، ثم يوافق صراحة قبل تفعيل الحساب.</li><li>يدخل إلى مكتبة فارغة ويرى شرحًا ونموذجًا آمنًا.</li><li>قبل كل رفع يحدد مصدر حقه في الكتاب ويؤكد أن الاستخدام شخصي ومشروع.</li><li>يرفع الكتاب وتظهر حالة المعالجة ودرجة المراجعة عند الحاجة.</li><li>تتعرف المنصة إلى البيانات والبنية والفصول وتنتج المخرجات المسموح بها.</li><li>يوضع الكتاب في تصنيف موضوعي قابل للتعديل.</li><li>تُحفظ نقطة القراءة والملاحظات والتذكيرات.</li><li>يختار الاحتفاظ بالأصل أو حذفه مع إبقاء المخرجات المسموح بها.</li></ol><p><span class="badge">موافقة مطلوبة</span><span class="badge">جديد</span><span class="badge">قيد المعالجة</span><span class="badge">جاهز</span><span class="badge">تعذر الاستخراج</span><span class="badge">يحتاج مراجعة حقوق</span></p></div></details>
+
+  <details class="section" id="outputs" open data-keywords="خلاصة 15 20 25 دقيقة فصول تحليل سؤال صوت"><summary><span class="num">04</span><span class="section-title"><h2>مخرجات كل كتاب</h2><p>أربع طبقات بدل ملخص واحد</p></span><span class="chev">⌄</span></summary><div class="content"><table><thead><tr><th>الطبقة</th><th>الغرض</th><th>المحتوى</th></tr></thead><tbody><tr><td><strong>خلاصة الكتاب</strong></td><td>الفهم السريع</td><td>15–20 دقيقة؛ وقد تصل نادرًا إلى 25.</td></tr><tr><td><strong>ملخص الفصول</strong></td><td>الدراسة المتعمقة</td><td>الفكرة والحجج والأمثلة والمصطلحات لكل فصل.</td></tr><tr><td><strong>التحليل المعرفي</strong></td><td>التقييم والتطبيق</td><td>القوة والضعف والتطبيقات والحقائق والآراء.</td></tr><tr><td><strong>اسأل الكتاب</strong></td><td>الاسترجاع الدقيق</td><td>إجابات بإحالات إلى الصفحات أو المواضع.</td></tr></tbody></table><h3>إذا لم توجد فصول</h3><p>تنشئ المنصة <strong>وحدات موضوعية ذكية</strong> وتصرح بأنها تقسيم تحليلي وليست فصولًا أصلية.</p><h3>الصوت</h3><p>تتحول الخلاصة وملخصات الفصول إلى صوت عربي واضح، دون قراءة حرفية كاملة للكتب المحمية.</p></div></details>
+
+  <details class="section" id="languages" open data-keywords="لغة لغتين عربي إنجليزي English ترجمة واجهة تحليل صوت ثنائي"><summary><span class="num">04+</span><span class="section-title"><h2>دعم العربية والإنجليزية والتحليل العابر للغة</h2><p>لغة الكتاب لا تفرض لغة الفهم</p></span><span class="chev">⌄</span></summary><div class="content"><p class="lead"><strong>إضافة معتمدة وممكنة تقنيًا:</strong> تكون المنصة ثنائية الواجهة، ويختار المستخدم لغة المخرجات بصورة مستقلة عن لغة الكتاب.</p><div class="quote">كتاب إنجليزي يمكن فهمه وتحليله وسماعه بالعربية، وكتاب عربي يمكن تقديمه وتحليله بالإنجليزية، مع بقاء الإحالات مرتبطة بالنص الأصلي.</div><h3>أربعة إعدادات مستقلة</h3><table><thead><tr><th>الإعداد</th><th>وظيفته</th></tr></thead><tbody><tr><td><strong>لغة الواجهة</strong></td><td>العربية RTL أو English LTR، ويمكن تغييرها في أي وقت.</td></tr><tr><td><strong>لغة الكتاب</strong></td><td>تكتشف تلقائيًا، مع إمكانية تصحيحها يدويًا.</td></tr><tr><td><strong>لغة التحليل</strong></td><td>نفس لغة الكتاب، العربية، الإنجليزية، أو عرض ثنائي مختصر.</td></tr><tr><td><strong>لغة الصوت</strong></td><td>تتبع لغة المخرجات التي اختارها المستخدم، لا لغة الملف بالضرورة.</td></tr></tbody></table><h3>السيناريوهات الأساسية</h3><div class="grid three"><div class="mini"><h4>عربي ← عربي</h4><p>كتاب عربي وتحليل وصوت عربيان.</p></div><div class="mini"><h4>English ← English</h4><p>كتاب إنجليزي وتجربة كاملة بالإنجليزية.</p></div><div class="mini"><h4>English ← عربي</h4><p>فهم كتاب إنجليزي بالعربية مع المصطلحات الأصلية.</p></div><div class="mini"><h4>عربي ← English</h4><p>تقديم المعرفة العربية للقارئ الإنجليزي.</p></div><div class="mini"><h4>عرض ثنائي</h4><p>الفكرة بالعربية وبجوارها المصطلح أو الخلاصة الإنجليزية.</p></div><div class="mini"><h4>تغيير لاحق</h4><p>إعادة توليد لغة المخرجات دون إعادة فهم الكتاب من الصفر.</p></div></div><h3>قواعد الدقة</h3><ul class="checks"><li>يفهم المحرك الكتاب بلغته الأصلية أولًا، ثم يصوغ التحليل باللغة المطلوبة؛ لا يترجم الكتاب كاملًا.</li><li>تبقى أرقام الصفحات والإحالات مرتبطة بالنسخة الأصلية.</li><li>تظهر المصطلحات المهمة بلغتها الأصلية بين قوسين عند الحاجة.</li><li>يُفصل بين ترجمة معنى المؤلف وتحليل المنصة.</li><li>تُختبر جودة العربية والإنجليزية كل على حدة، لأن جودة اللغة لا تُفترض تلقائيًا.</li></ul><div class="callout"><strong>القيمة المميزة:</strong> هذه الوظيفة لا توسع السوق فقط؛ بل تفتح الكتب الإنجليزية للقارئ العربي، وتفتح الكتب العربية للقارئ الإنجليزي، مع الحفاظ على المصدر والتوثيق.</div></div></details>
+
+  <details class="section" id="library" open data-keywords="مكتبة رفوف تصنيف تاريخ أدب فهرسة بحث 500"><summary><span class="num">05</span><span class="section-title"><h2>المكتبة التي تكبر مع صاحبها</h2><p>القيمة تتضاعف بتراكم الكتب</p></span><span class="chev">⌄</span></summary><div class="content"><div class="cols"><div><h3>تنظيم تلقائي</h3><ul class="checks"><li>بطاقة ببليوغرافية</li><li>تصنيف موضوعي ووسوم</li><li>رفوف حسب الموضوع والمؤلف واللغة</li><li>بحث في العناوين والملخصات والنصوص</li><li>تعديل يدوي</li></ul></div><div><h3>إدارة المجموعة</h3><ul class="checks"><li>حفظ أو حذف وإعادة تحليل</li><li>تصدير الملخصات والملاحظات</li><li>معرفة الكتب غير المكتملة</li><li>إحصاءات القراءة</li></ul></div></div><h3>ذكاء المجموعة</h3><p>تقارن المنصة الكتب في الموضوع الواحد، وتوضح الاتفاق والاختلاف والتكرار والفجوات، وتقترح ترتيب القراءة من داخل مكتبة المستخدم.</p></div></details>
+
+  <details class="section" id="librarian" open data-keywords="أمين مكتبة ذكي شخصي اهتمامات توصية"><summary><span class="num">06</span><span class="section-title"><h2>أمين المكتبة الذكي</h2><p>الشخصية التي تمنح المشروع هويته</p></span><span class="chev">⌄</span></summary><div class="content"><p class="lead">مساعد مكتبي يتعلم من مجموعة صاحبه وأهدافه وسلوكه، مع بقاء المستخدم متحكمًا.</p><div class="quote">لديك ستة كتب في الموضوع نفسه؛ ابدأ بهذا، ثم اقرأ فصلين محددين من الآخر لأنهما يضيفان جديدًا.</div><h3>يعرف</h3><p>الاهتمامات، الكتب، التقدم، مستوى العمق، الوقت، الأسئلة والملاحظات.</p><h3>يفعل</h3><p>يرتب الأولويات، يقترح الكتاب التالي، يكشف التكرار، يبني مسارًا وينبه إلى فصل مهم.</p></div></details>
+
+  <details class="section" id="return" open data-keywords="عودة الكتاب الأصل الصفحة خطة"><summary><span class="num">07</span><span class="section-title"><h2>جسر العودة إلى الكتاب</h2><p>حتى لا يقتل الملخص القراءة</p></span><span class="chev">⌄</span></summary><div class="content"><ul class="checks"><li>خمسة مواضع لا ينبغي الاكتفاء بتلخيصها.</li><li>الفصول أو الصفحات التي تحمل أقوى الأفكار.</li><li>زر «افتح الفكرة في موضعها الأصلي».</li><li>خطة قراءة حسب الوقت.</li><li>أسئلة تفكير بعد القراءة.</li><li>تقدير ما إذا كان هدف المستخدم يحتاج الكتاب كاملًا أو أجزاء محددة.</li></ul><div class="callout"><strong>المعيار:</strong> النجاح لا يُقاس بعدد الكتب المختصرة، بل بعدد الكتب التي فُهمت وعاد القارئ إلى أصولها.</div></div></details>
+
+  <details class="section" id="reader" open data-keywords="قارئ الأصل تقليب صفحات flipbook pdf محلي طائرة دون إنترنت خصوصية"><summary><span class="num">07+</span><span class="section-title"><h2>قارئ الأصل الذكي</h2><p>الكتاب نفسه داخل تجربة القراءة</p></span><span class="chev">⌄</span></summary><div class="content"><p class="lead">يفتح المستخدم ملف PDF الموجود على جهازه داخل قارئ رقمي أنيق، ويقرأه صفحةً صفحة دون أن يرفعه إلى خادم المنصة. هذه الوظيفة تكمل التلخيص والصوت والتحليل ولا تحوّل المنصة إلى ناشر للكتب.</p><div class="quote">اقرأ الأصل، واستمع إلى الخلاصة، وافهم الفصول، ثم عُد إلى الصفحة التي صنعت الفكرة.</div><h3>أوضاع القراءة</h3><div class="grid three"><div class="mini"><h4>تقليب واقعي</h4><p>حركة انتقال تحاكي قلب الصفحة مع صوت اختياري.</p></div><div class="mini"><h4>صفحة واحدة</h4><p>سحب أفقي مناسب للهاتف والقراءة المركزة.</p></div><div class="mini"><h4>صفحتان</h4><p>عرض متقابل للحاسوب والجهاز اللوحي.</p></div><div class="mini"><h4>تمرير متصل</h4><p>عرض رأسي مألوف للكتب والوثائق الطويلة.</p></div><div class="mini"><h4>راحة بصرية</h4><p>تكبير، ملء الشاشة، وضع ليلي وورقي.</p></div><div class="mini"><h4>استمرار القراءة</h4><p>علامة مرجعية وحفظ آخر صفحة على الجهاز.</p></div></div><h3>الفصل التقني والقانوني</h3><table><tr><th>القراءة المحلية</th><td>يفتح المتصفح الملف من جهاز المستخدم ويعرض صفحاته محليًا؛ لا يُرسل الكتاب إلى خادم المنصة.</td></tr><tr><th>العمل دون اتصال</th><td>تُحفظ واجهة القارئ للعمل دون إنترنت، ويبقى ملف الكتاب على جهاز صاحبه. أي نسخة محلية مؤقتة تكون باختيار المستخدم وقابلة للحذف.</td></tr><tr><th>التحليل السحابي</th><td>مسار منفصل يبدأ بإقرار الحقوق وسياسة الاحتفاظ؛ لا يُخلط تلقائيًا بمسار القراءة المحلية.</td></tr><tr><th>الصوت</th><td>يقتصر على خلاصات المنصة وملخصات الفصول؛ لا قراءة حرفية كاملة لكتاب محمي.</td></tr></table><div class="callout"><strong>قرار V1.1:</strong> يعتمد «قارئ الأصل الذكي» ميزة أساسية، ويبدأ اختباره بفتح PDF محليًا وتقليب صفحاته وحفظ موضع القراءة دون رفع الملف.</div></div></details>
+
+  <details class="section" id="reminders" open data-keywords="تنبيه تذكير هاتف واتساب بريد مراجعة متابعة"><summary><span class="num">08</span><span class="section-title"><h2>المتابعة والتنبيهات الذكية</h2><p>مكتبة حية لا مستودعًا صامتًا</p></span><span class="chev">⌄</span></summary><div class="content"><h3>الحالات</h3><p><span class="badge">أريد قراءته</span><span class="badge">لم أبدأ</span><span class="badge">أقرأ الآن</span><span class="badge">متوقف</span><span class="badge">أكملت الخلاصة</span><span class="badge">أكملت الكتاب</span><span class="badge">يحتاج مراجعة</span></p><div class="cols"><div class="mini"><h4>الاستمرار</h4><p>توقفت منذ خمسة أيام عند الفصل الرابع.</p></div><div class="mini"><h4>البداية</h4><p>لديك ثلاثة كتب لم تبدأها.</p></div><div class="mini"><h4>المراجعة</h4><p>حان موعد مراجعة هذه الخلاصة.</p></div><div class="mini"><h4>الإنجاز</h4><p>بقي فصلان لإكمال المسار.</p></div></div><h3>القنوات</h3><p>إشعارات الهاتف، البريد بديلًا، وواتساب لاحقًا لتكلفته وتنظيمه.</p><h3>التحكم</h3><p>أيام وساعات ومنطقة زمنية وتأجيل وإيقاف وموجز أسبوعي حتى لا تصبح التنبيهات مزعجة.</p></div></details>
+
+  <details class="section" id="market" open data-keywords="Blinkist NotebookLM ChatPDF Readwise BookFusion AskSia Shortform Speechify منافسون"><summary><span class="num">09</span><span class="section-title"><h2>النماذج المشابهة وما نأخذه منها</h2><p>نأخذ الخبرة ولا ننسخ الهوية</p></span><span class="chev">⌄</span></summary><div class="content"><table><thead><tr><th>النموذج</th><th>القوة</th><th>ما نأخذه</th><th>اختلافنا</th></tr></thead><tbody><tr><td><a href="https://www.blinkist.com/">Blinkist</a></td><td>15 دقيقة نصًا وصوتًا</td><td>وضوح الخلاصة</td><td>المستخدم يرفع كتابه</td></tr><tr><td><a href="https://notebooklm.google/">NotebookLM</a></td><td>مصادر وإحالات وصوت</td><td>الاستناد للمصدر</td><td>مكتبة دائمة مفهرسة</td></tr><tr><td><a href="https://www.chatpdf.com/">ChatPDF</a></td><td>سؤال PDF بسهولة</td><td>بساطة الحوار</td><td>الحوار جزء لا المنتج كله</td></tr><tr><td><a href="https://readwise.io/read">Readwise</a></td><td>حفظ وصوت وملاحظات</td><td>استمرارية القراءة</td><td>فهرسة وتحليل كتابي عميق</td></tr><tr><td><a href="https://www.bookfusion.com/">BookFusion</a></td><td>مكتبة وتقدم وصوت</td><td>إدارة المجموعة</td><td>الفهم قلب التجربة</td></tr><tr><td><a href="https://www.asksia.ai/summarize/book-summarizer">AskSia</a></td><td>فصول موثقة بالصفحات</td><td>البنية والتوثيق</td><td>تخصيص وتنبيه وربط الكتب</td></tr><tr><td><a href="https://www.shortform.com/">Shortform</a></td><td>شرح وتمارين وروابط</td><td>التطبيق لا الاختصار</td><td>من كتاب المستخدم وهدفه</td></tr><tr><td><a href="https://speechify.com/">Speechify</a></td><td>استماع طبيعي</td><td>تجربة الصوت</td><td>الصوت داخل منظومة معرفة</td></tr></tbody></table><div class="callout"><strong>الحقيقة:</strong> المكونات موجودة منفردة؛ الابتكار هو جمعها تحت منطق المكتبة الشخصية وأمين المكتبة وجسر العودة وطبقة الثقة.</div></div></details>
+
+  <details class="section" id="edge" open data-keywords="تميّز ابتكار ثقة عربية خريطة"><summary><span class="num">10</span><span class="section-title"><h2>عناصر التميز</h2><p>التركيبة المقترحة</p></span><span class="chev">⌄</span></summary><div class="content"><div class="grid three"><div class="mini"><h4>أمين المكتبة</h4><p>يفهم المجموعة لا ملفًا واحدًا.</p></div><div class="mini"><h4>العودة للأصل</h4><p>كل خلاصة تقود لمواضع القراءة.</p></div><div class="mini"><h4>بطاقة الثقة</h4><p>تفصل النص عن التحليل والرأي.</p></div><div class="mini"><h4>ذكاء الرف</h4><p>مقارنة الكتب والفجوات.</p></div><div class="mini"><h4>المتابعة</h4><p>تذكير بما بدأ وفهم.</p></div><div class="mini"><h4>عربية أولًا</h4><p>RTL وOCR وتصنيف وصوت عربي.</p></div></div><h3>بطاقة الثقة</h3><table><tr><th>من الكتاب</th><td>مع الصفحة أو الفصل.</td></tr><tr><th>تحليل المنصة</th><td>استنتاج لا يُنسب للمؤلف.</td></tr><tr><th>رأي خارجي</th><td>مصدر مسمى ومرتبط.</td></tr><tr><th>يحتاج تحققًا</th><td>لا يُقدم كحقيقة.</td></tr></table></div></details>
+
+  <details class="section" id="accounts" open data-keywords="حساب Supabase RLS owner_id تخزين حذف تصدير موافقة سجل"><summary><span class="num">11</span><span class="section-title"><h2>الحسابات والتخزين</h2><p>منصة واحدة ومكتبات معزولة وموافقات موثقة</p></span><span class="chev">⌄</span></summary><div class="content"><div class="quote">مشروع Supabase مستقل للمنصة، وليس مشروعًا لكل مستخدم، وليس مع منصات عبدالرحمن الحالية.</div><ul class="checks"><li>حساب Auth لكل مستخدم.</li><li>كل سجل مرتبط بـ owner_id.</li><li>RLS يمنع رؤية بيانات الآخرين.</li><li>كتب أصلية خاصة ومخرجات منظمة.</li><li>مساحة واستخدام محسوبان لكل حساب.</li><li>سجل موافقات يحفظ المستخدم والوقت وإصدار الشروط واللغة ونوع الموافقة.</li><li>سجل مستقل لإقرار الحقوق المرتبط بكل كتاب مرفوع.</li></ul><div class="cols"><div class="mini"><h4>احتفظ بالأصل</h4><p>يبقى داخل المكتبة ويُحسب من المساحة وفق سياسة التخزين والحقوق.</p></div><div class="mini"><h4>احذف الأصل</h4><p>تبقى البطاقة والمخرجات المسموح بها، ويمكن طلب حذف الجميع.</p></div></div><h3>قابلية النقل</h3><p>تصدير البيانات والملخصات والملاحظات والتقدم ونسخة الشروط التي وافق عليها المستخدم حتى لا تُحتجز معرفته أو حقوقه.</p></div></details>
+
+  <details class="section" id="subscription" open data-keywords="اشتراك سعر رصيد مصر السودان دفع"><summary><span class="num">12</span><span class="section-title"><h2>نموذج الاشتراك</h2><p>اشتراك مرن لا استخدام بلا حدود</p></span><span class="chev">⌄</span></summary><div class="content"><p class="lead"><strong>الأنسب:</strong> اشتراك شهري يمنح رصيد معالجة ومساحة، مع رصيد إضافي.</p><table><tr><th>تجربة</th><td>كتاب واحد ووظائف محدودة.</td></tr><tr><th>قارئ خفيف</th><td>خلاصة وصوت ومساحة صغيرة.</td></tr><tr><th>مكتبة شخصية</th><td>فصول وتحليل وتنبيهات ومساحة أكبر.</td></tr><tr><th>باحث</th><td>مقارنات وتصدير ورصيد أكبر.</td></tr><tr><th>إضافات</th><td>كتاب أو مساحة إضافية دون ترقية كاملة.</td></tr></table><h3>السعر</h3><p>لا يثبت قبل قياس كتب حقيقية. تُصمم خطة عربية خفيفة تراعي مصر والسودان وغيرهما دون تحويل الخدمة إلى خسارة.</p><div class="callout">لا نعتمد عدد الكتب وحده؛ الرصيد يراعي الحجم وOCR وعمق التحليل والصوت.</div></div></details>
+
+  <details class="section" id="rights" open data-keywords="حقوق نشر خصوصية ملكية عامة ترخيص قانون إماراتي مخاطر"><summary><span class="num">13</span><span class="section-title"><h2>حقوق النشر والخصوصية</h2><p>تقييم قانوني أولي: تخفيف للمخاطر لا حصانة</p></span><span class="chev">⌄</span></summary><div class="content"><div class="callout risk"><strong>الجواب المباشر: لا، لا يمكن القول إن المنصة في مأمن كامل.</strong> تصميمها الحالي يحترم محاذير مهمة، لكنه لا يحسم قانونية معالجة كتاب محمي كامل داخل خدمة تجارية.</div><h3>لماذا يبقى الخطر قائمًا؟</h3><table><tr><th>المادة 7</th><td>تجعل النسخ — بما فيه التنزيل والتخزين الإلكتروني — والترجمة والتعديل من الاستعمالات التي يجيزها صاحب الحق.</td></tr><tr><th>المادة 22(1)</th><td>تسمح بنسخة واحدة للاستعمال الشخصي البحت غير الربحي وغير المهني؛ ولا ينبغي افتراض أن هذا الاستثناء يغطي تلقائيًا معالجة منصة تجارية للملف.</td></tr><tr><th>المادة 22(5)</th><td>تسمح باقتباسات قصيرة أو مقتطفات أو تحليلات في الحدود المتعارف عليها، مع ذكر المصدر والمؤلف.</td></tr><tr><th>الذكاء الاصطناعي</th><td>لا يوجد في النص إعفاء صريح عام لتلخيص الكتب المحمية أو تحليلها آليًا؛ وهذه نقطة تحتاج رأيًا قانونيًا متخصصًا.</td></tr></table><h3>ما الذي يخفف الخطر؟</h3><ul class="checks"><li>لا كتب محمية مثبتة مسبقًا ولا مشاركة عامة بين المستخدمين.</li><li>قبول كتب المؤلف نفسه، والملكية العامة، والكتب المرخصة أو المأذون بها.</li><li>اقتباسات قصيرة موثقة، وملخص لا يعيد بناء الكتاب صفحة بصفحة.</li><li>عدم القراءة الحرفية الكاملة للكتاب المحمي.</li><li>عدم استخدام ملفات المستخدمين لتدريب نموذج عام.</li><li>حذف الأصل والمخرجات عند الطلب، مع حماية الملفات وعزل الحسابات.</li></ul><div class="callout"><strong>قبل الإطلاق العام المدفوع:</strong> نحتاج مذكرة قانونية إماراتية مكتوبة تحدد نطاق الملفات المقبولة، وشروط المستخدم، وطريقة التخزين، وحدود التلخيص والترجمة والصوت، وآلية استقبال طلبات أصحاب الحقوق وحذف المحتوى.</div><h3>القراءة الحرفية الممكنة</h3><p>كتاب المستخدم الذي ألّفه، أو كتاب في الملكية العامة، أو كتاب مرخص، أو مادة يغطيها إذن واضح. تقسيم القراءة الحرفية إلى مقاطع قصيرة لا يزيل حقوق النشر.</p></div></details>
+
+  <details class="section" id="trust-gate" open data-keywords="بوابة ثقة حقوق موافقة شروط clickwrap إقرار رفع بلاغ حذف مراقبة"><summary><span class="num">13+</span><span class="section-title"><h2>بوابة الثقة والحقوق</h2><p>موافقة قبل الحساب وإقرار قبل كل كتاب</p></span><span class="chev">⌄</span></summary><div class="content"><p class="lead"><strong>هذه الطبقة لا تغيّر فكرة المكتبة ولا تنتقص منها.</strong> هي تنظم دخول المستخدم ورفع كتبه، وتوزع المسؤوليات بوضوح، وتحمي القارئ وصاحب الحق والمنصة.</p><div class="quote">لا يُفعّل الحساب دون موافقة صريحة، ولا يبدأ تحليل كتاب دون إقرار مستقل بحق المستخدم في رفعه ومعالجته.</div><h3>البوابة الأولى: قبل تفعيل الحساب</h3><table><thead><tr><th>الموافقة</th><th>ما الذي يقر به المستخدم؟</th></tr></thead><tbody><tr><td><strong>شروط الاستخدام</strong></td><td>يفهم وظيفة المنصة وحدودها وأسباب تعليق الحساب أو حذف المحتوى.</td></tr><tr><td><strong>حقوق الكتب</strong></td><td>لن يرفع إلا ملفًا يملك حقًا مشروعًا في استخدامه، ولن ينشر المخرجات أو يبيعها بالمخالفة.</td></tr><tr><td><strong>الخصوصية</strong></td><td>يفهم ما يُجمع وما يُخزن ومدة الاحتفاظ وحقه في الحذف وسحب الموافقات الممكنة.</td></tr><tr><td><strong>الدفع والاشتراك</strong></td><td>يفهم السعر والرصيد والتجديد والإلغاء والاسترداد قبل الدفع.</td></tr></tbody></table><ul class="checks"><li>مربعات مستقلة غير محددة مسبقًا، بلغة واضحة ونسخة عربية أو إنجليزية.</li><li>ملخص قصير مفهوم مع إتاحة النص القانوني الكامل.</li><li>لا يُفعّل زر إنشاء الحساب حتى تكتمل الموافقات الإلزامية.</li><li>الموافقة التسويقية منفصلة واختيارية.</li><li>إعادة الموافقة عند أي تعديل جوهري للشروط.</li></ul><h3>البوابة الثانية: قبل رفع كل كتاب</h3><p>يحدد المستخدم مصدر حقه: <span class="badge">أنا المؤلف أو صاحب الحق</span><span class="badge">ملكية عامة</span><span class="badge">ترخيص أو إذن</span><span class="badge">نسخة مشروعة لتحليل شخصي خاص</span><span class="badge">حالة تحتاج مراجعة</span></p><div class="callout"><strong>الإقرار:</strong> «أؤكد أن لدي حقًا مشروعًا في رفع هذا الكتاب ومعالجته للاستخدام الشخصي الخاص، وأنني لن أستخدم الملف أو مخرجاته بما يخالف حقوق المؤلف أو الناشر».</div><h3>معرفة المخالفة دون التجسس</h3><div class="grid three"><div class="mini"><h4>تصريح المستخدم</h4><p>نوع الحق والإقرار المرتبط بالكتاب.</p></div><div class="mini"><h4>مؤشرات آلية محدودة</h4><p>البيانات، وبصمة الملفات المبلّغ عنها، وعلامات القرصنة أو إزالة الحماية، وأنماط الرفع غير الطبيعية.</p></div><div class="mini"><h4>بلاغ صاحب الحق</h4><p>قناة موثقة للإبلاغ والإيقاف والمراجعة والحذف.</p></div></div><table><thead><tr><th>درجة الحالة</th><th>مثال</th><th>الإجراء</th></tr></thead><tbody><tr><td><strong>أخضر</strong></td><td>تأليف المستخدم، ملكية عامة، أو ترخيص واضح.</td><td>تُتاح الوظائف التي يغطيها الحق.</td></tr><tr><td><strong>أصفر</strong></td><td>نسخة مشروعة لتحليل شخصي مع غياب إذن للنشر أو الصوت الكامل.</td><td>تحليل خاص ووظائف مقيدة، دون نشر أو قراءة حرفية كاملة.</td></tr><tr><td><strong>أحمر</strong></td><td>بلاغ موثق، إقرار بالقرصنة، تطابق مع ملف محظور، أو تكرار المخالفة.</td><td>إيقاف المعالجة وطلب إثبات ثم حذف أو تعليق الحساب عند اللزوم.</td></tr></tbody></table><h3>سجل الإثبات والاستجابة</h3><ul class="checks"><li>حفظ هوية الحساب والوقت وإصدار الشروط ولغتها والموافقات المختارة.</li><li>ربط كل إقرار بالكتاب المعني دون نشر بياناته.</li><li>توفير نسخة من الشروط للمستخدم.</li><li>إيقاف مؤقت عند البلاغ، ثم طلب إثبات الحق، ثم قرار موثق.</li><li>سياسة للمخالف المتكرر وقناة لأصحاب الحقوق.</li><li>لا وصول بشري عام للكتب؛ المراجعة البشرية استثنائية ومقيدة بسبب واضح.</li></ul><div class="callout"><strong>الأثر على التجربة:</strong> دقيقة أو دقيقتان عند إنشاء الحساب، واختيار واحد عند رفع كل كتاب. هذا احتكاك محدود مقابل ثقة أعلى واستعداد أفضل للإطلاق العملي.</div></div></details>
+
+  <details class="section" id="engine" open data-keywords="API ChatGPT تدريب OCR RAG تحليل توكنات"><summary><span class="num">14</span><span class="section-title"><h2>محرك تحليل الكتب</h2><p>لا تدريب من الصفر ولا اشتراك ChatGPT</p></span><span class="chev">⌄</span></summary><div class="content"><div class="quote">اشتراك ChatGPT الشخصي لا يشغل المنصة. المنصة تستخدم API خاصًا بها وتُحاسب حسب الاستخدام.</div><p>لا ندرب النموذج على كل كتاب؛ نرسل أجزاءه وفق منهج ثابت، نحفظ النتائج وننشئ فهرس بحث.</p><div class="flow"><span>استخراج</span><b>←</b><span>فصول</span><b>←</b><span>تلخيص</span><b>←</b><span>خلاصة</span><b>←</b><span>تحقق</span><b>←</b><span>صوت وفهرسة</span></div><table><tr><th>المفهرس</th><td>البيانات والموضوع والبنية.</td></tr><tr><th>ملخص الفصول</th><td>الأفكار والحجج والأمثلة.</td></tr><tr><th>المحلل</th><td>الربط والقوة والضعف والتطبيق.</td></tr><tr><th>المراجع</th><td>التحقق من الأصل والصفحات.</td></tr><tr><th>الراوي</th><td>تحويل النص المعتمد إلى صوت.</td></tr></table><p>هذه أدوار برمجية في سلسلة واحدة، وليست خمسة موظفين أو خمسة نماذج مكلفة.</p></div></details>
+
+  <details class="section" id="duplicates" open data-keywords="تكرار طبعة ترجمة ISBN بصمة"><summary><span class="num">15</span><span class="section-title"><h2>تكرار الكتاب بين المستخدمين</h2><p>منع الهدر مع احترام الحقوق</p></span><span class="chev">⌄</span></summary><div class="content"><p>التطابق عبر ISBN وبيانات الطبعة واللغة والناشر وبصمة النص؛ العنوان وحده لا يكفي.</p><table><tr><th>نفس الملف والطبعة</th><td>يمكن منع التكرار تقنيًا وفق سياسة الحقوق.</td></tr><tr><th>طبعة منقحة</th><td>نسخة مختلفة وتراجع الأجزاء الجديدة.</td></tr><tr><th>ترجمة أخرى</th><td>نسخة مستقلة.</td></tr><tr><th>نسخة مختصرة</th><td>نسخة مستقلة.</td></tr><tr><th>مسح مصور مختلف</th><td>مطابقة ببصمة النص بعد OCR.</td></tr></table><h3>الطبقات</h3><ul><li><strong>السجل:</strong> بيانات عامة لا تتكرر.</li><li><strong>الأصل:</strong> خاص بكل مستخدم.</li><li><strong>التحليل:</strong> مشترك فقط للملكية العامة أو المرخص أو بعد اعتماد قانوني؛ وإلا خاص.</li></ul><p>طبقة الهدف والملاحظات والتقدم والتذكير شخصية دائمًا.</p></div></details>
+
+  <details class="section" id="cost" open data-keywords="تكلفة توكنات آلاف Batch n8n"><summary><span class="num">16</span><span class="section-title"><h2>التكلفة والتوسع دون تهويل</h2><p>نبدأ بسيطًا ونؤجل مشكلات النجاح</p></span><span class="chev">⌄</span></summary><div class="content"><p>تكلفة الكتاب = استخراج + قراءة النموذج + مخرجات + مراجعة + صوت + تخزين + أسئلة. نسجلها في النموذج الأولي بدل التخمين.</p><ul class="checks"><li>نموذج اقتصادي للفصول والتصنيف.</li><li>نموذج أقوى فقط للخلاصة والكتب الصعبة.</li><li>معالجة خلفية.</li><li>حفظ النتائج.</li><li>استرجاع المقاطع المطلوبة فقط.</li><li>رصيد وحدود إنفاق.</li></ul><h3>n8n</h3><p>ينظم الأحداث والتنبيهات: وصل كتاب ← بدأ ← اكتمل ← إشعار. ولا يقرأ آلاف الكتب بنفسه.</p><div class="callout"><strong>المطمئن:</strong> الطوابير والآلاف ليست شروطًا للبداية؛ هي طبقة توسع عند نجاح المنتج.</div></div></details>
+
+  <details class="section" id="proscons" open data-keywords="إيجابيات سلبيات مخاطر جودة هلوسة"><summary><span class="num">17</span><span class="section-title"><h2>الإيجابيات والتحديات</h2><p>رؤية متوازنة</p></span><span class="chev">⌄</span></summary><div class="content"><div class="cols"><div class="mini"><h4>الإيجابيات</h4><ul><li>رسالة تعيد الناس للكتاب.</li><li>مناسبة لخبرة المكتبات.</li><li>قيمة تتراكم مع المجموعة.</li><li>تخدم السريع والمتعمق.</li><li>قابلة للبدء صغيرًا.</li><li>اشتراك متكرر محتمل.</li></ul></div><div class="mini"><h4>التحديات</h4><ul><li>OCR العربي المصور.</li><li>التلخيص المخل أو الخطأ.</li><li>تكلفة الكتب الكبيرة والصوت.</li><li>حقوق النشر.</li><li>حماية الملفات.</li><li>منافسون في أجزاء الفكرة.</li></ul></div></div><h3>المواجهة</h3><p>توثيق، مراجعة آلية، اختبار أنواع كتب، حدود استخدام، خصوصية من البداية، وعدم إطلاق القراءة الكاملة أو المشاركة العامة بلا حقوق.</p></div></details>
+
+  <details class="section" id="roadmap" open data-keywords="مراحل تطوير نموذج أولي MVP خطة"><summary><span class="num">18</span><span class="section-title"><h2>مراحل التطوير</h2><p>طريق يحمي الفكرة من التضخم</p></span><span class="chev">⌄</span></summary><div class="content"><table><thead><tr><th>المرحلة</th><th>نبني</th><th>نؤجل</th></tr></thead><tbody><tr><td>0 — تثبيت الرؤية</td><td>الفهرس والاسم والحدود والجودة.</td><td>البرمجة والسعر.</td></tr><tr><td>1 — نموذج شخصي</td><td>رفع، استخراج، خلاصة، فصول، صوت، سؤال، حفظ.</td><td>الاشتراك العام.</td></tr><tr><td>2 — مكتبة حية</td><td>تقدم وتنبيهات وملاحظات وعودة للأصل.</td><td>المشاركة بين الحسابات.</td></tr><tr><td>3 — تجربة مستخدمين</td><td>حسابات وحصص واشتراك تجريبي.</td><td>الانتشار.</td></tr><tr><td>4 — ذكاء المجموعة</td><td>مقارنات وخريطة معرفة وأمين متقدم.</td><td>المؤسسات.</td></tr><tr><td>5 — التوسع</td><td>طوابير ومنع تكرار ومراقبة وشراكات حقوق.</td><td>لا يبنى قبل الحاجة.</td></tr></tbody></table><div class="callout"><strong>قاعدة:</strong> النموذج الأولي ليس عشرة كتب يدويًا؛ بل آلة نختبرها، ثم يرفع المستخدمون كتبهم بأنفسهم.</div></div></details>
+
+  <details class="section" id="decisions" open data-keywords="قرارات معتمدة ثابتة"><summary><span class="num">19</span><span class="section-title"><h2>القرارات المعتمدة</h2><p>خلاصة ما استقر</p></span><span class="chev">⌄</span></summary><div class="content"><div class="mini decision"><ul class="checks"><li>مكتبة شخصية ذكية لا أداة PDF منفردة.</li><li>تبدأ بلا كتب؛ المستخدم يرفع كتبه.</li><li>الخلاصة 15–20 دقيقة، ونادرًا 25.</li><li>ملخص الفصول أساسي للدارس.</li><li>الواجهة ثنائية اللغة: العربية والإنجليزية.</li><li>لغة التحليل والصوت اختيار مستقل عن لغة الكتاب.</li><li>يدعم كتابًا إنجليزيًا بمخرجات عربية، والعكس صحيح.</li><li>لا قراءة حرفية كاملة للكتب المحمية.</li><li>التصنيف والنمو جزء من الجوهر.</li><li>أمين مكتبة ومكتبة معزولة لكل مستخدم.</li><li>التنبيهات والتقدم أساسيان.</li><li>Supabase مستقل وحساب لكل مستخدم.</li><li>لا يُفعّل الحساب دون موافقات صريحة منفصلة وموثقة.</li><li>إقرار مستقل بحق الاستخدام قبل رفع كل كتاب.</li><li>مراقبة محدودة بالمؤشرات والبلاغات، دون تفتيش بشري عام للكتب.</li><li>نظام إيقاف ومراجعة وحذف وسياسة للمخالف المتكرر.</li><li>اشتراك شهري + رصيد إضافي.</li><li>المنصة تعمل عبر API لا اشتراك ChatGPT.</li><li>لا تدريب نموذج من الصفر في البداية، ولا تدريب عام على ملفات المستخدمين.</li><li>نبدأ صغيرًا ونحل الآلاف عند الحاجة.</li><li>الوثيقة التأسيسية مكتملة وجاهزة للانتقال إلى النموذج العملي التجريبي.</li></ul></div></div></details>
+
+  <details class="section" id="questions" open data-keywords="أسئلة مفتوحة اسم جودة روايات أكاديمية"><summary><span class="num">20</span><span class="section-title"><h2>الأسئلة المفتوحة</h2><p>قرارات وتجارب لاحقة</p></span><span class="chev">⌄</span></summary><div class="content"><div class="mini openq"><ol><li>ما الاسم والهوية النهائية؟</li><li>هل نبدأ بغير الروايات أم ندعمها؟</li><li>ما معيار الخلاصة لكل نوع؟</li><li>صوت واحد أم اختيار أصوات؟</li><li>ما حد الحجم لكل خطة؟</li><li>ماذا يحدث للأصل بعد انتهاء الاشتراك؟</li><li>هل نضيف المراجعات الخارجية في النسخة الأولى؟</li><li>كيف نوثق الصفحات بين الطبعات؟</li><li>ما اختبارات الجودة قبل «جاهز»؟</li><li>من أول جمهور تجريبي؟</li><li>ما حدود التخصيص الخاص؟</li><li>متى نطلب مراجعة قانونية متخصصة؟</li></ol></div></div></details>
+
+  <details class="section" id="sources" open data-keywords="مصادر مراجع قانون OpenAI"><summary><span class="num">21</span><span class="section-title"><h2>المصادر والروابط</h2><p>للتحقق عند الاتصال بالإنترنت</p></span><span class="chev">⌄</span></summary><div class="content source-list"><h3>المنتجات</h3><p><a href="https://www.blinkist.com/">Blinkist</a> · <a href="https://notebooklm.google/">NotebookLM</a> · <a href="https://www.chatpdf.com/">ChatPDF</a> · <a href="https://readwise.io/read">Readwise</a> · <a href="https://www.bookfusion.com/">BookFusion</a> · <a href="https://www.asksia.ai/summarize/book-summarizer">AskSia</a> · <a href="https://www.shortform.com/">Shortform</a> · <a href="https://speechify.com/">Speechify</a></p><h3>الحقوق</h3><p><a href="https://uaelegislation.gov.ae/ar/legislations/1534">قانون حقوق المؤلف الإماراتي رقم 38 لسنة 2021</a>.</p><h3>البنية والتكلفة</h3><p><a href="https://developers.openai.com/api/docs/pricing">الأسعار</a> · <a href="https://developers.openai.com/api/docs/guides/tools-file-search">البحث في الملفات</a> · <a href="https://developers.openai.com/api/docs/guides/text-to-speech">تحويل النص إلى كلام</a> · <a href="https://developers.openai.com/api/docs/guides/cost-optimization">خفض التكلفة</a> · <a href="https://developers.openai.com/api/docs/guides/your-data">ضوابط البيانات</a>.</p><p>يعمل الفهرس نفسه دون إنترنت؛ الروابط الخارجية فقط تحتاج اتصالًا.</p></div></details>
+
+  <footer class="footer">
+    <strong>المكتبة الشخصية الذكية — فهرس الفكرة التأسيسي</strong><br>
+    وثيقة حية قابلة للمراجعة قبل الانتقال إلى المواصفات والتنفيذ.
+  </footer>
+</main>
+</div>
+
+<script>
+const EN={
+nav:["01 Vision & mission","02 What it is — and is not","03 User journey","04 Book outputs","04+ Languages & cross-language analysis","05 Personal library","06 AI librarian","07 Return to the book","07+ Smart source reader","08 Follow-up & reminders","09 Comparable products","10 Differentiation","11 Accounts & storage","12 Subscription model","13 Copyright & privacy","13+ Trust & rights gate","14 Analysis engine","15 Duplicate books","16 Cost & scale","17 Benefits & challenges","18 Development roadmap","19 Confirmed decisions","20 Open questions","21 Sources"],
+sections:{
+vision:{title:"Vision and mission",sub:"Why should this project exist?",keys:"vision mission reading knowledge time",html:"<p class='lead'><strong>Vision:</strong> bring people back to books and authoritative information through an experience suited to modern life, helping them understand faster without turning AI into a substitute for the source.</p><div class='quote'>Understand the map of a book quickly, then return deliberately to the passages worth reading.</div><h3>The problem</h3><div class='cols'><div class='mini'><h4>Limited time</h4><p>Books and reading lists accumulate without being started or completed.</p></div><div class='mini'><h4>Scattered knowledge</h4><p>Files, books and notes remain disconnected and hard to retrieve.</p></div><div class='mini'><h4>Misleading brevity</h4><p>Generic summaries may drift away from the book and lack citations.</p></div><div class='mini'><h4>Forgotten reading</h4><p>Readers start, then forget where they stopped and what they learned.</p></div></div><h3>Initial audience</h3><p>Arabic and English readers, students, researchers and professionals who lawfully own digital books and want to understand, organize and revisit them. The experience starts as a personal prototype, then expands after quality and cost are proven.</p>"},
+boundaries:{title:"What the platform is — and is not",sub:"Product boundaries",keys:"definition publisher library pdf chat audio",html:"<table><thead><tr><th>It is</th><th>It is not</th></tr></thead><tbody><tr><td>A personal library that starts empty</td><td>A public catalogue preloaded with books</td></tr><tr><td>A tool for understanding, organization and returning to the source</td><td>A replacement for reading the book</td></tr><tr><td>Documented summarization and analysis</td><td>Merely a chatbot for a PDF</td></tr><tr><td>Long-term management of a reader's collection</td><td>A disposable summary of one file</td></tr><tr><td>Audio for the overview and chapter summaries</td><td>A verbatim audiobook of a protected work</td></tr></tbody></table><div class='callout'><strong>Promise:</strong> the reader brings the book; the platform provides a faster, more reliable way to understand it and keeps the book and its outputs in a private library.</div>"},
+journey:{title:"From account to knowledge",sub:"The complete journey with a rights gate",keys:"journey consent account upload pdf epub images ocr rights delete save",html:"<div class='flow'><span>Account consent</span><b>→</b><span>Private account</span><b>→</b><span>Book-right declaration</span><b>→</b><span>Upload PDF / EPUB / images</span><b>→</b><span>Extract & catalogue</span><b>→</b><span>Analyse</span><b>→</b><span>Summary & audio</span><b>→</b><span>Save & follow up</span></div><ol><li>The user reads a plain-language summary of the terms, privacy policy and book-right rules, then expressly accepts before account activation.</li><li>The user enters an empty library with a clear explanation and safe sample.</li><li>Before each upload, the user identifies the source of their right and confirms lawful private use.</li><li>The book is uploaded and its processing or rights-review status is shown.</li><li>The platform identifies metadata, structure and chapters and produces permitted outputs.</li><li>The book enters an editable subject classification.</li><li>Reading position, notes and reminders are saved.</li><li>The user may retain the original or delete it while keeping permitted outputs.</li></ol><p><span class='badge'>Consent required</span><span class='badge'>New</span><span class='badge'>Processing</span><span class='badge'>Ready</span><span class='badge'>Extraction failed</span><span class='badge'>Rights review</span></p>"},
+outputs:{title:"Outputs for every book",sub:"Four layers instead of one summary",keys:"summary 15 20 25 minutes chapters analysis questions audio",html:"<table><thead><tr><th>Layer</th><th>Purpose</th><th>Content</th></tr></thead><tbody><tr><td><strong>Book overview</strong></td><td>Rapid understanding</td><td>15–20 minutes; rarely up to 25.</td></tr><tr><td><strong>Chapter summaries</strong></td><td>Deeper study</td><td>Main idea, arguments, examples and terms for each chapter.</td></tr><tr><td><strong>Knowledge analysis</strong></td><td>Evaluation and application</td><td>Strengths, limitations, applications, facts and opinions.</td></tr><tr><td><strong>Ask the book</strong></td><td>Precise retrieval</td><td>Answers linked to pages or source locations.</td></tr></tbody></table><h3>If the book has no chapters</h3><p>The platform creates <strong>smart thematic units</strong> and clearly labels them as analytical divisions rather than original chapters.</p><h3>Audio</h3><p>The overview and chapter summaries become clear spoken audio in the selected output language, without reproducing a protected book verbatim.</p>"},
+languages:{title:"Arabic and English with cross-language analysis",sub:"The book's language does not dictate the language of understanding",keys:"language Arabic English translation interface analysis audio bilingual",html:"<p class='lead'><strong>Confirmed and technically feasible:</strong> the interface is bilingual, while output language is chosen independently from the language of the uploaded book.</p><div class='quote'>An English book can be understood, analysed and heard in Arabic; an Arabic book can be presented in English, while citations continue to point to the original text.</div><h3>Four independent settings</h3><table><thead><tr><th>Setting</th><th>Function</th></tr></thead><tbody><tr><td><strong>Interface language</strong></td><td>Arabic RTL or English LTR, switchable at any time.</td></tr><tr><td><strong>Book language</strong></td><td>Detected automatically, with manual correction.</td></tr><tr><td><strong>Analysis language</strong></td><td>Same as the book, Arabic, English, or a concise bilingual view.</td></tr><tr><td><strong>Audio language</strong></td><td>Follows the selected output language, not necessarily the file language.</td></tr></tbody></table><h3>Accuracy rules</h3><ul class='checks'><li>Understand the book in its original language first, then generate the requested output; do not translate the complete book.</li><li>Keep page references tied to the original edition.</li><li>Preserve important original-language terms in parentheses when useful.</li><li>Separate translation of the author's meaning from the platform's analysis.</li><li>Test Arabic and English quality independently.</li></ul>"},
+library:{title:"The personal library",sub:"A collection that becomes more valuable over time",keys:"library shelves classification metadata collection search",html:"<p class='lead'>Every account owns a private, growing library—not a temporary upload box.</p><h3>Automatic organization</h3><ul class='checks'><li>Bibliographic metadata and cover.</li><li>Subject classification with editable shelves.</li><li>Status: unread, in progress, completed or paused.</li><li>Search across titles, authors, subjects, notes and generated outputs.</li><li>Custom lists and goals.</li></ul><h3>Book record</h3><p>Each record combines the original file, metadata, overview, chapter summaries, analysis, audio, citations, notes, progress and reminders.</p>"},
+librarian:{title:"The AI librarian",sub:"An assistant that understands the whole collection",keys:"librarian recommendations collection gaps comparisons",html:"<p class='lead'>The differentiator is not a named character that reads one file; it is a librarian that understands the user's entire collection.</p><div class='grid three'><div class='mini'><h4>Organize</h4><p>Classifies books and proposes shelves.</p></div><div class='mini'><h4>Retrieve</h4><p>Finds ideas across books with source references.</p></div><div class='mini'><h4>Connect</h4><p>Shows agreement, conflict and complementary viewpoints.</p></div><div class='mini'><h4>Recommend</h4><p>Suggests what to read next from books already owned.</p></div><div class='mini'><h4>Reveal gaps</h4><p>Identifies underrepresented subjects in the collection.</p></div><div class='mini'><h4>Follow up</h4><p>Remembers unfinished reading and personal goals.</p></div></div>"},
+return:{title:"A bridge back to the book",sub:"The summary guides reading; it does not cancel it",keys:"return original pages citations reading bridge",html:"<div class='quote'>Every important idea should answer: where is this in my edition, and why should I return to it?</div><ul class='checks'><li>Page or chapter references beside key claims.</li><li>A “Read in context” action that opens the relevant location.</li><li>Suggested essential passages after the overview.</li><li>Clear separation between source text, generated summary and platform inference.</li><li>A personal reading path based on the user's purpose.</li></ul>"},
+reader:{title:"Smart source reader",sub:"The original book inside the reading experience",keys:"source reader page turn flipbook local PDF offline privacy",html:"<p class='lead'>The user opens a PDF already stored on their device inside an elegant digital reader and reads it page by page without sending it to the platform server. This completes the summary, audio and analysis experience without turning the platform into a book publisher.</p><div class='quote'>Read the source, listen to the overview, understand the chapters, then return to the page where the idea lives.</div><h3>Reading modes</h3><div class='grid three'><div class='mini'><h4>Page turn</h4><p>A book-like transition with optional page sound.</p></div><div class='mini'><h4>Single page</h4><p>Horizontal navigation suited to phones.</p></div><div class='mini'><h4>Two-page spread</h4><p>A facing-page view for desktop and tablet.</p></div><div class='mini'><h4>Continuous scroll</h4><p>A familiar vertical document view.</p></div><div class='mini'><h4>Visual comfort</h4><p>Zoom, full screen, dark and paper modes.</p></div><div class='mini'><h4>Reading continuity</h4><p>Bookmarks and last-page progress stored on device.</p></div></div><h3>Technical and legal separation</h3><table><tr><th>Local reading</th><td>The browser opens the file from the user's device and renders it locally; the book is not sent to the platform server.</td></tr><tr><th>Offline use</th><td>The reader interface works offline while the book remains on its owner's device. Any temporary local copy is user-controlled and removable.</td></tr><tr><th>Cloud analysis</th><td>A separate route that begins with a rights declaration and retention choice.</td></tr><tr><th>Audio</th><td>Limited to platform-generated overviews and chapter summaries; no complete verbatim narration of protected books.</td></tr></table><div class='callout'><strong>V1.1 decision:</strong> the Smart Source Reader is a core feature. Its first test opens a local PDF, turns pages and remembers reading position without uploading the file.</div>"},
+reminders:{title:"Progress, reminders and review",sub:"A modern reading follow-up system",keys:"reminders notifications progress review unfinished mobile",html:"<p class='lead'>The library remembers what the reader intended, where they stopped and what needs review.</p><table><tr><th>Progress</th><td>Unread, started, paused, completed, and exact last location.</td></tr><tr><th>Flexible reminders</th><td>Continue a book, review a summary, revisit notes or meet a reading goal.</td></tr><tr><th>Channels</th><td>In-app first, then mobile push or email according to user consent.</td></tr><tr><th>Control</th><td>Frequency, quiet hours, snooze and disable per book.</td></tr></table><div class='callout'>Reminders must serve the reader, not become noise. The user controls every notification.</div>"},
+market:{title:"Comparable products",sub:"Useful components exist, but not this complete library logic",keys:"Blinkist NotebookLM ChatPDF Readwise BookFusion Shortform Speechify",html:"<table><thead><tr><th>Product</th><th>Strength</th><th>What we learn</th><th>Our difference</th></tr></thead><tbody><tr><td>Blinkist</td><td>Short text and audio summaries</td><td>Clarity and time promise</td><td>The user supplies the book</td></tr><tr><td>NotebookLM</td><td>Grounded sources, citations and audio</td><td>Source-based answers</td><td>A permanent catalogued library</td></tr><tr><td>ChatPDF</td><td>Simple PDF dialogue</td><td>Easy questions</td><td>Dialogue is one feature, not the whole product</td></tr><tr><td>Readwise / BookFusion</td><td>Reading continuity and collection management</td><td>Progress and organization</td><td>Deep understanding is central</td></tr><tr><td>Shortform</td><td>Explanation and application</td><td>Go beyond shortening</td><td>Built from the user's own source</td></tr><tr><td>Speechify</td><td>Natural listening</td><td>Audio experience</td><td>Audio sits inside a knowledge system</td></tr></tbody></table><div class='callout'><strong>Reality:</strong> individual components already exist. The innovation is their integration through a personal-library model, an AI librarian, a return-to-source bridge and a trust layer.</div>"},
+edge:{title:"Proposed differentiation",sub:"The product combination",keys:"difference innovation trust Arabic map",html:"<div class='grid three'><div class='mini'><h4>AI librarian</h4><p>Understands a collection, not only one file.</p></div><div class='mini'><h4>Return to source</h4><p>Every summary leads to reading locations.</p></div><div class='mini'><h4>Trust card</h4><p>Separates source, analysis and outside opinion.</p></div><div class='mini'><h4>Shelf intelligence</h4><p>Compares books and reveals knowledge gaps.</p></div><div class='mini'><h4>Follow-up</h4><p>Reminds the user what they began and learned.</p></div><div class='mini'><h4>Arabic and English</h4><p>True RTL/LTR interfaces, OCR, classification and audio.</p></div></div><h3>Trust card</h3><table><tr><th>From the book</th><td>Linked to a page or chapter.</td></tr><tr><th>Platform analysis</th><td>An inference not attributed to the author.</td></tr><tr><th>External opinion</th><td>Named and linked source.</td></tr><tr><th>Needs verification</th><td>Never presented as fact.</td></tr></table>"},
+accounts:{title:"Accounts and storage",sub:"One platform with isolated libraries and documented consent",keys:"account Supabase RLS owner storage delete export consent record",html:"<div class='quote'>One independent platform backend—not one backend per user, and not mixed with unrelated projects.</div><ul class='checks'><li>A separate authenticated account for each user.</li><li>Every record belongs to its owner.</li><li>Row-level security prevents users from seeing one another's data.</li><li>Private originals and structured derived outputs.</li><li>Storage and processing measured per account.</li><li>A consent record stores user, time, terms version, language and consent type.</li><li>A separate rights declaration is linked to every uploaded book.</li></ul><div class='cols'><div class='mini'><h4>Keep the original</h4><p>The file remains under the applicable storage and rights policy.</p></div><div class='mini'><h4>Delete the original</h4><p>The record and permitted outputs may remain, while the user can request deletion of all.</p></div></div><h3>Portability</h3><p>Users can export metadata, summaries, notes, progress and the terms version they accepted.</p>"},
+subscription:{title:"Subscription model",sub:"Flexible plans—not unlimited processing",keys:"subscription price credits processing storage",html:"<p class='lead'><strong>Best fit:</strong> a monthly plan that includes processing credits and storage, with optional additional credits.</p><table><tr><th>Trial</th><td>One book and limited features.</td></tr><tr><th>Light reader</th><td>Overview, audio and modest storage.</td></tr><tr><th>Personal library</th><td>Chapters, analysis, reminders and more storage.</td></tr><tr><th>Researcher</th><td>Comparisons, exports and larger credits.</td></tr><tr><th>Add-ons</th><td>Extra book processing or storage without a full upgrade.</td></tr></table><h3>Pricing</h3><p>Do not set it before measuring real books. Credits should reflect page volume, OCR, analysis depth and audio—not book count alone.</p>"},
+rights:{title:"Copyright and privacy",sub:"Preliminary legal assessment: risk reduction, not immunity",keys:"copyright privacy public domain licence UAE law risk",html:"<div class='callout risk'><strong>Direct answer: no, the platform cannot yet be described as fully legally safe.</strong> Its design respects important safeguards, but that does not settle the legality of processing an entire protected book inside a commercial service.</div><h3>Why does risk remain?</h3><table><tr><th>Article 7</th><td>Reproduction—including downloading and electronic storage—translation and modification are uses controlled by the right holder.</td></tr><tr><th>Article 22(1)</th><td>Allows one copy for purely personal, non-profit and non-professional use. It should not be assumed to cover a commercial platform's processing automatically.</td></tr><tr><th>Article 22(5)</th><td>Allows short quotations, excerpts or analyses within customary limits, with the source and author named.</td></tr><tr><th>Artificial intelligence</th><td>The text contains no broad express exemption for automated analysis or summarization of protected books. Specialist legal advice is required.</td></tr></table><h3>Risk-reduction controls</h3><ul class='checks'><li>No protected books preinstalled and no public sharing between users.</li><li>Accept author-owned, public-domain, licensed or expressly permitted works.</li><li>Use short cited quotations and do not reconstruct a book page by page.</li><li>No complete verbatim narration of protected books.</li><li>Do not use user files to train a general-purpose model.</li><li>Securely isolate accounts and support deletion of originals and outputs.</li></ul><div class='callout'><strong>Before a paid public launch:</strong> obtain a written UAE legal memorandum covering accepted files, user terms, storage, summarization, translation, audio, right-holder notices and takedown procedures.</div><h3>When full narration may be possible</h3><p>User-authored content, public-domain works, licensed works or material covered by explicit permission. Splitting a verbatim reading into short segments does not remove copyright obligations.</p>"},
+"trust-gate":{title:"Trust and rights gate",sub:"Consent before activation and a declaration before every book",keys:"trust rights consent terms clickwrap declaration upload notice takedown monitoring",html:"<p class='lead'><strong>This layer does not change or diminish the personal-library idea.</strong> It structures account activation and book uploads, clarifies responsibility, and protects readers, right holders and the platform.</p><div class='quote'>No account is activated without express consent, and no book analysis starts without a separate declaration of the user's right to upload and process it.</div><h3>Gate one: before account activation</h3><table><thead><tr><th>Consent</th><th>What the user confirms</th></tr></thead><tbody><tr><td><strong>Terms of use</strong></td><td>Understands the service, its limits, and grounds for suspension or deletion.</td></tr><tr><td><strong>Book rights</strong></td><td>Will upload only files they may lawfully use and will not unlawfully publish or sell outputs.</td></tr><tr><td><strong>Privacy</strong></td><td>Understands collected data, storage, retention, deletion and applicable withdrawal rights.</td></tr><tr><td><strong>Payment</strong></td><td>Understands price, credits, renewal, cancellation and refund before payment.</td></tr></tbody></table><ul class='checks'><li>Separate unchecked boxes in clear Arabic or English.</li><li>A plain-language summary plus accessible full legal text.</li><li>Account creation remains disabled until mandatory consents are complete.</li><li>Marketing consent stays separate and optional.</li><li>Material changes require renewed acceptance.</li></ul><h3>Gate two: before every book</h3><p>The user identifies the right source: <span class='badge'>Author or right holder</span><span class='badge'>Public domain</span><span class='badge'>Licence or permission</span><span class='badge'>Lawful copy for private analysis</span><span class='badge'>Needs review</span></p><div class='callout'><strong>Declaration:</strong> “I confirm that I have a lawful right to upload and process this book for private personal use and will not use the file or outputs in violation of author or publisher rights.”</div><h3>Detecting risk without surveillance</h3><div class='grid three'><div class='mini'><h4>User declaration</h4><p>Rights category and book-linked confirmation.</p></div><div class='mini'><h4>Limited automated signals</h4><p>Metadata, reported-file fingerprints, piracy or protection-removal signals, and abnormal upload patterns.</p></div><div class='mini'><h4>Right-holder notice</h4><p>A documented channel for notice, suspension, review and deletion.</p></div></div><table><thead><tr><th>Status</th><th>Example</th><th>Action</th></tr></thead><tbody><tr><td><strong>Green</strong></td><td>User-authored, public-domain or clearly licensed.</td><td>Enable functions covered by the right.</td></tr><tr><td><strong>Amber</strong></td><td>Lawful copy for private analysis without publication or full-narration rights.</td><td>Private restricted processing; no publication or complete verbatim narration.</td></tr><tr><td><strong>Red</strong></td><td>Documented notice, admitted piracy, blocked-file match or repeated violation.</td><td>Pause, request evidence, then delete or suspend when required.</td></tr></tbody></table><h3>Evidence and response log</h3><ul class='checks'><li>Store account, time, terms version, language and selected consents.</li><li>Link every declaration to its book without exposing it publicly.</li><li>Provide the user with a copy of accepted terms.</li><li>Temporarily pause on a credible notice, request evidence, then record the decision.</li><li>Maintain a repeat-infringer policy and a channel for right holders.</li><li>No routine human access to books; human review is exceptional, restricted and reason-based.</li></ul><div class='callout'><strong>Experience impact:</strong> one or two minutes during signup and one selection per upload—a small cost for stronger trust and readiness for a practical launch.</div>"},
+engine:{title:"Book analysis engine",sub:"No training from scratch and no dependence on a personal ChatGPT subscription",keys:"API AI model OCR RAG analysis tokens",html:"<div class='quote'>A personal ChatGPT subscription does not power the product. The platform uses its own API services and is charged by usage.</div><p>The model is not trained separately on every book. The system processes structured parts under a fixed method, stores approved outputs and creates a retrieval index.</p><div class='flow'><span>Extract</span><b>→</b><span>Detect chapters</span><b>→</b><span>Summarize</span><b>→</b><span>Synthesize</span><b>→</b><span>Verify</span><b>→</b><span>Audio & index</span></div><table><tr><th>Cataloguer</th><td>Metadata, subject and structure.</td></tr><tr><th>Chapter summarizer</th><td>Ideas, arguments and examples.</td></tr><tr><th>Analyst</th><td>Connections, strengths, limitations and application.</td></tr><tr><th>Verifier</th><td>Checks against the original and its locations.</td></tr><tr><th>Narrator</th><td>Turns approved output into audio.</td></tr></table><p>These are programmatic roles in one workflow—not five employees or five expensive models.</p>"},
+duplicates:{title:"The same book across users",sub:"Reduce waste while respecting rights and editions",keys:"duplicate edition translation ISBN fingerprint",html:"<p>Matching uses ISBN, edition, language, publisher and a text fingerprint; title alone is insufficient.</p><table><tr><th>Same file and edition</th><td>Technical reuse may be possible under the approved rights policy.</td></tr><tr><th>Revised edition</th><td>A distinct version whose changed sections must be reviewed.</td></tr><tr><th>Different translation</th><td>A separate version.</td></tr><tr><th>Abridged edition</th><td>A separate version.</td></tr><tr><th>Different scan</th><td>Match through a post-OCR text fingerprint.</td></tr></table><h3>Three layers</h3><ul><li><strong>Bibliographic record:</strong> general metadata need not be duplicated.</li><li><strong>Original file:</strong> private to each user.</li><li><strong>Analysis:</strong> reusable only for public-domain or licensed material, or after legal approval; otherwise private.</li></ul><p>Purpose, notes, progress and reminders always remain personal.</p>"},
+cost:{title:"Cost and scaling without exaggeration",sub:"Start simply and postpone problems that belong to later success",keys:"cost tokens scale batch queues",html:"<p>Cost per book includes extraction, model input, generated output, verification, audio, storage and later questions. Measure these during the prototype instead of guessing.</p><ul class='checks'><li>Use an economical model for chapters and classification.</li><li>Use a stronger model only for synthesis and difficult books.</li><li>Process in the background.</li><li>Cache approved results.</li><li>Retrieve only relevant passages for questions.</li><li>Apply credits and spending limits.</li></ul><h3>Workflow automation</h3><p>Automation coordinates events and notifications: book received → processing started → completed → user notified. It does not read thousands of books itself.</p><div class='callout'><strong>Reassurance:</strong> large-scale queues and deduplication are not required to begin; they are added after the product proves demand.</div>"},
+proscons:{title:"Benefits and challenges",sub:"A balanced view",keys:"benefits risks quality hallucination",html:"<div class='cols'><div class='mini'><h4>Benefits</h4><ul><li>A mission that reconnects people with books.</li><li>Strong alignment with professional library expertise.</li><li>Value accumulates with the user's collection.</li><li>Serves both rapid reading and deeper study.</li><li>Can start with a focused prototype.</li><li>Potential for recurring subscription value.</li></ul></div><div class='mini'><h4>Challenges</h4><ul><li>OCR quality for scanned Arabic books.</li><li>Oversimplification or incorrect summaries.</li><li>Cost of large books and audio.</li><li>Copyright constraints.</li><li>File protection.</li><li>Competitors cover parts of the idea.</li></ul></div></div><h3>Response</h3><p>Citations, automated review, tests across book types, usage limits, privacy from the start, and no full narration or public sharing without rights.</p>"},
+roadmap:{title:"Development roadmap",sub:"A path that protects the idea from unnecessary expansion",keys:"roadmap prototype MVP stages",html:"<table><thead><tr><th>Stage</th><th>Build</th><th>Defer</th></tr></thead><tbody><tr><td>0 — Define the vision</td><td>Index, identity, boundaries and quality rules.</td><td>Programming and pricing.</td></tr><tr><td>1 — Personal prototype</td><td>Upload, extraction, overview, chapters, audio, questions and saving.</td><td>Public subscriptions.</td></tr><tr><td>2 — Living library</td><td>Progress, reminders, notes and return to source.</td><td>Sharing between accounts.</td></tr><tr><td>3 — User trial</td><td>Accounts, quotas and experimental subscription.</td><td>Large-scale promotion.</td></tr><tr><td>4 — Collection intelligence</td><td>Comparisons, knowledge map and advanced librarian.</td><td>Institutional service.</td></tr><tr><td>5 — Scale</td><td>Queues, deduplication, monitoring and rights partnerships.</td><td>Anything not yet justified by demand.</td></tr></tbody></table><div class='callout'><strong>Rule:</strong> the prototype is not ten books summarized manually; it is a working machine that users test with books they upload themselves.</div>"},
+decisions:{title:"Confirmed decisions",sub:"What has been agreed so far",keys:"confirmed decisions",html:"<div class='mini decision'><ul class='checks'><li>A smart personal library, not a single-PDF utility.</li><li>The library starts empty; users upload their own books.</li><li>The main overview lasts 15–20 minutes, rarely 25.</li><li>Chapter summaries are essential for deeper study.</li><li>The interface works fully in Arabic and English.</li><li>Analysis and audio language are independent from book language.</li><li>English books can produce Arabic outputs, and vice versa.</li><li>No complete verbatim narration of protected books.</li><li>Classification and collection growth are core features.</li><li>Every user receives an isolated library and an AI librarian.</li><li>Progress and reminders are essential.</li><li>No account activation without separate, express and documented consents.</li><li>A separate lawful-use declaration before every book upload.</li><li>Limited signal-and-notice monitoring, with no routine human inspection of books.</li><li>A suspension, review and deletion process plus a repeat-infringer policy.</li><li>Monthly plans use included credits plus optional add-ons.</li><li>The product runs through its own APIs, not a user's ChatGPT subscription.</li><li>No training from scratch at the beginning and no general training on user files.</li><li>Start small and solve mass scale only when needed.</li><li>The founding document is complete and ready for a practical prototype.</li></ul></div>"},
+questions:{title:"Open questions",sub:"Decisions and experiments for later",keys:"open questions name quality fiction academic",html:"<div class='mini openq'><ol><li>What is the final name and identity?</li><li>Should the first version exclude fiction?</li><li>What summary standard applies to each book type?</li><li>One narrator voice or a selection?</li><li>What file-size and processing limits belong to each plan?</li><li>What happens to originals after a subscription ends?</li><li>Should external reviews appear in the first version?</li><li>How should page references work across editions?</li><li>What quality checks must pass before a result is marked ready?</li><li>Who is the first test audience?</li><li>How much personal customization is needed?</li><li>When is specialized legal review required?</li></ol></div>"},
+sources:{title:"Sources and links",sub:"For verification when connected to the internet",keys:"sources references copyright API",html:"<h3>Comparable products</h3><p><a href='https://www.blinkist.com/'>Blinkist</a> · <a href='https://notebooklm.google/'>NotebookLM</a> · <a href='https://www.chatpdf.com/'>ChatPDF</a> · <a href='https://readwise.io/read'>Readwise</a> · <a href='https://www.bookfusion.com/'>BookFusion</a> · <a href='https://www.asksia.ai/summarize/book-summarizer'>AskSia</a> · <a href='https://www.shortform.com/'>Shortform</a> · <a href='https://speechify.com/'>Speechify</a></p><h3>Copyright</h3><p><a href='https://uaelegislation.gov.ae/en/legislations/1534'>UAE Federal Decree-Law No. 38 of 2021 on Copyright and Neighbouring Rights</a>.</p><h3>Architecture and cost</h3><p><a href='https://developers.openai.com/api/docs/pricing'>Pricing</a> · <a href='https://developers.openai.com/api/docs/guides/tools-file-search'>File search</a> · <a href='https://developers.openai.com/api/docs/guides/text-to-speech'>Text to speech</a> · <a href='https://developers.openai.com/api/docs/guides/cost-optimization'>Cost optimization</a> · <a href='https://developers.openai.com/api/docs/guides/your-data'>Data controls</a>.</p><p>The index itself works offline; only external links need an internet connection.</p>"}
+}}
+function applyEnglish(){
+ document.documentElement.lang='en';document.documentElement.dir='ltr';document.title='Smart Personal Library — Concept Index';
+ document.querySelector('meta[name="description"]').content='The comprehensive founding index for the Smart Personal Library concept';
+ document.querySelector('.brand-mark').textContent='L';document.querySelector('.brand h2').textContent='Smart Personal Library';document.querySelector('.brand small').textContent='Concept index — Founding version 1.1';
+ document.querySelectorAll('.nav a').forEach((a,i)=>a.textContent=EN.nav[i]);document.querySelector('.side-note').textContent='A living foundation document that gathers the concept, decisions and questions. It is not yet the finished product.';
+ const search=document.getElementById('search');search.placeholder='Search: subscription, summaries, rights, reminders…';search.setAttribute('aria-label','Search');
+ document.querySelector('#language span').textContent='العربية';document.getElementById('language').setAttribute('aria-label','Switch interface to Arabic');
+ document.querySelector('#expand span').textContent='Expand all';document.querySelector('#collapse span').textContent='Collapse all';document.querySelector('#theme span').textContent='Theme';document.querySelector('.toolbar button[onclick] span').textContent='Print';
+ document.querySelector('.eyebrow').textContent='Comprehensive founding reference';document.querySelector('.hero h1').textContent='A library that brings people back to books in a modern way';document.querySelector('.hero p').textContent='A platform that gives every user an empty smart library to fill with their own books. It understands, catalogues, summarizes and turns approved outputs into audio, then follows reading progress and connects knowledge across the collection without publishing or replacing the books.';
+ const tags=['15–20 minute overview','Chapter summaries','Arabic ↔ English','Audio in two languages','Personal AI librarian','Page-linked citations','Progress & reminders','Local source reader'];document.querySelectorAll('.hero-tags span').forEach((s,i)=>s.textContent=tags[i]);
+ const stats=[['20','minutes for the main overview'],['4','layers for understanding each book'],['1','private library for every user'],['0','protected books preinstalled']];document.querySelectorAll('.stat').forEach((s,i)=>{s.querySelector('strong').textContent=stats[i][0];s.querySelector('span').textContent=stats[i][1]});document.getElementById('noResults').textContent='No matching section. Try another word.';
+ Object.entries(EN.sections).forEach(([id,v])=>{const s=document.getElementById(id);s.dataset.keywords=v.keys;s.querySelector('.section-title h2').textContent=v.title;s.querySelector('.section-title p').textContent=v.sub;s.querySelector('.content').innerHTML=v.html});
+ document.querySelector('.footer').innerHTML='<strong>Smart Personal Library — Founding Concept Index</strong><br>A living document for review before detailed specifications and implementation.';
+}
+const queryLang=new URLSearchParams(location.search).get('lang');if(queryLang==='ar'||queryLang==='en')localStorage.setItem('smart-library-language',queryLang);const activeLang=queryLang||localStorage.getItem('smart-library-language')||'ar';if(activeLang==='en')applyEnglish();document.querySelector('#sources .content').insertAdjacentHTML('afterbegin',activeLang==='en'?"<div class='callout'><strong>User-experience rule:</strong> every external source opens in a separate browser tab, so the platform remains open and the reader does not lose their place.</div>":"<div class='callout'><strong>قاعدة تجربة المستخدم:</strong> يفتح كل مصدر أو رابط خارجي في تبويب مستقل، لتبقى المنصة مفتوحة ولا يفقد القارئ موضعه.</div>");document.getElementById('language').onclick=()=>{localStorage.setItem('smart-library-language',activeLang==='en'?'ar':'en');location.reload()};
+</script>
+<script>
+const sections=[...document.querySelectorAll('.section')],search=document.getElementById('search'),noResults=document.getElementById('noResults');
+function filter(){
+  const q=search.value.trim().toLowerCase();let shown=0;
+  sections.forEach(s=>{
+    const ok=!q||(s.textContent+' '+s.dataset.keywords).toLowerCase().includes(q);
+    s.hidden=!ok;
+    if(ok){shown++;if(q)s.open=true}
+  });
+  noResults.classList.toggle('show',shown===0)
+}
+search.addEventListener('input',filter);
+document.getElementById('expand').onclick=()=>sections.filter(s=>!s.hidden).forEach(s=>s.open=true);
+document.getElementById('collapse').onclick=()=>sections.forEach(s=>s.open=false);
+if(localStorage.getItem('smart-library-theme')==='dark')document.body.classList.add('dark');
+document.getElementById('theme').onclick=()=>{
+  document.body.classList.toggle('dark');
+  localStorage.setItem('smart-library-theme',document.body.classList.contains('dark')?'dark':'light')
+};
+document.querySelectorAll('a[href^="http://"],a[href^="https://"]').forEach(a=>{
+  a.target='_blank';
+  a.rel='noopener noreferrer';
+});
+</script>
+</body>
+</html>
