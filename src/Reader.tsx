@@ -43,6 +43,7 @@ export default function Reader({ rtl }: { rtl: boolean }) {
   const [speaking, setSpeaking] = useState(false);
   const [speechLanguage, setSpeechLanguage] = useState<"ar-SA" | "en-US">(rtl ? "ar-SA" : "en-US");
   const [speechRate, setSpeechRate] = useState(1);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   const effectiveRtl = direction === "auto" ? rtl : direction === "rtl";
 
@@ -71,6 +72,14 @@ export default function Reader({ rtl }: { rtl: boolean }) {
   useEffect(() => () => { if (ambientUrl) URL.revokeObjectURL(ambientUrl); }, [ambientUrl]);
   useEffect(() => () => window.speechSynthesis?.cancel(), []);
   useEffect(() => { window.speechSynthesis?.cancel(); setSpeaking(false); }, [page]);
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+    const loadVoices = () => setVoices(window.speechSynthesis.getVoices());
+    loadVoices();
+    window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+    const retry = window.setTimeout(loadVoices, 500);
+    return () => { window.clearTimeout(retry); window.speechSynthesis.removeEventListener("voiceschanged", loadVoices); };
+  }, []);
 
   useEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
@@ -172,6 +181,10 @@ export default function Reader({ rtl }: { rtl: boolean }) {
       return;
     }
     if (speaking) { window.speechSynthesis.cancel(); setSpeaking(false); return; }
+    if (viewMode !== "book") {
+      setError(rtl ? "للقراءة المتزامنة انتقل إلى «وضع الكتاب»؛ عارض المتصفح الأصلي لا يشارك رقم الصفحة المفتوحة مع التطبيق." : "For synchronized speech, switch to Book mode. The browser's native PDF viewer does not expose its current page to the app.");
+      return;
+    }
     try {
       const pdfPage = await document.getPage(page);
       const content = await pdfPage.getTextContent();
@@ -183,8 +196,13 @@ export default function Reader({ rtl }: { rtl: boolean }) {
       setError("");
       const utterance = new SpeechSynthesisUtterance(pageText);
       utterance.lang = speechLanguage; utterance.rate = speechRate;
-      const voices = window.speechSynthesis.getVoices();
-      utterance.voice = voices.find(voice => voice.lang.toLowerCase().startsWith(speechLanguage.slice(0,2).toLowerCase())) ?? null;
+      const availableVoices = voices.length ? voices : window.speechSynthesis.getVoices();
+      const matchingVoice = availableVoices.find(voice => voice.lang.toLowerCase().startsWith(speechLanguage.slice(0,2).toLowerCase()));
+      if (!matchingVoice) {
+        setError(rtl ? `لا يوجد صوت ${speechLanguage.startsWith("ar") ? "عربي" : "إنجليزي"} مثبت أو متاح في هذا المتصفح. ثبّت صوت اللغة في إعدادات الجهاز ثم أعد فتح الصفحة.` : `No ${speechLanguage.startsWith("ar") ? "Arabic" : "English"} voice is installed or available in this browser. Install the language voice in device settings, then reopen the page.`);
+        return;
+      }
+      utterance.voice = matchingVoice;
       utterance.onend = () => setSpeaking(false); utterance.onerror = () => setSpeaking(false);
       window.speechSynthesis.cancel(); window.speechSynthesis.speak(utterance); setSpeaking(true);
     } catch {
@@ -201,7 +219,7 @@ export default function Reader({ rtl }: { rtl: boolean }) {
   };
 
   return <div className="page source-reader-page">
-    <header className="page-title"><div><span>{rtl ? "القارئ والصوت المجاني — V0.6" : "Free reader & device voice — V0.6"}</span><h2>{rtl ? "قارئ الكتب متعدد اللغات" : "Multilingual book reader"}</h2><p>{rtl ? "اعرض الكتاب واقرأ صفحته بصوت جهازك بلا OpenAI وبلا تكلفة API." : "View your book and hear each page through your device voice—no OpenAI call or API charge."}</p></div>{fileUrl && <button className="secondary" onClick={close}>{rtl ? "إغلاق الكتاب" : "Close book"}</button>}</header>
+    <header className="page-title"><div><span>{rtl ? "القارئ والصوت المجاني — V0.6.1" : "Free reader & device voice — V0.6.1"}</span><h2>{rtl ? "قارئ الكتب متعدد اللغات" : "Multilingual book reader"}</h2><p>{rtl ? "اعرض الكتاب واقرأ صفحته بصوت جهازك بلا OpenAI وبلا تكلفة API." : "View your book and hear each page through your device voice—no OpenAI call or API charge."}</p></div>{fileUrl && <button className="secondary" onClick={close}>{rtl ? "إغلاق الكتاب" : "Close book"}</button>}</header>
 
     {!fileUrl ? <section className="reader-empty panel">
       <div className="reader-emblem">◫</div><span className="eyebrow">{rtl ? "قراءة خاصة على جهازك" : "Private on-device reading"}</span>
@@ -229,7 +247,7 @@ export default function Reader({ rtl }: { rtl: boolean }) {
         <div><b>{rtl ? "بيئة القراءة" : "Reading scene"}</b><div className="option-row themes">{(["linen","paper","library","night"] as Theme[]).map(item => <button key={item} className={theme === item ? "active" : ""} onClick={() => setTheme(item)}>{rtl ? ({linen:"هادئة",paper:"ورق",library:"مكتبة",night:"ليل"} as Record<Theme,string>)[item] : item}</button>)}</div></div>
         <div><b>{rtl ? "اتجاه الكتاب" : "Book direction"}</b><div className="option-row">{(["auto","rtl","ltr"] as Direction[]).map(item => <button key={item} className={direction === item ? "active" : ""} onClick={() => setDirection(item)}>{item === "auto" ? (rtl ? "تلقائي" : "Auto") : item.toUpperCase()}</button>)}</div></div>
         <div><b>{rtl ? "سرعة التقليب" : "Turn speed"}</b><div className="option-row">{(["slow","normal","fast"] as Speed[]).map(item => <button key={item} className={speed === item ? "active" : ""} onClick={() => setSpeed(item)}>{rtl ? ({slow:"هادئ",normal:"طبيعي",fast:"سريع"} as Record<Speed,string>)[item] : item}</button>)}</div></div>
-        <div><b>{rtl ? "صوت الجهاز — مجاني" : "Device voice — free"}</b><div className="option-row"><select value={speechLanguage} onChange={e=>setSpeechLanguage(e.target.value as "ar-SA"|"en-US")}><option value="ar-SA">العربية</option><option value="en-US">English</option></select><select value={speechRate} onChange={e=>setSpeechRate(Number(e.target.value))}><option value="0.8">0.8×</option><option value="1">1×</option><option value="1.2">1.2×</option></select><button className={speaking?"active":""} disabled={!document} onClick={speakPage}>{speaking?(rtl?"■ إيقاف":"■ Stop"):(rtl?"▶ اقرأ الصفحة":"▶ Read page")}</button></div><small>{rtl?"يعتمد على الأصوات المثبتة في جهازك ولا يستهلك رصيد API.":"Uses voices installed on your device and consumes no API credit."}</small></div>
+        <div><b>{rtl ? "صوت الجهاز — مجاني" : "Device voice — free"}</b><div className="option-row"><select value={speechLanguage} onChange={e=>setSpeechLanguage(e.target.value as "ar-SA"|"en-US")}><option value="ar-SA">العربية</option><option value="en-US">English</option></select><select value={speechRate} onChange={e=>setSpeechRate(Number(e.target.value))}><option value="0.8">0.8×</option><option value="1">1×</option><option value="1.2">1.2×</option></select><button className={speaking?"active":""} disabled={!document||viewMode!=="book"} onClick={speakPage}>{speaking?(rtl?"■ إيقاف":"■ Stop"):(rtl?"▶ اقرأ الصفحة الحالية":"▶ Read current page")}</button></div><small>{viewMode!=="book"?(rtl?"انتقل إلى وضع الكتاب أولًا حتى يتزامن الصوت مع رقم الصفحة.":"Switch to Book mode first so speech follows the current page."):(rtl?`${voices.length} صوتًا متاحًا على الجهاز؛ لا يستهلك رصيد API.`:`${voices.length} device voices available; no API credit is used.`)}</small></div>
         <div><b>{rtl ? "مؤثرات القراءة" : "Reading sounds"}</b><div className="option-row"><button className={sound ? "active" : ""} onClick={() => setSound(!sound)}>{rtl ? "صوت الورق" : "Page sound"}</button><label className="audio-picker"><input type="file" accept="audio/*" onChange={chooseAmbient}/>{rtl ? "اختر صوتًا خلفيًا" : "Choose ambience"}</label>{ambientUrl && <button className={ambientOn ? "active" : ""} onClick={() => setAmbientOn(!ambientOn)}>{ambientOn ? "❚❚" : "▶"} {ambientName.slice(0,18)}</button>}</div></div>
         <audio ref={audioRef} src={ambientUrl} loop />
       </aside>}
@@ -237,7 +255,7 @@ export default function Reader({ rtl }: { rtl: boolean }) {
       {navigatorOpen && document && <aside className="reader-navigator"><header><b>{rtl ? "التنقل في الكتاب" : "Book navigation"}</b><button onClick={() => setNavigatorOpen(false)}>×</button></header><div className="jump-grid">{Array.from({length: document.numPages}, (_, index) => index + 1).map(number => <button key={number} className={`${number === page ? "current" : ""} ${bookmarks.includes(number) ? "marked" : ""}`} onClick={() => { setPage(number); setNavigatorOpen(false); }}>{number}</button>)}</div><p>{rtl ? `علاماتك: ${bookmarks.length ? bookmarks.join("، ") : "لا توجد بعد"}` : `Bookmarks: ${bookmarks.length ? bookmarks.join(", ") : "none yet"}`}</p></aside>}
 
       {viewMode === "native" ? <div className="native-reader-stage" ref={stageRef}>
-        <div className="fidelity-note">✓ {rtl ? "محرك المتصفح الأصلي: المرجع البصري المعتمد للخط العربي والتشكيل وتنسيق الصفحة." : "Native browser engine: the visual reference for Arabic fonts, shaping, and page layout."}</div>
+        <div className="fidelity-note">✓ {rtl ? "العرض الأصلي مرجع بصري فقط. للصوت المتزامن استخدم وضع الكتاب." : "Original view is the visual reference only. Use Book mode for synchronized speech."}<button onClick={chooseBookMode}>{rtl?"انتقل إلى وضع الكتاب والصوت":"Switch to Book mode & speech"}</button></div>
         <iframe title={fileName} src={`${fileUrl}#view=FitH&toolbar=1&navpanes=0`} />
       </div> : document ? <><div className="reader-stage" ref={stageRef} style={{"--turn-duration": `${speedMs[speed]}ms`} as React.CSSProperties}>
         <button className="page-arrow previous" onClick={() => turn(-1)} disabled={page === 1 || compatibility !== "passed"} aria-label={rtl ? "الصفحة السابقة" : "Previous page"}>‹</button>
@@ -245,7 +263,7 @@ export default function Reader({ rtl }: { rtl: boolean }) {
         <button className="page-arrow next" onClick={() => turn(1)} disabled={page === document.numPages || compatibility !== "passed"} aria-label={rtl ? "الصفحة التالية" : "Next page"}>›</button>
         {compatibility === "untested" && <div className="compatibility-gate"><span>{rtl ? "اختبار سلامة النص" : "Text fidelity check"}</span><h3>{rtl ? "هل هذه الصفحة مطابقة للنص في العرض الأصلي؟" : "Does this page match the Original view?"}</h3><p>{rtl ? "افحص اتصال الحروف، ترتيب الكلمات، الأرقام، والخطوط اللاتينية. لن يعمل التقليب قبل إجابتك." : "Check character rendering, word order, numbers, and mixed-language text. Page turning stays locked until you confirm."}</p><div><button className="approve" onClick={approveCompatibility}>✓ {rtl ? "نعم، الصفحة صحيحة" : "Yes, it matches"}</button><button className="reject" onClick={rejectCompatibility}>× {rtl ? "لا، يوجد تشويه" : "No, text is distorted"}</button></div></div>}
       </div>
-      <footer className="reader-footer"><button onClick={() => turn(-1)} disabled={page === 1 || compatibility !== "passed"}>{rtl ? "السابق" : "Previous"}</button><div><input type="range" min="1" max={document.numPages} value={page} disabled={compatibility !== "passed"} onChange={e => setPage(Number(e.target.value))}/><span>{rtl ? `الصفحة ${page} من ${document.numPages}` : `Page ${page} of ${document.numPages}`}</span></div><button onClick={() => turn(1)} disabled={page === document.numPages || compatibility !== "passed"}>{rtl ? "التالي" : "Next"}</button></footer></> : null}
+      <footer className="reader-footer"><button onClick={() => turn(-1)} disabled={page === 1 || compatibility !== "passed"}>{rtl ? "السابق" : "Previous"}</button><div><input type="range" min="1" max={document.numPages} value={page} disabled={compatibility !== "passed"} onChange={e => setPage(Number(e.target.value))}/><span>{rtl ? `الصفحة ${page} من ${document.numPages}` : `Page ${page} of ${document.numPages}`}</span></div><button className="speak-current" onClick={speakPage} disabled={compatibility!=="passed"}>{speaking?(rtl?"■ إيقاف":"■ Stop"):(rtl?"▶ استمع لهذه الصفحة":"▶ Listen to this page")}</button><button onClick={() => turn(1)} disabled={page === document.numPages || compatibility !== "passed"}>{rtl ? "التالي" : "Next"}</button></footer></> : null}
       {error && <div className="reader-error inline">{error}</div>}
       <div className="local-proof">◆ {rtl ? "يُحفظ رقم الصفحة والعلامات فقط على هذا الجهاز؛ ملف الكتاب والصوت الخلفي غير محفوظين في المنصة." : "Only page position and bookmarks are stored on this device; book and ambience files are not stored."}</div>
     </section>}

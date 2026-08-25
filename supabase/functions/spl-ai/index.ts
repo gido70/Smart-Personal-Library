@@ -41,10 +41,16 @@ Deno.serve(async (request) => {
     const { action, bookId } = body;
     const { data: book, error: bookError } = await supabase.from("spl_books").select("*").eq("id", bookId).single();
     if (bookError || !book) return json({ error: "BOOK_NOT_FOUND" }, 404);
-    const { data: consent } = await supabase.from("spl_legal_consents").select("id").eq("book_id", bookId).maybeSingle();
+    if (book.user_id !== userData.user.id) return json({ error: "BOOK_FORBIDDEN" }, 403);
+    const { data: consent } = await supabase.from("spl_legal_consents").select("id").eq("book_id", bookId).eq("user_id", userData.user.id).maybeSingle();
     if (!consent) return json({ error: "LEGAL_CONSENT_REQUIRED" }, 403);
 
     if (action === "process") {
+      const { data: existingAnalysis } = await supabase.from("spl_analyses").select("content").eq("book_id", bookId).eq("kind", "overview").limit(1).maybeSingle();
+      if (existingAnalysis) return json({ ok: true, reused: true, result: existingAnalysis.content });
+      const dayStart = new Date();dayStart.setUTCHours(0,0,0,0);
+      const { data: dailyAnalyses } = await supabase.from("spl_analyses").select("book_id").eq("user_id", userData.user.id).eq("kind", "overview").gte("created_at", dayStart.toISOString());
+      if (new Set((dailyAnalyses ?? []).map(item => item.book_id)).size >= 3) return json({ error: "DAILY_ANALYSIS_LIMIT_REACHED", limit: 3 }, 429);
       await supabase.from("spl_books").update({ status: "processing", processing_error: null }).eq("id", bookId);
       let openaiFileId = book.openai_file_id as string | null;
       if (!openaiFileId) {
@@ -91,6 +97,9 @@ Deno.serve(async (request) => {
       const language = body.language === "en" ? "en" : "ar";
       if (!question) return json({ error: "QUESTION_REQUIRED" }, 400);
       if (!book.openai_file_id) return json({ error: "BOOK_NOT_PROCESSED" }, 409);
+      const dayStart = new Date();dayStart.setUTCHours(0,0,0,0);
+      const { count: dailyQuestions } = await supabase.from("spl_questions").select("id", { count: "exact", head: true }).eq("user_id", userData.user.id).gte("created_at", dayStart.toISOString());
+      if ((dailyQuestions ?? 0) >= 20) return json({ error: "DAILY_QUESTION_LIMIT_REACHED", limit: 20 }, 429);
       const prompt = `${language === "ar" ? "أجب بالعربية" : "Answer in English"}. Answer only from the uploaded book. If the book does not support the answer, say so. Distinguish quotations, paraphrases, and platform inference. Include page or chapter references when reliably available. Return JSON only: {answer, references:[{page,chapter,note}], confidence, inference}. Question: ${question}`;
       const generated = await openAI("responses", {
         method: "POST",
@@ -106,6 +115,8 @@ Deno.serve(async (request) => {
 
     if (action === "audio") {
       const language = body.language === "en" ? "en" : "ar";
+      const { data: existingAudio } = await supabase.from("spl_audio_outputs").select("id,language,voice,storage_path,part_no,created_at").eq("book_id", bookId).eq("language", language).order("part_no");
+      if (existingAudio?.length) return json({ ok: true, reused: true, audio: existingAudio, disclosure: language === "ar" ? "هذا الصوت مولد بالذكاء الاصطناعي." : "This voice is AI-generated." });
       const { data: analysis } = await supabase.from("spl_analyses").select("id,content").eq("book_id", bookId).eq("kind", "overview").eq("language", language).maybeSingle();
       if (!analysis) return json({ error: "ANALYSIS_NOT_READY" }, 409);
       const spoken = String(analysis.content?.overview?.summary ?? analysis.content?.summary ?? "").slice(0, 24000);

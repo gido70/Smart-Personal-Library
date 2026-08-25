@@ -17,3 +17,8 @@
 @media(prefers-reduced-motion:reduce){.paper-page.out-next,.paper-page.in-next,.paper-page.out-prev,.paper-page.in-prev,.paper-shine{animation-duration:.01ms!important}}
 @media(max-width:900px){.reader-options{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:760px){.reader-options{grid-template-columns:1fr}.reader-toolbar{gap:8px}.reader-icon{position:absolute;inset-inline-start:10px}.reader-file-name{margin-inline-start:40px}.reader-stage{padding-bottom:150px}.compatibility-gate{bottom:12px}.compatibility-gate>div{flex-direction:column}.jump-grid{grid-template-columns:repeat(6,1fr)}}
+
+/* V0.6.1 synchronized device speech */
+.reader-footer{grid-template-columns:auto 1fr auto auto;gap:10px}.reader-footer>button.speak-current{background:var(--green);color:#fff;border-color:var(--green)}
+.fidelity-note{height:auto;min-height:35px;gap:10px;padding:5px 12px}.fidelity-note button{border:1px solid #195d49;border-radius:7px;background:#fff;color:#195d49;padding:4px 8px;font-size:9px;font-weight:700}
+@media(max-width:760px){.reader-footer{grid-template-columns:auto 1fr auto}.reader-footer .speak-current{grid-column:1/-1}.fidelity-note{flex-wrap:wrap}}
