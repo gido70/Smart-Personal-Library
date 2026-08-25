@@ -63,10 +63,8 @@ export default function Reader({ rtl }: { rtl: boolean }) {
     return () => { cancelled = true; };
   }, [document, page, scale, fileKey, rtl, viewMode]);
 
-  useEffect(() => () => {
-    if (fileUrl) URL.revokeObjectURL(fileUrl);
-    if (ambientUrl) URL.revokeObjectURL(ambientUrl);
-  }, [fileUrl, ambientUrl]);
+  useEffect(() => () => { if (fileUrl) URL.revokeObjectURL(fileUrl); }, [fileUrl]);
+  useEffect(() => () => { if (ambientUrl) URL.revokeObjectURL(ambientUrl); }, [ambientUrl]);
 
   useEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
