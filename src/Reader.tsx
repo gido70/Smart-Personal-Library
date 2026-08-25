@@ -41,7 +41,7 @@ export default function Reader({ rtl }: { rtl: boolean }) {
   const [ambientName, setAmbientName] = useState("");
   const [ambientOn, setAmbientOn] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const [speechLanguage, setSpeechLanguage] = useState<"ar-SA" | "en-US">(rtl ? "ar-SA" : "en-US");
+  const [speechLanguage, setSpeechLanguage] = useState<"auto" | "ar-SA" | "en-US">("auto");
   const [speechRate, setSpeechRate] = useState(1);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
 
@@ -189,17 +189,22 @@ export default function Reader({ rtl }: { rtl: boolean }) {
       const pdfPage = await document.getPage(page);
       const content = await pdfPage.getTextContent();
       const pageText = content.items.map(item => item.str ?? "").join(" ").replace(/\s+/g, " ").trim();
-      if (!pageText) {
-        setError(rtl ? "هذه الصفحة صورة ممسوحة ولا تحتوي نصًا قابلًا للقراءة. تحتاج OCR منفصلًا." : "This scanned page has no readable text layer. Separate OCR is required.");
+      const readableLetters = pageText.match(/[\p{L}]/gu) ?? [];
+      if (readableLetters.length < 10) {
+        setError(rtl ? "هذه الصفحة فارغة أو لا تحتوي نصًا كافيًا للقراءة. انتقل إلى صفحة فيها محتوى؛ وإذا كانت الصفحة مصوّرة فستحتاج OCR." : "This page is blank or has too little readable text. Move to a content page; scanned pages require OCR.");
         return;
       }
       setError("");
       const utterance = new SpeechSynthesisUtterance(pageText);
-      utterance.lang = speechLanguage; utterance.rate = speechRate;
+      const arabicLetters = (pageText.match(/[\u0600-\u06ff]/g) ?? []).length;
+      const latinLetters = (pageText.match(/[A-Za-z]/g) ?? []).length;
+      const detectedLanguage: "ar-SA" | "en-US" = arabicLetters >= latinLetters ? "ar-SA" : "en-US";
+      const requestedLanguage = speechLanguage === "auto" ? detectedLanguage : speechLanguage;
+      utterance.lang = requestedLanguage; utterance.rate = speechRate;
       const availableVoices = voices.length ? voices : window.speechSynthesis.getVoices();
-      const matchingVoice = availableVoices.find(voice => voice.lang.toLowerCase().startsWith(speechLanguage.slice(0,2).toLowerCase()));
+      const matchingVoice = availableVoices.find(voice => voice.lang.toLowerCase().startsWith(requestedLanguage.slice(0,2).toLowerCase()));
       if (!matchingVoice) {
-        setError(rtl ? `لا يوجد صوت ${speechLanguage.startsWith("ar") ? "عربي" : "إنجليزي"} مثبت أو متاح في هذا المتصفح. ثبّت صوت اللغة في إعدادات الجهاز ثم أعد فتح الصفحة.` : `No ${speechLanguage.startsWith("ar") ? "Arabic" : "English"} voice is installed or available in this browser. Install the language voice in device settings, then reopen the page.`);
+        setError(rtl ? `لا يوجد صوت ${requestedLanguage.startsWith("ar") ? "عربي" : "إنجليزي"} متاح. في Windows اضغط Win + Ctrl + N، ثم «إضافة أصوات» وثبّت اللغة المطلوبة، وبعدها أغلق المتصفح وافتحه.` : `No ${requestedLanguage.startsWith("ar") ? "Arabic" : "English"} voice is available. In Windows press Win + Ctrl + N, choose Add voices, install the language, then restart the browser.`);
         return;
       }
       utterance.voice = matchingVoice;
@@ -219,7 +224,7 @@ export default function Reader({ rtl }: { rtl: boolean }) {
   };
 
   return <div className="page source-reader-page">
-    <header className="page-title"><div><span>{rtl ? "القارئ والصوت المجاني — V0.6.1" : "Free reader & device voice — V0.6.1"}</span><h2>{rtl ? "قارئ الكتب متعدد اللغات" : "Multilingual book reader"}</h2><p>{rtl ? "اعرض الكتاب واقرأ صفحته بصوت جهازك بلا OpenAI وبلا تكلفة API." : "View your book and hear each page through your device voice—no OpenAI call or API charge."}</p></div>{fileUrl && <button className="secondary" onClick={close}>{rtl ? "إغلاق الكتاب" : "Close book"}</button>}</header>
+    <header className="page-title"><div><span>{rtl ? "القارئ والصوت المجاني — V0.6.2" : "Free reader & device voice — V0.6.2"}</span><h2>{rtl ? "قارئ الكتب متعدد اللغات" : "Multilingual book reader"}</h2><p>{rtl ? "اعرض الكتاب واقرأ صفحته بصوت جهازك بلا OpenAI وبلا تكلفة API." : "View your book and hear each page through your device voice—no OpenAI call or API charge."}</p></div>{fileUrl && <button className="secondary" onClick={close}>{rtl ? "إغلاق الكتاب" : "Close book"}</button>}</header>
 
     {!fileUrl ? <section className="reader-empty panel">
       <div className="reader-emblem">◫</div><span className="eyebrow">{rtl ? "قراءة خاصة على جهازك" : "Private on-device reading"}</span>
@@ -247,7 +252,7 @@ export default function Reader({ rtl }: { rtl: boolean }) {
         <div><b>{rtl ? "بيئة القراءة" : "Reading scene"}</b><div className="option-row themes">{(["linen","paper","library","night"] as Theme[]).map(item => <button key={item} className={theme === item ? "active" : ""} onClick={() => setTheme(item)}>{rtl ? ({linen:"هادئة",paper:"ورق",library:"مكتبة",night:"ليل"} as Record<Theme,string>)[item] : item}</button>)}</div></div>
         <div><b>{rtl ? "اتجاه الكتاب" : "Book direction"}</b><div className="option-row">{(["auto","rtl","ltr"] as Direction[]).map(item => <button key={item} className={direction === item ? "active" : ""} onClick={() => setDirection(item)}>{item === "auto" ? (rtl ? "تلقائي" : "Auto") : item.toUpperCase()}</button>)}</div></div>
         <div><b>{rtl ? "سرعة التقليب" : "Turn speed"}</b><div className="option-row">{(["slow","normal","fast"] as Speed[]).map(item => <button key={item} className={speed === item ? "active" : ""} onClick={() => setSpeed(item)}>{rtl ? ({slow:"هادئ",normal:"طبيعي",fast:"سريع"} as Record<Speed,string>)[item] : item}</button>)}</div></div>
-        <div><b>{rtl ? "صوت الجهاز — مجاني" : "Device voice — free"}</b><div className="option-row"><select value={speechLanguage} onChange={e=>setSpeechLanguage(e.target.value as "ar-SA"|"en-US")}><option value="ar-SA">العربية</option><option value="en-US">English</option></select><select value={speechRate} onChange={e=>setSpeechRate(Number(e.target.value))}><option value="0.8">0.8×</option><option value="1">1×</option><option value="1.2">1.2×</option></select><button className={speaking?"active":""} disabled={!document||viewMode!=="book"} onClick={speakPage}>{speaking?(rtl?"■ إيقاف":"■ Stop"):(rtl?"▶ اقرأ الصفحة الحالية":"▶ Read current page")}</button></div><small>{viewMode!=="book"?(rtl?"انتقل إلى وضع الكتاب أولًا حتى يتزامن الصوت مع رقم الصفحة.":"Switch to Book mode first so speech follows the current page."):(rtl?`${voices.length} صوتًا متاحًا على الجهاز؛ لا يستهلك رصيد API.`:`${voices.length} device voices available; no API credit is used.`)}</small></div>
+        <div><b>{rtl ? "صوت الجهاز — مجاني" : "Device voice — free"}</b><div className="option-row"><select value={speechLanguage} onChange={e=>setSpeechLanguage(e.target.value as "auto"|"ar-SA"|"en-US")}><option value="auto">{rtl?"تلقائي حسب نص الصفحة":"Auto-detect page"}</option><option value="ar-SA">العربية</option><option value="en-US">English</option></select><select value={speechRate} onChange={e=>setSpeechRate(Number(e.target.value))}><option value="0.8">0.8×</option><option value="1">1×</option><option value="1.2">1.2×</option></select><button className={speaking?"active":""} disabled={!document||viewMode!=="book"} onClick={speakPage}>{speaking?(rtl?"■ إيقاف":"■ Stop"):(rtl?"▶ اقرأ الصفحة الحالية":"▶ Read current page")}</button></div><small>{viewMode!=="book"?(rtl?"انتقل إلى وضع الكتاب أولًا حتى يتزامن الصوت مع رقم الصفحة.":"Switch to Book mode first so speech follows the current page."):(rtl?`${voices.length} صوتًا متاحًا على الجهاز؛ لا يستهلك رصيد API.`:`${voices.length} device voices available; no API credit is used.`)}</small></div>
         <div><b>{rtl ? "مؤثرات القراءة" : "Reading sounds"}</b><div className="option-row"><button className={sound ? "active" : ""} onClick={() => setSound(!sound)}>{rtl ? "صوت الورق" : "Page sound"}</button><label className="audio-picker"><input type="file" accept="audio/*" onChange={chooseAmbient}/>{rtl ? "اختر صوتًا خلفيًا" : "Choose ambience"}</label>{ambientUrl && <button className={ambientOn ? "active" : ""} onClick={() => setAmbientOn(!ambientOn)}>{ambientOn ? "❚❚" : "▶"} {ambientName.slice(0,18)}</button>}</div></div>
         <audio ref={audioRef} src={ambientUrl} loop />
       </aside>}
