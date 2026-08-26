@@ -8,6 +8,7 @@
 .book-info-card{margin-bottom:16px}.book-info-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px 18px;margin-top:10px}.book-info-grid dt{font-size:10px;color:var(--soft);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}.book-info-grid dd{margin:0;font-size:13px;word-break:break-word}.book-info-grid dd.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--soft)}
 @media(max-width:600px){.book-info-grid{grid-template-columns:1fr}}
 .local-analysis-card,.manual-import-card{margin-bottom:16px}
+.extractive-summary{margin-top:16px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--card2)}.extractive-summary h4{margin:0 0 8px;color:var(--green)}
 .local-progress{margin-top:10px}.local-progress small{display:block;margin-top:6px;color:var(--soft)}
 .local-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:14px 0}.local-stats b{display:flex;flex-direction:column;padding:10px;border-radius:11px;background:var(--card2);font-size:16px;color:var(--green)}.local-stats small{font-size:10px;color:var(--soft);margin-top:4px}
 @media(max-width:760px){.local-stats{grid-template-columns:repeat(2,1fr)}}
