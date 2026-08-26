@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import Reader, { type SavedBookRef } from "./Reader";
 import {
   getBookResults,
   getLegalConsentStatus,
   getPrivateAudioUrl,
+  createBookSignedUrl,
   groupDuplicateBooks,
   invokeBookAI,
   listPilotBooks,
@@ -17,7 +19,7 @@ import {
   type PilotBook,
   type StoredAnalysis,
 } from "./lib/library";
-import { supabaseConfigured, upgradeAnonymousSessionToEmail } from "./lib/supabase";
+import { sendExistingAccountMagicLink, supabaseConfigured, upgradeAnonymousSessionToEmail } from "./lib/supabase";
 import { ZERO_COST_MODE } from "./lib/config";
 import { runLocalStructuralAnalysis, type LocalAnalysisProgress } from "./lib/localAnalysis";
 import { searchInsideBook, validateManualImport, type BookSearchMatch, type LocalStructuralAnalysis, type ManualImportPayload } from "./lib/textAnalysis";
@@ -36,7 +38,7 @@ type View =
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "النسخة التجريبية المجانية — V0.7.3-candidate",
+    version: "نسخة القبول المجانية — V0.8",
     search: "ابحث في كتبك وأفكارك…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -67,7 +69,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Zero-cost functional pilot — V0.7.3-candidate",
+    version: "Zero-cost acceptance build — V0.8",
     search: "Search your books and ideas…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -229,8 +231,8 @@ export default function Home() {
     () => navigation[lang].find((x) => x[0] === view)?.[1] || t.name,
     [lang, view, t.name],
   );
-  const openReaderFor = (book: PilotBook) => {
-    setReaderBook({ id: book.id, title: book.title, storagePath: book.storage_path });
+  const openReaderFor = (book: PilotBook, initialPage?: number) => {
+    setReaderBook({ id: book.id, title: book.title, storagePath: book.storage_path, initialPage });
     setView("reader");
   };
   const openReaderStandalone = () => {
@@ -284,8 +286,16 @@ export default function Home() {
       setRights1(false);
       setRights2(false);
     } catch (error) {
+      const raw = error instanceof Error ? error.message : "Unknown error";
+      const friendly = raw === "FILE_TOO_LARGE_20MB"
+        ? (rtl ? "الحد الأقصى 20 ميجابايت لهذه التجربة." : "The acceptance pilot limit is 20 MB.")
+        : raw === "TOO_MANY_PAGES_250"
+          ? (rtl ? "الحد الأقصى 250 صفحة في نسخة القبول الحالية." : "The current acceptance build supports up to 250 pages.")
+        : raw === "PDF_ONLY"
+          ? (rtl ? "هذه التجربة تقبل ملف PDF فقط." : "This pilot accepts PDF files only.")
+          : raw;
       setNotice(
-        `${rtl ? "تعذر حفظ الكتاب" : "Could not save the book"}: ${error instanceof Error ? error.message : "Unknown error"}`,
+        `${rtl ? "تعذر حفظ الكتاب" : "Could not save the book"}: ${friendly}`,
       );
     } finally {
       setProcessing(false);
@@ -320,17 +330,18 @@ export default function Home() {
             <button
               key={id}
               className={view === id ? "active" : ""}
+              disabled={id === "librarian" || id === "progress"}
+              title={(id === "librarian" || id === "progress") ? (rtl ? "غير معتمد بعد في نسخة القبول" : "Not yet accepted in this build") : undefined}
               onClick={() => go(id)}
             >
               <i>{icon}</i>
               <span>{label}</span>
-              {id === "progress" && <b>3</b>}
             </button>
           ))}
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "التجربة المجانية الآمنة V0.7.3-candidate" : "Safe zero-cost pilot V0.7.3-candidate"}
+            {rtl ? "نسخة القبول المجانية الآمنة V0.8" : "Safe zero-cost acceptance V0.8"}
           </strong>
           <p>
             {rtl
@@ -369,12 +380,12 @@ export default function Home() {
               if (searchQuery.trim()) setView("library");
             }}
           >
-            <span>⌕</span>
             <input
               placeholder={t.search}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
+            <button type="submit" aria-label={rtl ? "تنفيذ البحث" : "Run search"} title={rtl ? "بحث" : "Search"}>⌕</button>
           </form>
           <div className="top-actions">
             <button onClick={switchLang} className="lang-switch">
@@ -399,6 +410,8 @@ export default function Home() {
             onUpload={() => setUpload(true)}
             setView={setView}
             onOpenReader={openReaderStandalone}
+            pilotBooks={pilotBooks}
+            onOpenPilot={(book) => { setActivePilotBook(book); setView("pilot"); }}
           />
         )}
         {view === "library" && (
@@ -427,7 +440,7 @@ export default function Home() {
             rtl={rtl}
             book={activePilotBook}
             onBack={() => setView("library")}
-            onOpenReader={() => openReaderFor(activePilotBook)}
+            onOpenReader={(page) => openReaderFor(activePilotBook, page)}
             onBookPatched={patchPilotBook}
           />
         )}
@@ -450,6 +463,8 @@ export default function Home() {
           <button
             key={id}
             className={view === id ? "active" : ""}
+            disabled={id === "progress"}
+            title={id === "progress" ? (rtl ? "غير معتمد بعد" : "Not yet accepted") : undefined}
             onClick={() => go(id)}
           >
             <i>{icon}</i>
@@ -486,13 +501,18 @@ function Dashboard({
   onUpload,
   setView,
   onOpenReader,
+  pilotBooks,
+  onOpenPilot,
 }: {
   rtl: boolean;
   t: typeof text.ar;
   onUpload: () => void;
   setView: (v: View) => void;
   onOpenReader: () => void;
+  pilotBooks: PilotBook[];
+  onOpenPilot: (book: PilotBook) => void;
 }) {
+  const current = pilotBooks[0];
   return (
     <div className="page">
       <section className="welcome">
@@ -511,8 +531,8 @@ function Dashboard({
             <button className="secondary" onClick={onUpload}>
               ＋ {rtl ? "أضف كتابًا" : "Add a book"}
             </button>
-            <button className="secondary" onClick={() => setView("progress")}>
-              ◴ {t.continue}
+            <button className="secondary" onClick={() => setView("library")}>
+              ▥ {rtl ? "افتح مكتبتي" : "Open my library"}
             </button>
           </div>
         </div>
@@ -528,27 +548,27 @@ function Dashboard({
       <section className="metrics">
         <Metric
           icon="▥"
-          value="3"
+          value={String(pilotBooks.length)}
           label={t.books}
-          note={rtl ? "مكتبتك التجريبية" : "Demo collection"}
+          note={rtl ? "كتبك المحفوظة فعليًا" : "Your actually saved books"}
         />
         <Metric
           icon="✓"
-          value="2"
+          value={String(pilotBooks.filter((book) => book.status === "ready").length)}
           label={t.ready}
-          note={rtl ? "كتاب واحد قيد القراءة" : "One in progress"}
+          note={rtl ? "نتائج محفوظة" : "Saved results"}
         />
         <Metric
           icon="◖"
-          value="47"
+          value="0"
           label={t.minutes}
-          note={rtl ? "+18 هذا الأسبوع" : "+18 this week"}
+          note={rtl ? "يبدأ بعد تفعيل سجل الاستماع" : "Listening log not enabled yet"}
         />
         <Metric
           icon="↗"
-          value="6"
+          value="0"
           label={t.streak}
-          note={rtl ? "أفضل سلسلة: 11" : "Best streak: 11"}
+          note={rtl ? "لا بيانات وهمية" : "No placeholder data"}
         />
       </section>
       <section className="split-grid">
@@ -557,34 +577,22 @@ function Dashboard({
             over={rtl ? "القراءة الحالية" : "Current reading"}
             title={t.current}
           />
-          <div className="current-book">
-            <BookCover
-              tone="emerald"
-              title={rtl ? "إدارة المعرفة" : "Knowledge Management"}
-            />
+          {current ? <div className="current-book">
+            <OriginalPdfCover book={current} />
             <div className="book-copy">
               <span className="status">
                 {rtl ? "أقرأ الآن" : "In progress"}
               </span>
-              <h4>{rtl ? books[0].title : books[0].en}</h4>
-              <p>
-                {rtl
-                  ? "الفصل الرابع — تحويل الخبرة إلى معرفة مؤسسية"
-                  : "Chapter 4 — Turning experience into organizational knowledge"}
-              </p>
-              <Bar value={68} />
-              <div className="progress-meta">
-                <span>68%</span>
-                <span>{rtl ? "صفحة 193 من 284" : "Page 193 of 284"}</span>
-              </div>
+              <h4>{current.title}</h4>
+              <p>{rtl ? "كتاب محفوظ في مكتبتك الخاصة" : "Saved in your private library"}</p>
               <button
                 className="primary compact"
-                onClick={() => setView("book")}
+                onClick={() => onOpenPilot(current)}
               >
                 ▶ {rtl ? "افتح الكتاب ونتائجه" : "Open book & results"}
               </button>
             </div>
-          </div>
+          </div> : <p className="disclosure-note">{rtl ? "لم تضف كتابًا حقيقيًا بعد." : "No real book has been added yet."}</p>}
         </article>
         <article className="panel librarian-card">
           <div className="librarian-icon">✦</div>
@@ -605,8 +613,8 @@ function Dashboard({
                 : "A topical comparison within your library only"}
             </span>
           </div>
-          <button className="text-button" onClick={() => setView("librarian")}>
-            {rtl ? "افتح أمين المكتبة" : "Open AI librarian"} ←
+          <button className="text-button disabled-soon" disabled>
+            {rtl ? "يُفعّل بعد اعتماد الذكاء الاصطناعي" : "Enabled after AI approval"}
           </button>
         </article>
       </section>
@@ -618,13 +626,8 @@ function Dashboard({
           onAction={() => setView("library")}
         />
         <div className="book-grid">
-          {books.map((b) => (
-            <BookCard
-              key={b.title}
-              book={b}
-              rtl={rtl}
-              onOpen={() => setView("book")}
-            />
+          {pilotBooks.map((book) => (
+            <LiveBookCard key={book.id} book={book} rtl={rtl} onOpen={() => onOpenPilot(book)} />
           ))}
           <button className="add-book-card" onClick={onUpload}>
             <i>＋</i>
@@ -853,20 +856,40 @@ const STATUS_LABELS_EN: Record<PilotBook["status"], string> = {
   failed: "Failed",
 };
 
-/**
- * A real, saved user book rendered with the same card/cover visual language
- * as the three display samples (fixes bug ب/evidence #4-5: real books used
- * to render as flat "UNKNOWN · uploaded" rows). No network cover image is
- * ever fetched — the cover is a locally generated title/color card, exactly
- * as CLAUDE-REVIEW-PROMPT.md §ب requires ("لا تستخدم API مدفوعة").
- */
+function OriginalPdfCover({ book }: { book: PilotBook }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const render = async () => {
+      const signed = await createBookSignedUrl(book.storage_path, 900);
+      const pdfjs = await import("pdfjs-dist");
+      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+      const pdf = await pdfjs.getDocument({ url: signed.url, disableFontFace: true }).promise;
+      const first = await pdf.getPage(1);
+      const viewport = first.getViewport({ scale: 0.34 });
+      if (cancelled || !canvasRef.current) return;
+      const canvas = canvasRef.current;
+      const context = canvas.getContext("2d", { alpha: false });
+      if (!context) throw new Error("COVER_CANVAS_UNAVAILABLE");
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      await first.render({ canvasContext: context, viewport, canvas }).promise;
+    };
+    render().catch(() => !cancelled && setFailed(true));
+    return () => { cancelled = true; };
+  }, [book.id, book.storage_path]);
+  if (failed) return <BookCover tone={coverToneFor(book.title)} title={book.title.split(" ").slice(0, 3).join(" ")} />;
+  return <div className="book-cover original-pdf-cover"><canvas ref={canvasRef} aria-label={book.title} /></div>;
+}
+
+/** A real saved book; page one is rendered as its cover with a safe fallback. */
 function LiveBookCard({ book, rtl, onOpen }: { book: PilotBook; rtl: boolean; onOpen: () => void }) {
-  const tone = coverToneFor(book.title || book.file_name);
   const subtitle = languageLabel(book.source_language, rtl);
   const status = rtl ? STATUS_LABELS_AR[book.status] : STATUS_LABELS_EN[book.status];
   return (
     <button className="book-card live-book-card" onClick={onOpen}>
-      <BookCover tone={tone} title={book.title.split(" ").slice(0, 3).join(" ")} />
+      <OriginalPdfCover book={book} />
       <div>
         <span className="tag">{rtl ? "كتابك" : "Your book"}</span>
         <h4>{book.title}</h4>
@@ -959,11 +982,13 @@ function AccountUpgradePanel({ rtl }: { rtl: boolean }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<"idle" | "sent" | "error">("idle");
   const [error, setError] = useState("");
+  const [mode, setMode] = useState<"upgrade" | "signin">("upgrade");
   const submit = async () => {
     setBusy(true);
     setError("");
     try {
-      await upgradeAnonymousSessionToEmail(email);
+      if (mode === "upgrade") await upgradeAnonymousSessionToEmail(email);
+      else await sendExistingAccountMagicLink(email);
       setResult("sent");
     } catch (e) {
       setResult("error");
@@ -974,11 +999,17 @@ function AccountUpgradePanel({ rtl }: { rtl: boolean }) {
   };
   return (
     <details className="account-upgrade">
-      <summary>{rtl ? "ترقية إلى حساب دائم (لاستعادة مكتبتك من جهاز آخر)" : "Upgrade to a permanent account (recover your library on another device)"}</summary>
+      <summary>{rtl ? "الحساب الدائم والدخول من جهاز آخر" : "Permanent account and cross-device sign-in"}</summary>
+      <div className="account-mode-tabs">
+        <button className={mode === "upgrade" ? "active" : ""} onClick={() => setMode("upgrade")}>{rtl ? "اربط الكتب الموجودة بهذا البريد" : "Attach these books to email"}</button>
+        <button className={mode === "signin" ? "active" : ""} onClick={() => setMode("signin")}>{rtl ? "ادخل إلى حساب موجود" : "Sign in to existing account"}</button>
+      </div>
       <p className="disclosure-note">
-        {rtl
+        {mode === "upgrade" ? (rtl
           ? "ندخل بريدك على نفس الهوية الحالية بلا نقل بيانات: كل كتاب محفوظ يبقى كما هو. سنرسل رابط تأكيد إلى بريدك؛ لن تصبح الترقية فعلية إلا بعد الضغط عليه."
-          : "This attaches your email to your existing identity — no data migration, every saved book stays exactly as-is. We send a confirmation link to your email; the upgrade only takes effect once you click it."}
+          : "This attaches your email to your existing identity — no data migration, every saved book stays exactly as-is. We send a confirmation link to your email; the upgrade only takes effect once you click it.") : (rtl
+          ? "استخدم البريد الذي ربطته سابقًا بالمكتبة. سنرسل رابط دخول، وبعد فتحه تظهر مكتبتك نفسها على هذا الجهاز."
+          : "Use the email already attached to your library. The sign-in link opens the same library on this device.")}
       </p>
       {result === "sent" ? (
         <p className="dup-confirmed">{rtl ? "أُرسل رابط التأكيد. افتح بريدك وأكمل الخطوة هناك." : "Confirmation link sent. Check your inbox to finish."}</p>
@@ -991,7 +1022,7 @@ function AccountUpgradePanel({ rtl }: { rtl: boolean }) {
             onChange={(e) => setEmail(e.target.value)}
           />
           <button className="secondary" disabled={busy || !email.trim()} onClick={submit}>
-            {busy ? (rtl ? "جارٍ الإرسال…" : "Sending…") : rtl ? "أرسل رابط الترقية" : "Send upgrade link"}
+            {busy ? (rtl ? "جارٍ الإرسال…" : "Sending…") : mode === "upgrade" ? (rtl ? "أرسل رابط الربط" : "Send linking email") : (rtl ? "أرسل رابط الدخول" : "Send sign-in link")}
           </button>
         </div>
       )}
@@ -1029,13 +1060,7 @@ function Library({
   const filteredPilotBooks = query
     ? pilotBooks.filter((book) => book.title.toLowerCase().includes(query))
     : pilotBooks;
-  const filteredDemoBooks = query
-    ? books.filter(
-        (b) =>
-          b.title.toLowerCase().includes(query) ||
-          b.en.toLowerCase().includes(query),
-      )
-    : books;
+  const filteredDemoBooks = pilotBooks.length === 0 && !query ? books : [];
   return (
     <div className="page">
       <PageTitle
@@ -1051,8 +1076,8 @@ function Library({
       {query && (
         <p className="search-status">
           {rtl
-            ? `نتائج البحث عن «${searchQuery}»: ${filteredPilotBooks.length + filteredDemoBooks.length}`
-            : `Search results for "${searchQuery}": ${filteredPilotBooks.length + filteredDemoBooks.length}`}
+            ? `نتائج البحث عن «${searchQuery}»: ${filteredPilotBooks.length}`
+            : `Search results for "${searchQuery}": ${filteredPilotBooks.length}`}
         </p>
       )}
       {booksLoading && (
@@ -1097,8 +1122,9 @@ function Library({
       {!booksLoading && !booksError && (
         <DuplicateReviewPanel rtl={rtl} groups={groupDuplicateBooks(pilotBooks)} onBooksChanged={onBooksChanged} />
       )}
-      {!query || filteredDemoBooks.length > 0 ? (
+      {filteredDemoBooks.length > 0 ? (
         <>
+          <p className="display-samples-note">{rtl ? "نماذج شكلية فقط — تختفي عند إضافة أول كتاب حقيقي." : "Visual samples only — hidden after your first real book is added."}</p>
           <div className="filters">
             <button className="active" disabled title={rtl ? "فلتر العرض التجريبي" : "Display-sample filter"}>
               {rtl
@@ -1128,7 +1154,7 @@ function PilotWorkspace({
   rtl: boolean;
   book: PilotBook;
   onBack: () => void;
-  onOpenReader: () => void;
+  onOpenReader: (page?: number) => void;
   onBookPatched: (bookId: string, patch: Partial<PilotBook>) => void;
 }) {
   const [loading, setLoading] = useState(true);
@@ -1427,7 +1453,7 @@ function PilotWorkspace({
               ? "يقرأ النص الأصلي على جهازك بلا إرسال إلى OpenAI وبلا خصم من رصيدك."
               : "Reads the original text on your device. Nothing is sent to OpenAI and no API credit is used."}
           </p>
-          <button className="secondary" onClick={onOpenReader}>
+          <button className="secondary" onClick={() => onOpenReader()}>
             ◫ {rtl ? "فتح القارئ والصوت المجاني" : "Open free reader & voice"}
           </button>
         </div>
@@ -1580,7 +1606,9 @@ function PilotWorkspace({
                       <ul className="candidate-list">
                         {bookSearchResults.map((match, index) => (
                           <li key={`${match.page}-${index}`}>
-                            <em>{rtl ? `ص ${match.page}` : `p. ${match.page}`}</em> {match.snippet}
+                            <button className="search-result-link" onClick={() => onOpenReader(match.page)}>
+                              <em>{rtl ? `افتح ص ${match.page}` : `Open p. ${match.page}`}</em> {match.snippet}
+                            </button>
                           </li>
                         ))}
                       </ul>
@@ -2606,8 +2634,8 @@ function Upload({
               <strong>{file?.name || t.choose}</strong>
               <span>
                 {rtl
-                  ? "حتى 50 ميجابايت في النموذج"
-                  : "Up to 50 MB in this prototype"}
+                  ? "حد أقصى 20 ميجابايت؛ يُوصى بكتاب نصي من 50 إلى 250 صفحة"
+                  : "20 MB maximum; a text-based PDF of 50–250 pages is recommended"}
               </span>
             </label>
             <label className="select-label output-language">
