@@ -26,6 +26,81 @@ async function openAI(path: string, init: RequestInit) {
   return response;
 }
 
+const TEXT_MODEL = () => Deno.env.get("OPENAI_TEXT_MODEL") ?? "gpt-5.6-terra";
+const PILOT_BOOK_LIMIT = () => Math.min(5, Math.max(1, Number(Deno.env.get("SPL_PILOT_MAX_BOOKS") ?? "1") || 1));
+const PILOT_QUESTION_LIMIT = 20;
+
+const bookAnalysisFormat = {
+  type: "json_schema",
+  name: "book_analysis",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["source_language", "metadata", "overview", "chapters", "critical", "trust_notes"],
+    properties: {
+      source_language: { type: "string", enum: ["ar", "en", "mixed"] },
+      metadata: {
+        type: "object", additionalProperties: false,
+        required: ["title", "author", "subject", "pages_if_known"],
+        properties: {
+          title: { type: ["string", "null"] }, author: { type: ["string", "null"] },
+          subject: { type: ["string", "null"] }, pages_if_known: { type: ["integer", "null"] },
+        },
+      },
+      overview: {
+        type: "object", additionalProperties: false,
+        required: ["summary", "key_ideas", "return_to_source"],
+        properties: {
+          summary: { type: "string" }, key_ideas: { type: "array", items: { type: "string" } },
+          return_to_source: { type: "array", items: { type: "object", additionalProperties: false, required: ["page", "reason"], properties: { page: { type: ["string", "integer", "null"] }, reason: { type: "string" } } } },
+        },
+      },
+      chapters: { type: "array", items: { type: "object", additionalProperties: false, required: ["title", "summary", "pages_if_known"], properties: { title: { type: "string" }, summary: { type: "string" }, pages_if_known: { type: ["string", "integer", "null"] } } } },
+      critical: { type: "object", additionalProperties: false, required: ["strengths", "limitations", "platform_inferences"], properties: { strengths: { type: "array", items: { type: "string" } }, limitations: { type: "array", items: { type: "string" } }, platform_inferences: { type: "array", items: { type: "string" } } } },
+      trust_notes: { type: "string" },
+    },
+  },
+};
+
+const bookAnswerFormat = {
+  type: "json_schema",
+  name: "book_answer",
+  strict: true,
+  schema: {
+    type: "object", additionalProperties: false,
+    required: ["answer", "references", "confidence", "inference"],
+    properties: {
+      answer: { type: "string" },
+      references: { type: "array", items: { type: "object", additionalProperties: false, required: ["page", "chapter", "note"], properties: { page: { type: ["string", "integer", "null"] }, chapter: { type: ["string", "null"] }, note: { type: "string" } } } },
+      confidence: { type: "string", enum: ["high", "medium", "low"] },
+      inference: { type: "string" },
+    },
+  },
+};
+
+async function recordUsage(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  bookId: string,
+  action: string,
+  model: string,
+  usage: { input_tokens?: number; output_tokens?: number } | null,
+  metadata: Record<string, unknown> = {},
+) {
+  // V0.9 usage logging is deliberately non-blocking so a temporary reporting
+  // failure never charges twice by forcing the user to repeat a completed call.
+  await supabase.from("spl_ai_usage").insert({
+    user_id: userId,
+    book_id: bookId,
+    action,
+    model,
+    input_tokens: usage?.input_tokens ?? null,
+    output_tokens: usage?.output_tokens ?? null,
+    metadata,
+  }).then(({ error }) => error && console.warn("SPL_USAGE_LOG_FAILED", error.message));
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
@@ -43,6 +118,11 @@ Deno.serve(async (request) => {
     );
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError || !userData.user) return json({ error: "UNAUTHENTICATED" }, 401);
+    const pilotEmail = (Deno.env.get("SPL_PILOT_EMAIL") ?? "").trim().toLowerCase();
+    const signedInEmail = (userData.user.email ?? "").trim().toLowerCase();
+    if (!pilotEmail || !signedInEmail || signedInEmail !== pilotEmail) {
+      return json({ error: "PRIVATE_PILOT_EMAIL_REQUIRED" }, 403);
+    }
     const body = await request.json();
     const { action, bookId } = body;
     const { data: book, error: bookError } = await supabase.from("spl_books").select("*").eq("id", bookId).single();
@@ -52,8 +132,14 @@ Deno.serve(async (request) => {
     if (!consent) return json({ error: "LEGAL_CONSENT_REQUIRED" }, 403);
 
     if (action === "process") {
-      const { data: existingAnalysis } = await supabase.from("spl_analyses").select("content").eq("book_id", bookId).eq("kind", "overview").limit(1).maybeSingle();
+      const requestedLanguage = body.language === "en" ? "en" : "ar";
+      const { data: existingAnalysis } = await supabase.from("spl_analyses").select("content").eq("book_id", bookId).eq("kind", "overview").eq("language", requestedLanguage).limit(1).maybeSingle();
       if (existingAnalysis) return json({ ok: true, reused: true, result: existingAnalysis.content });
+      const { data: analysedBooks } = await supabase.from("spl_analyses").select("book_id").eq("user_id", userData.user.id).eq("kind", "overview");
+      const pilotBookLimit = PILOT_BOOK_LIMIT();
+      if (new Set((analysedBooks ?? []).map(item => item.book_id)).size >= pilotBookLimit) {
+        return json({ error: "PAID_PILOT_BOOK_LIMIT_REACHED", limit: pilotBookLimit }, 429);
+      }
       const dayStart = new Date();dayStart.setUTCHours(0,0,0,0);
       const { data: dailyAnalyses } = await supabase.from("spl_analyses").select("book_id").eq("user_id", userData.user.id).eq("kind", "overview").gte("created_at", dayStart.toISOString());
       if (new Set((dailyAnalyses ?? []).map(item => item.book_id)).size >= 3) return json({ error: "DAILY_ANALYSIS_LIMIT_REACHED", limit: 3 }, 429);
@@ -70,32 +156,38 @@ Deno.serve(async (request) => {
         await supabase.from("spl_books").update({ openai_file_id: openaiFileId }).eq("id", bookId);
       }
 
-      const target = book.output_language === "bilingual" ? "Arabic and English" : book.output_language === "ar" ? "Arabic" : "English";
-      const prompt = `Analyze this book for a private reading assistant. Detect whether the source is Arabic, English, or mixed. Produce output in ${target}. Do not reproduce the book verbatim. Return JSON only with keys: source_language (ar|en|mixed), metadata {title, author, subject, pages_if_known}, overview {summary, key_ideas, return_to_source}, chapters (array of {title, summary, pages_if_known}), critical {strengths, limitations, platform_inferences}, trust_notes. Make overview.summary an original 2200-2800 word script suitable for about 15-20 minutes of calm narration. Clearly distinguish source facts from platform inference.`;
+      const target = requestedLanguage === "ar" ? "Arabic" : "English";
+      const prompt = `Analyze this PDF for a private scholarly reading assistant. Detect whether the source is Arabic, English, or mixed, but write every generated field in ${target}. If the source language differs, translate the meaning faithfully into ${target}. Do not reproduce the book verbatim and do not invent bibliographic data. Return JSON only with keys: source_language (ar|en|mixed), metadata {title, author, subject, pages_if_known}, overview {summary, key_ideas, return_to_source}, chapters (array of {title, summary, pages_if_known}), critical {strengths, limitations, platform_inferences}, trust_notes. Each return_to_source item must contain a reliable page number or page range and a short reason to revisit it. Make overview.summary an original 1800-2400 word script suitable for about 12-18 minutes of calm narration. Clearly distinguish source facts from platform inference. If a page cannot be verified, use null instead of guessing.`;
+      const model = TEXT_MODEL();
       const generated = await openAI("responses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: Deno.env.get("OPENAI_TEXT_MODEL") ?? "gpt-5.6",
+          model,
           input: [{ role: "user", content: [{ type: "input_file", file_id: openaiFileId, detail: "low" }, { type: "input_text", text: prompt }] }],
+          text: { format: bookAnalysisFormat },
         }),
       });
       const response = await generated.json();
       const outputText = response.output?.flatMap((item: { content?: Array<{ text?: string }> }) => item.content ?? []).map((item: { text?: string }) => item.text ?? "").join("") ?? "";
       const result = JSON.parse(stripFence(outputText));
-      const languages = book.output_language === "bilingual" ? ["ar", "en"] : [book.output_language];
-      for (const language of languages) {
-        await supabase.from("spl_analyses").upsert({
-          user_id: userData.user.id,
-          book_id: bookId,
-          kind: "overview",
-          language,
-          content: result,
-          model: Deno.env.get("OPENAI_TEXT_MODEL") ?? "gpt-5.6",
-        }, { onConflict: "book_id,kind,language" });
-      }
-      await supabase.from("spl_books").update({ source_language: result.source_language ?? "unknown", status: "ready", metadata: result.metadata ?? {} }).eq("id", bookId);
-      return json({ ok: true, result });
+      await supabase.from("spl_analyses").upsert({
+        user_id: userData.user.id,
+        book_id: bookId,
+        kind: "overview",
+        language: requestedLanguage,
+        content: result,
+        model,
+        source: "openai",
+        template_version: "v0.9-paid-pilot",
+      }, { onConflict: "book_id,kind,language" });
+      await recordUsage(supabase, userData.user.id, bookId, "process", model, response.usage ?? null, { language: requestedLanguage });
+      await supabase.from("spl_books").update({
+        source_language: result.source_language ?? "unknown",
+        status: "ready",
+        metadata: { ...(book.metadata ?? {}), ...(result.metadata ?? {}) },
+      }).eq("id", bookId);
+      return json({ ok: true, result, usage: response.usage ?? null });
     }
 
     if (action === "ask") {
@@ -104,19 +196,23 @@ Deno.serve(async (request) => {
       if (!question) return json({ error: "QUESTION_REQUIRED" }, 400);
       if (!book.openai_file_id) return json({ error: "BOOK_NOT_PROCESSED" }, 409);
       const dayStart = new Date();dayStart.setUTCHours(0,0,0,0);
+      const { count: totalQuestions } = await supabase.from("spl_questions").select("id", { count: "exact", head: true }).eq("user_id", userData.user.id);
+      if ((totalQuestions ?? 0) >= PILOT_QUESTION_LIMIT) return json({ error: "PILOT_QUESTION_LIMIT_REACHED", limit: PILOT_QUESTION_LIMIT }, 429);
       const { count: dailyQuestions } = await supabase.from("spl_questions").select("id", { count: "exact", head: true }).eq("user_id", userData.user.id).gte("created_at", dayStart.toISOString());
-      if ((dailyQuestions ?? 0) >= 20) return json({ error: "DAILY_QUESTION_LIMIT_REACHED", limit: 20 }, 429);
+      if ((dailyQuestions ?? 0) >= 10) return json({ error: "DAILY_QUESTION_LIMIT_REACHED", limit: 10 }, 429);
       const prompt = `${language === "ar" ? "أجب بالعربية" : "Answer in English"}. Answer only from the uploaded book. If the book does not support the answer, say so. Distinguish quotations, paraphrases, and platform inference. Include page or chapter references when reliably available. Return JSON only: {answer, references:[{page,chapter,note}], confidence, inference}. Question: ${question}`;
+      const model = TEXT_MODEL();
       const generated = await openAI("responses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: Deno.env.get("OPENAI_TEXT_MODEL") ?? "gpt-5.6", input: [{ role: "user", content: [{ type: "input_file", file_id: book.openai_file_id, detail: "low" }, { type: "input_text", text: prompt }] }] }),
+        body: JSON.stringify({ model, input: [{ role: "user", content: [{ type: "input_file", file_id: book.openai_file_id, detail: "low" }, { type: "input_text", text: prompt }] }], text: { format: bookAnswerFormat } }),
       });
       const response = await generated.json();
       const outputText = response.output?.flatMap((item: { content?: Array<{ text?: string }> }) => item.content ?? []).map((item: { text?: string }) => item.text ?? "").join("") ?? "";
       const answer = JSON.parse(stripFence(outputText));
-      await supabase.from("spl_questions").insert({ user_id: userData.user.id, book_id: bookId, question, answer, language, model: Deno.env.get("OPENAI_TEXT_MODEL") ?? "gpt-5.6" });
-      return json({ ok: true, answer });
+      await supabase.from("spl_questions").insert({ user_id: userData.user.id, book_id: bookId, question, answer, language, model });
+      await recordUsage(supabase, userData.user.id, bookId, "ask", model, response.usage ?? null, { language });
+      return json({ ok: true, answer, usage: response.usage ?? null });
     }
 
     if (action === "audio") {
@@ -127,7 +223,7 @@ Deno.serve(async (request) => {
       if (!analysis) return json({ error: "ANALYSIS_NOT_READY" }, 409);
       const spoken = String(analysis.content?.overview?.summary ?? analysis.content?.summary ?? "").slice(0, 24000);
       if (!spoken) return json({ error: "SUMMARY_EMPTY" }, 409);
-      const voice = String(body.voice ?? "marin");
+      const voice = body.voice === "cedar" ? "cedar" : "marin";
       const instructions = language === "ar"
         ? "اقرأ العربية بصوت هادئ رقيق وواضح، مع نطق الكلمات الإنجليزية داخل النص بإنجليزية طبيعية صحيحة. هذه خلاصة كتاب وليست قراءة حرفية للكتاب."
         : "Read in a calm, gentle, clear English voice. Pronounce any Arabic words carefully. This is a book summary, not a verbatim audiobook.";
@@ -146,6 +242,7 @@ Deno.serve(async (request) => {
         const { data: row, error: rowError } = await supabase.from("spl_audio_outputs").insert({ user_id: userData.user.id, book_id: bookId, analysis_id: analysis.id, language, voice, part_no:index+1, storage_path: path }).select().single();
         if (rowError) throw rowError;rows.push(row);
       }
+      await recordUsage(supabase, userData.user.id, bookId, "audio", "gpt-4o-mini-tts", null, { language, voice, parts: rows.length, characters: spoken.length });
       return json({ ok: true, audio: rows, disclosure: language === "ar" ? "هذا الصوت مولد بالذكاء الاصطناعي." : "This voice is AI-generated." });
     }
 
