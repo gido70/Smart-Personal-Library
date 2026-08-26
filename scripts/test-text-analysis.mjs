@@ -6,6 +6,7 @@ import {
   topTerms,
   findHeadingCandidates,
   buildLocalStructuralAnalysis,
+  buildExtractiveSummary,
   extractPdfPageText,
   validateManualImport,
 } from "../src/lib/textAnalysis.ts";
@@ -58,6 +59,9 @@ check("buildLocalStructuralAnalysis: page_count matches input", analysis.page_co
 check("buildLocalStructuralAnalysis: word_count > 0", analysis.word_count > 0);
 check("buildLocalStructuralAnalysis: per-page breakdown has 2 rows", analysis.content_per_page.length === 2);
 check("buildLocalStructuralAnalysis: disclosure text present and non-empty", analysis.disclosure.length > 20);
+check("buildLocalStructuralAnalysis: produces an extractive overview", analysis.extractive_summary.length > 0);
+const extractive = buildExtractiveSummary(pages, topTerms(tokenize(pages.join("\n")), "ar", 20), 4);
+check("buildExtractiveSummary: keeps source page references", extractive.every((item) => item.page >= 1 && item.text.length > 0));
 
 // --- manual import schema validation ---
 const validPayload = {
