@@ -34,7 +34,7 @@ type View =
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "النسخة التجريبية المجانية — V0.7.1",
+    version: "النسخة التجريبية المجانية — V0.7.2",
     search: "ابحث في كتبك وأفكارك…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -65,7 +65,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Zero-cost functional pilot — V0.7.1",
+    version: "Zero-cost functional pilot — V0.7.2",
     search: "Search your books and ideas…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -324,7 +324,7 @@ export default function Home() {
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "التجربة المجانية الآمنة V0.7.1" : "Safe zero-cost pilot V0.7.1"}
+            {rtl ? "التجربة المجانية الآمنة V0.7.2" : "Safe zero-cost pilot V0.7.2"}
           </strong>
           <p>
             {rtl
@@ -1305,6 +1305,23 @@ function PilotWorkspace({
                 <small>{rtl ? "عنوان مرشّح" : "heading candidates"}</small>
               </b>
             </div>
+            {(localAnalysis.extractive_summary?.length ?? 0) > 0 && (
+              <div className="extractive-summary">
+                <h4>{rtl ? "خلاصة استخراجية مجانية" : "Free extractive overview"}</h4>
+                <p className="disclosure-note">
+                  {rtl
+                    ? "جمل مختارة آليًا من صفحات الكتاب نفسه، بلا ترجمة وبلا إعادة صياغة وبلا إرسال إلى أي خدمة خارجية."
+                    : "Sentences selected from the book itself, with no translation, rewriting, or external service."}
+                </p>
+                <ol className="candidate-list">
+                  {localAnalysis.extractive_summary?.map((item, index) => (
+                    <li key={`${item.page}-${index}`}>
+                      <em>{rtl ? `ص ${item.page}` : `p. ${item.page}`}</em> {item.text}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
             {localAnalysis.heading_candidates.length > 0 && (
               <details>
                 <summary>
@@ -1342,60 +1359,18 @@ function PilotWorkspace({
           </div>
         )}
       </section>
-      <section className="panel manual-import-card">
+      <section className="panel zero-cost-explainer">
         <span className="eyebrow">
-          {rtl ? "مجاني — استيراد يدوي" : "FREE — manual import"}
+          {rtl ? "حدود واضحة للتجربة المجانية" : "Clear zero-cost boundary"}
         </span>
         <h3>
-          {rtl
-            ? "تجربة تلخيص/ترجمة بلا تكلفة (JSON يدوي)"
-            : "No-cost summarization/translation trial (manual JSON)"}
+          {rtl ? "لا نسخ ولا JSON ولا خطوات تقنية" : "No copying, JSON, or technical steps"}
         </h3>
         <p>
           {rtl
-            ? "الصق هنا نتيجة JSON أنشأتها بنفسك عبر ChatGPT أو Claude خارج هذا التطبيق، وفق القالب الموثّق. لن يُرسل نص الكتاب تلقائيًا إلى أي مكان."
-            : "Paste a JSON result you generated yourself via ChatGPT or Claude outside this app, following the documented template. The book text is never auto-sent anywhere."}
+            ? "أزلنا الاستيراد اليدوي من تجربة المستخدم. التحليل البنيوي والخلاصة الاستخراجية يعملان تلقائيًا داخل جهازك. أما الترجمة وإعادة الصياغة الدلالية فتحتاجان محركًا لغويًا، ولذلك تبقيان منفصلتين ومقفلتين ما دام وضع التكلفة الصفرية مفعّلًا."
+            : "Manual import has been removed from the user experience. Structural analysis and the extractive overview run automatically on your device. Semantic translation and rewriting require a language engine, so they remain separate and locked while zero-cost mode is enabled."}
         </p>
-        {manualImportSaved && (
-          <div className="manual-import-saved">
-            <b>
-              ✓{" "}
-              {rtl
-                ? "مستورد يدويًا — غير منتَج عبر API"
-                : "Manually imported — not API-generated"}
-            </b>
-            <small>
-              {rtl ? "المصدر" : "Source"}: {manualImportSaved.source} ·{" "}
-              {rtl ? "بتاريخ" : "on"}{" "}
-              {new Date(manualImportSaved.created_at).toLocaleDateString(
-                rtl ? "ar" : "en",
-              )}
-            </small>
-            <pre className="result-json">
-              {JSON.stringify(manualImportSaved.content, null, 2)}
-            </pre>
-          </div>
-        )}
-        <textarea
-          className="manual-import-textarea"
-          value={manualText}
-          onChange={(e) => setManualText(e.target.value)}
-          placeholder={rtl ? "الصق JSON هنا…" : "Paste JSON here…"}
-        />
-        {manualErrors.length > 0 && (
-          <ul className="manual-import-errors">
-            {manualErrors.map((err, i) => (
-              <li key={i}>{err}</li>
-            ))}
-          </ul>
-        )}
-        <button
-          className="secondary"
-          disabled={!manualText.trim() || manualBusy}
-          onClick={submitManualImport}
-        >
-          {manualBusy ? "…" : rtl ? "تحقق واحفظ" : "Validate & save"}
-        </button>
       </section>
       <section className="budget-card panel">
         <div>
