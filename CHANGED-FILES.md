@@ -1,27 +1,60 @@
-# CHANGED-FILES.md — V0.6.3 → V0.7 Zero-Cost Functional Pilot
+# الملفات المتغيّرة — V0.7.2 → V0.7.3-candidate
 
-كل مسار نسبي إلى جذر المشروع. "جديد" = ملف لم يكن موجودًا في V0.6.3. "معدَّل" = ملف موجود عُدِّل جزئيًا (لا إعادة كتابة كاملة للتصميم أو الألوان في أي منها). لا حذف ولا إعادة تسمية لأي جدول أو ملف موجود.
+كل تغيير هنا يعالج سببًا جذريًا موثقًا في `CLAUDE-AUDIT-REPORT.md`. لا تغيير بصري عام، ولا Migration مُنفَّذة، ولا نشر.
 
 ## ملفات جديدة
 
-- **`src/lib/textAnalysis.ts`** — منطق نقي بلا اعتماديات (لا Supabase، لا PDF.js، لا DOM إلا `crypto.subtle`): كشف اللغة، Tokenize، أكثر الكلمات تكرارًا، عناوين مرشّحة بقواعد ثابتة، بناء حمولة `local_structural_analysis` الكاملة، حساب SHA-256 لملف، والتحقق الكامل من قالب الاستيراد اليدوي (`validateManualImport`). لماذا منفصل: يسمح باختباره بـ Node مباشرة بلا محاكاة متصفح (انظر `scripts/test-text-analysis.mjs`).
-- **`src/lib/localAnalysis.ts`** — تنزيل بايتات الكتاب من تخزين المستخدم نفسه، تشغيل PDF.js صفحة بصفحة مع تقرير تقدم، وحفظ نتيجة `buildLocalStructuralAnalysis` عبر `saveLocalAnalysis`. يفصل تنسيق PDF.js/Supabase عن منطق التحليل النقي في `textAnalysis.ts`.
-- **`src/lib/config.ts`** — `ZERO_COST_MODE = true`. علم واحد يقرأه كل من `App.tsx` (لتعطيل مسارات الدفع) و`scripts/verify-zero-cost.mjs` (للتحقق الثابت من ذلك).
-- **`scripts/test-text-analysis.mjs`** — اختبارات حقيقية (لا محاكاة) لـ`textAnalysis.ts` عبر `node --experimental-strip-types`. شُغِّلت فعليًا: 19/19 ناجحة.
-- **`scripts/verify-zero-cost.mjs`** — فحص ثابت (وليس بديلًا عن التقاط شبكة حي) يتأكد أن `ZERO_COST_MODE` صحيح، وأن كل نقطة استدعاء لـ`invokeBookAI` في `App.tsx` محروسة بـ`if (ZERO_COST_MODE) return;`، وأن `spl-ai` يبقى خارج `src/` تمامًا.
-- **`supabase/migrations/20260826_0002_spl_v07_zero_cost.sql`** — **غير منفَّذ عمدًا**، للمراجعة فقط. يضيف عمود `content_sha256` + فهرسًا فريدًا جزئيًا لمنع التكرار، ويوسّع قيد `spl_analyses.kind` ليشمل `local_structural`/`manual_import`، ويضيف عمودي `source` (افتراضي `'openai'`) و`template_version` (اختياري). لا يحذف ولا يعيد تسمية أي شيء.
-- **`docs/manual-import-schema.md`** — توثيق كامل لقالب JSON الذي يلصقه المستخدم يدويًا بعد إنشائه بنفسه عبر ChatGPT/Claude خارج التطبيق.
-- **`CLAUDE-AUDIT-REPORT.md`** — تشخيص السبب الجذري لكل عطل، بالاستشهاد بالكود الفعلي.
-- **`CHANGED-FILES.md`** — هذا الملف.
-- **`TEST-RESULTS.md`** — نتائج الاختبارات المطلوبة الخمسة عشر.
+- **`src/lib/polyfills.ts`** — polyfill لـ `Promise.withResolvers` (ES2024). السبب الجذري الموحّد لعطل التحليل المحلي على iPhone وعطل استخراج نص الصوت المجاني (القسم 1 من التقرير).
+- **`KNOWN-LIMITATIONS.md`** — ما لا يعمل مجانًا (OCR) وما لم يُختبر على جهاز حقيقي (iPhone، تأكيد بريد الترقية).
 
-## ملفات معدَّلة
+## ملفات مُعدَّلة
 
-- **`src/lib/library.ts`** — أُعيدت كتابته بالكامل مع الحفاظ على كل تصدير سابق (`listPilotBooks`, `uploadPilotBook`, `saveLegalConsent`, `rollbackPilotBook`, `invokeBookAI`, `getBookResults`, `getPrivateAudioUrl`) بنفس التوقيع الوظيفي حيث أمكن، وإضافة: `content_sha256` في نوع `PilotBook`؛ كشف تدرّجي لغياب عمود `content_sha256` (قبل تطبيق الـmigration) عبر `isMissingColumnError`/`checkHashColumnAvailable` بحيث لا ينهار التطبيق إن لم تُطبَّق الـmigration بعد؛ `uploadPilotBook` أصبحت تُعيد `{book, deduped}` بدل `book` فقط (تغيير توقيع مقصود، مُعالَج بالكامل في `App.tsx`)؛ `getLegalConsentStatus`، `createBookSignedUrl`، `saveLocalAnalysis`، `saveManualImport`، `getReadingProgress`/`saveReadingProgress`، `saveFeedback` — كلها دوال جديدة. لماذا: هذا هو المكان الوحيد المسؤول عن كل تفاعل مع Supabase؛ إصلاح الأعطال الأربعة يتطلب توسيعه لا استبداله.
-- **`src/Reader.tsx`** — أُعيد كتابته بالكامل (تصميم/CSS classes الأصلية لم تتغير — فقط المنطق وبنية الـState). أهم إضافة: `savedBook`/`onExitSavedBook` كـ Props اختيارية، ومسار تحميل كامل منفصل عن الملف المحلي (Signed URL → استعادة موضع القراءة من `spl_reading_progress` → `pdfjs.getDocument({url})`)، مع زر "إعادة المحاولة" عند انتهاء صلاحية الرابط. صوت الجهاز أُعيد تصميمه بالكامل: تقسيم إلى مقاطع جملة-تلو-جملة (`splitIntoSpeechChunks`)، طابور تشغيل صريح، Generation Token يمنع Callbacks القديمة من التأثير على حالة جديدة، رفض صريح (بدل نطق إنجليزي مضلِّل) حين لا يوجد صوت عربي على الجهاز، وحفظ تقدم القراءة لكتاب محفوظ عبر Supabase (مُهيَّأ بتأخير debounce) بدل `localStorage` الذي بقي حصرًا لمسار "القراءة المحلية المؤقتة".
-- **`src/App.tsx`** — تعديلات متعددة غير-تصميمية: (1) حالة تحميل/خطأ حقيقية لقائمة الكتب + `reloadPilotBooks`. (2) `readerBook` state و`openReaderFor`/`openReaderStandalone` لفصل مسار "كتاب محفوظ" عن "قراءة محلية" في كل نقطة دخول (الشريط الجانبي، شريط الجوال، لوحة التحكم، بطاقة الكتاب) دون خلط الاثنين في زر واحد. (3) `startProcessing` تتعامل الآن مع `{book, deduped}` بمنطق موافقة قانونية مختلف لكل حالة. (4) `Library` تعرض حالات تحميل/خطأ/فراغ حقيقية، وتصفية بحث فعلية لكل من الكتب المحفوظة والنماذج التجريبية. (5) `PilotWorkspace` أضيفت له: بطاقة بيانات الكتاب الكاملة، لوحة "التجربة المحلية المجانية"، لوحة "الاستيراد اليدوي"، وحراسة `ZERO_COST_MODE` على `process`/`ask`/`audio` مع تعطيل بصري وتسمية "🔒 مُقفلة" بدل زر يبدو فعالًا ولا يفعل شيئًا. (6) جرس الإشعارات وقائمة الملف الشخصي (⋮) أصبحا `disabled` مع `title` "قريبًا" بدل الظهور كأزرار حية بلا وظيفة. (7) مربع البحث مربوط بحالة حقيقية وتصفية فعلية. (8) نجوم التقييم وحقول سجل التجربة مربوطة بحالة حقيقية وتُحفظ عبر `saveFeedback()` الجديدة بدل رسالة نجاح وهمية.
-- **`src/pilot.css`** — إضافات فقط (لا حذف ولا تعديل لقيم موجودة): أنماط لعناصر التعطيل البصري (`disabled-soon`, `locked-note`)، بطاقة بيانات الكتاب، لوحتي التحليل المحلي والاستيراد اليدوي، حالات التحميل/الخطأ/الفراغ، ونجمة التقييم المُفعَّلة. لم يتغيّر أي متغير تصميم (`--*` tokens) في `globals.css`، ولم تُضَف أي ورقة أنماط جديدة — الإضافات كلها في هذا الملف تحديدًا حفاظًا على مركزية التعديل وعدم المساس بهوية المنصة البصرية.
+### `src/main.tsx`
+استيراد `./lib/polyfills` كأول سطر، قبل React وقبل أي استيراد آخر — يضمن تركيب الـ polyfill قبل أي `import("pdfjs-dist")` ديناميكي لاحق.
 
-## ملفات لم تُمس إطلاقًا
+### `src/lib/textAnalysis.ts`
+- `stripRepeatedLines(pages)` جديدة: تحذف ترويسات/تذييلات متكررة عبر الصفحات قبل توليد العناوين المرشحة والخلاصة الاستخراجية (يصلح تكرار «Claude 5: كزميل عمل» عبر صفحات 60-67 في الدليل).
+- `searchInsideBook(pagesText, query)` جديدة: بحث محلي حرفي (بدون ذكاء اصطناعي) يعيد صفحات ومقتطفات حقيقية.
+- `LocalStructuralAnalysis` type: حقل اختياري جديد `pages_text?: string[]` (نص كل صفحة، محدود الطول، يغذّي البحث فقط).
+- `buildLocalStructuralAnalysis`: يستخدم النص المُنظَّف (بعد `stripRepeatedLines`) لتوليد العناوين والخلاصة فقط؛ عدّ الكلمات/الأحرف يبقى على النص الأصلي الكامل لدقة الإحصاءات.
 
-`src/globals.css` (رموز التصميم الأساسية)، `src/reader.css`، `supabase/functions/spl-ai/index.ts` (الوظيفة نفسها لم تتغيّر حرفًا واحدًا — فقط أصبحت غير قابلة للوصول عمليًا من الواجهة في هذا البناء)، `supabase/migrations/20260825_0001_spl_v05_pilot.sql` (المخطط الأصلي؛ التعديلات الجديدة في ملف migration منفصل فقط)، `index.html`، `vite.config.ts`، `tsconfig.json`، `package.json` (الإصدار بقي `0.6.3` لأن V0.7 لم يُنشر بعد — التحديث متروك لك بعد المراجعة).
+### `src/lib/localAnalysis.ts`
+- `runLocalStructuralAnalysis` يعيد الآن `{ analysis, appliedBookPatch }` بدل `analysis` وحدها — يستدعي `backfillBookMetadataFromLocalAnalysis` بعد نجاح التحليل ويُعيد أي تعديل فعلي طُبِّق على الكتاب (لغة مكتشفة/عنوان أفضل)، حتى تُحدِّث الواجهة حالتها فورًا.
+
+### `src/lib/library.ts`
+- `backfillBookMetadataFromLocalAnalysis(book, analysis)` جديدة: تكتب `source_language` المكتشفة رجوعًا إلى `spl_books` فقط إذا كانت لا تزال `unknown`، وتُحدّث العنوان فقط إن وجدت عنوانًا حقيقيًا في `pdf_metadata.Title` مختلفًا عن الحالي. لا تلمس عمود `metadata` الحالي (تجنّب الكتابة فوق أي شيء كتبه المسار المدفوع سابقًا).
+- `groupDuplicateBooks(books)` و`DuplicateGroup` type جديدان: تجميع آمن للسجلات المكررة (مؤكد بواسطة `content_sha256`، أو غير مؤكد بواسطة عنوان+حجم للسجلات الأقدم من الـ hash) — بلا أي حذف. الحذف يبقى حصريًا عبر `rollbackPilotBook` الموجودة أصلًا، ومن نقرتين تأكيد صريحتين في الواجهة.
+
+### `src/lib/supabase.ts`
+- `isCurrentSessionAnonymous()` و`upgradeAnonymousSessionToEmail(email)` جديدتان: مسار ترقية الحساب المجهول إلى دائم عبر `auth.updateUser({ email })` — يحافظ على نفس `auth.uid()`، بلا Migration وبلا نقل ملكية.
+
+### `src/Reader.tsx`
+- `findNextTextPage(fromPage, doc, gen)` جديدة: تبحث عن أقرب صفحة فيها نص فعلي (أمامًا ثم خلفًا، حتى 25 صفحة) عند اكتشاف صفحة غلاف/مصوَّرة بلا طبقة نص.
+- `jumpToSuggestedTextPage()` جديدة + حالة `suggestedTextPage`/`scanningForText` + زر «انتقل إليها» في الواجهة.
+- `catch` في `speakPage` يسجّل الاستثناء الحقيقي في console بدل ابتلاعه بصمت (كان هذا الـ catch هو ما كان يُخفي خطأ `Promise.withResolvers` خلف رسالة عامة).
+- نص شارة الإصدار حُدِّث من V0.7.2 إلى V0.7.3-candidate.
+
+### `src/App.tsx`
+- `Library`: استبدال `.live-book-list` (أزرار مسطّحة تعرض `UNKNOWN · uploaded`) بمكوّن جديد `LiveBookCard` يعيد استخدام أصناف `book-card`/`book-cover` الموجودة أصلًا للنماذج، مع غلاف مولَّد محليًا (لون حتمي من عنوان الكتاب، بلا صورة، بلا API مدفوعة).
+- مكوّنات جديدة: `LiveBookCard`, `DuplicateReviewPanel`, `AccountUpgradePanel`, ودالتا مساعدة على مستوى الوحدة `coverToneFor`, `languageLabel`.
+- `PilotWorkspace`: prop جديد `onBookPatched` لتحديث حالة الكتاب في `Home` عند نجاح التعبئة الرجعية للغة/العنوان؛ حالة وواجهة جديدتان للبحث داخل الكتاب (`bookSearchTerm`, `bookSearchResults`, `runBookSearch`)؛ `runLocalAnalysis` مُحدَّثة للشكل الجديد لقيمة الإرجاع.
+- `Home`: `patchPilotBook(bookId, patch)` جديدة لتحديث `pilotBooks`/`activePilotBook` محليًا بلا إعادة تحميل كاملة؛ `onBooksChanged` جديد يُمرَّر لـ `Library` لتحديث القائمة بعد حذف نسخة مكررة.
+- شارات الإصدار النصية حُدِّثت من V0.7.2 إلى V0.7.3-candidate.
+
+### `src/pilot.css`
+قواعد جديدة فقط (إضافة، لا حذف): `.live-book-grid`, `.account-upgrade*`, `.duplicate-review`, `.duplicate-group*`, `.dup-confirmed/unconfirmed`, `button.danger`, `.book-search*` — كلها تستخدم متغيرات الألوان الموجودة أصلًا (`--ink`, `--soft`, `--line`, `--card`, `--card2`, `--gold`, `--red`).
+
+### `src/reader.css`
+قاعدة جديدة واحدة: `.text-page-hint` (لعرض اقتراح القفز لأقرب صفحة نصية).
+
+### `scripts/test-text-analysis.mjs`
+9 اختبارات جديدة (23 → 32، كلها ناجحة): إعادة إنتاج سيناريو تكرار الترويسة من صور الدليل والتحقق من إزالته، والتحقق من `searchInsideBook` (نتائج صحيحة، أرقام صفحات صحيحة، تعامل آمن مع غياب البيانات).
+
+### `VERSION`, `package.json`
+`0.7.2` → `0.7.3-candidate`.
+
+## ملفات لم تتغيّر (فُحصت وأُقرَّت سليمة)
+
+- `supabase/functions/spl-ai/index.ts` — الأمان (RLS، فحص ملكية، القفل الافتراضي) سليم كما هو.
+- `supabase/migrations/20260826_0002_spl_v07_zero_cost.sql` — لا حاجة لأي Migration جديدة في V0.7.3؛ كل الإصلاحات الجديدة إما تستخدم أعمدة موجودة أصلًا في مخطط V0.5 (`source_language`, `title`)، أو تُخزَّن داخل `content` jsonb الموجود أصلًا (`pages_text`)، أو تعتمد آلية Supabase Auth المدمجة (ترقية الحساب) التي لا تحتاج SQL. الملف يبقى **غير مُنفَّذ** تمامًا كما تسلَّمته.
+- منطق تسجيل الموافقة القانونية بعد الرفع في `startProcessing` (`App.tsx`) — التراجع (rollback) الموجود من V0.7.1 سليم، لم يتغيّر.

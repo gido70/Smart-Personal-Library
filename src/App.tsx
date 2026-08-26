@@ -4,6 +4,7 @@ import {
   getBookResults,
   getLegalConsentStatus,
   getPrivateAudioUrl,
+  groupDuplicateBooks,
   invokeBookAI,
   listPilotBooks,
   rollbackPilotBook,
@@ -11,14 +12,15 @@ import {
   saveLegalConsent,
   saveManualImport,
   uploadPilotBook,
+  type DuplicateGroup,
   type OutputLanguage,
   type PilotBook,
   type StoredAnalysis,
 } from "./lib/library";
-import { supabaseConfigured } from "./lib/supabase";
+import { supabaseConfigured, upgradeAnonymousSessionToEmail } from "./lib/supabase";
 import { ZERO_COST_MODE } from "./lib/config";
 import { runLocalStructuralAnalysis, type LocalAnalysisProgress } from "./lib/localAnalysis";
-import { validateManualImport, type LocalStructuralAnalysis, type ManualImportPayload } from "./lib/textAnalysis";
+import { searchInsideBook, validateManualImport, type BookSearchMatch, type LocalStructuralAnalysis, type ManualImportPayload } from "./lib/textAnalysis";
 
 type Lang = "ar" | "en";
 type View =
@@ -34,7 +36,7 @@ type View =
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "النسخة التجريبية المجانية — V0.7.2",
+    version: "النسخة التجريبية المجانية — V0.7.3-candidate",
     search: "ابحث في كتبك وأفكارك…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -65,7 +67,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Zero-cost functional pilot — V0.7.2",
+    version: "Zero-cost functional pilot — V0.7.3-candidate",
     search: "Search your books and ideas…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -214,6 +216,10 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [booksLoadToken]);
   const reloadPilotBooks = () => setBooksLoadToken((n) => n + 1);
+  const patchPilotBook = (bookId: string, patch: Partial<PilotBook>) => {
+    setPilotBooks((prev) => prev.map((b) => (b.id === bookId ? { ...b, ...patch } : b)));
+    setActivePilotBook((prev) => (prev && prev.id === bookId ? { ...prev, ...patch } : prev));
+  };
   const switchLang = () => {
     const next = lang === "ar" ? "en" : "ar";
     setLang(next);
@@ -324,7 +330,7 @@ export default function Home() {
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "التجربة المجانية الآمنة V0.7.2" : "Safe zero-cost pilot V0.7.2"}
+            {rtl ? "التجربة المجانية الآمنة V0.7.3-candidate" : "Safe zero-cost pilot V0.7.3-candidate"}
           </strong>
           <p>
             {rtl
@@ -405,6 +411,7 @@ export default function Home() {
             booksLoading={booksLoading}
             booksError={booksError}
             onRetry={reloadPilotBooks}
+            onBooksChanged={reloadPilotBooks}
             searchQuery={searchQuery}
             onOpenPilot={(book) => {
               setActivePilotBook(book);
@@ -421,6 +428,7 @@ export default function Home() {
             book={activePilotBook}
             onBack={() => setView("library")}
             onOpenReader={() => openReaderFor(activePilotBook)}
+            onBookPatched={patchPilotBook}
           />
         )}
         {view === "reader" && (
@@ -801,6 +809,197 @@ function PageTitle({
   );
 }
 
+const COVER_TONES = ["emerald", "navy", "gold"] as const;
+
+/** Deterministic (title-based) local cover tone — no image, no paid API, same tone every render. */
+function coverToneFor(seed: string): (typeof COVER_TONES)[number] {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  return COVER_TONES[hash % COVER_TONES.length];
+}
+
+function languageLabel(lang: string, rtl: boolean): string {
+  return lang === "ar"
+    ? rtl
+      ? "العربية"
+      : "Arabic"
+    : lang === "en"
+      ? rtl
+        ? "الإنجليزية"
+        : "English"
+      : lang === "mixed"
+        ? rtl
+          ? "مختلطة"
+          : "Mixed"
+        : lang === "bilingual"
+          ? rtl
+            ? "ثنائية اللغة"
+            : "Bilingual"
+          : rtl
+            ? "لم تُحدَّد بعد"
+            : "Not detected yet";
+}
+
+const STATUS_LABELS_AR: Record<PilotBook["status"], string> = {
+  uploaded: "محفوظ — بانتظار التحليل المحلي",
+  processing: "قيد المعالجة",
+  ready: "جاهز",
+  failed: "فشل",
+};
+const STATUS_LABELS_EN: Record<PilotBook["status"], string> = {
+  uploaded: "Saved — awaiting local analysis",
+  processing: "Processing",
+  ready: "Ready",
+  failed: "Failed",
+};
+
+/**
+ * A real, saved user book rendered with the same card/cover visual language
+ * as the three display samples (fixes bug ب/evidence #4-5: real books used
+ * to render as flat "UNKNOWN · uploaded" rows). No network cover image is
+ * ever fetched — the cover is a locally generated title/color card, exactly
+ * as CLAUDE-REVIEW-PROMPT.md §ب requires ("لا تستخدم API مدفوعة").
+ */
+function LiveBookCard({ book, rtl, onOpen }: { book: PilotBook; rtl: boolean; onOpen: () => void }) {
+  const tone = coverToneFor(book.title || book.file_name);
+  const subtitle = languageLabel(book.source_language, rtl);
+  const status = rtl ? STATUS_LABELS_AR[book.status] : STATUS_LABELS_EN[book.status];
+  return (
+    <button className="book-card live-book-card" onClick={onOpen}>
+      <BookCover tone={tone} title={book.title.split(" ").slice(0, 3).join(" ")} />
+      <div>
+        <span className="tag">{rtl ? "كتابك" : "Your book"}</span>
+        <h4>{book.title}</h4>
+        <p>{subtitle}</p>
+        <small>{status}</small>
+      </div>
+    </button>
+  );
+}
+
+function DuplicateReviewPanel({
+  rtl,
+  groups,
+  onBooksChanged,
+}: {
+  rtl: boolean;
+  groups: DuplicateGroup[];
+  onBooksChanged: () => void;
+}) {
+  const [confirmingId, setConfirmingId] = useState("");
+  const [busyId, setBusyId] = useState("");
+  const [error, setError] = useState("");
+  if (groups.length === 0) return null;
+  const remove = async (book: PilotBook) => {
+    setBusyId(book.id);
+    setError("");
+    try {
+      await rollbackPilotBook(book);
+      onBooksChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : rtl ? "تعذر حذف السجل." : "Could not delete this record.");
+    } finally {
+      setBusyId("");
+      setConfirmingId("");
+    }
+  };
+  return (
+    <section className="panel duplicate-review">
+      <span className="eyebrow">{rtl ? "مراجعة السجلات المكررة" : "Duplicate review"}</span>
+      <h3>{rtl ? "لم يُحذف أي كتاب تلقائيًا — راجع ثم احذف يدويًا" : "Nothing was deleted automatically — review, then delete manually"}</h3>
+      <p className="disclosure-note">
+        {rtl
+          ? "المجموعات المؤكدة تتطابق بمحتوى الملف نفسه (بصمة SHA-256). المجموعات غير المؤكدة تتطابق فقط بالعنوان وحجم الملف لأنها أقدم من ميزة البصمة — راجعها بعناية قبل الحذف."
+          : "Confirmed groups match on the file's own content hash (SHA-256). Unconfirmed groups match only on title + file size because they predate hashing — review carefully before deleting."}
+      </p>
+      {error && <div className="reader-error inline">{error}</div>}
+      {groups.map((group) => (
+        <div key={group.key} className="duplicate-group">
+          <small className={group.confirmed ? "dup-confirmed" : "dup-unconfirmed"}>
+            {group.confirmed
+              ? rtl
+                ? "مؤكد — نفس محتوى الملف"
+                : "Confirmed — identical file content"
+              : rtl
+                ? "غير مؤكد — تطابق بالعنوان والحجم فقط"
+                : "Unconfirmed — title + size match only"}
+          </small>
+          <ul>
+            {group.books.map((book) => (
+              <li key={book.id}>
+                <span>
+                  {book.title} — {new Date(book.created_at).toLocaleString(rtl ? "ar" : "en")}
+                </span>
+                {confirmingId === book.id ? (
+                  <span className="dup-confirm-row">
+                    <em>{rtl ? "تأكيد الحذف؟" : "Confirm delete?"}</em>
+                    <button className="danger" disabled={busyId === book.id} onClick={() => remove(book)}>
+                      {rtl ? "نعم، احذف" : "Yes, delete"}
+                    </button>
+                    <button className="secondary" onClick={() => setConfirmingId("")}>
+                      {rtl ? "تراجع" : "Cancel"}
+                    </button>
+                  </span>
+                ) : (
+                  <button className="secondary" onClick={() => setConfirmingId(book.id)}>
+                    {rtl ? "حذف هذه النسخة" : "Delete this copy"}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function AccountUpgradePanel({ rtl }: { rtl: boolean }) {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<"idle" | "sent" | "error">("idle");
+  const [error, setError] = useState("");
+  const submit = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await upgradeAnonymousSessionToEmail(email);
+      setResult("sent");
+    } catch (e) {
+      setResult("error");
+      setError(e instanceof Error ? e.message : rtl ? "تعذر بدء الترقية." : "Could not start the upgrade.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <details className="account-upgrade">
+      <summary>{rtl ? "ترقية إلى حساب دائم (لاستعادة مكتبتك من جهاز آخر)" : "Upgrade to a permanent account (recover your library on another device)"}</summary>
+      <p className="disclosure-note">
+        {rtl
+          ? "ندخل بريدك على نفس الهوية الحالية بلا نقل بيانات: كل كتاب محفوظ يبقى كما هو. سنرسل رابط تأكيد إلى بريدك؛ لن تصبح الترقية فعلية إلا بعد الضغط عليه."
+          : "This attaches your email to your existing identity — no data migration, every saved book stays exactly as-is. We send a confirmation link to your email; the upgrade only takes effect once you click it."}
+      </p>
+      {result === "sent" ? (
+        <p className="dup-confirmed">{rtl ? "أُرسل رابط التأكيد. افتح بريدك وأكمل الخطوة هناك." : "Confirmation link sent. Check your inbox to finish."}</p>
+      ) : (
+        <div className="account-upgrade-form">
+          <input
+            type="email"
+            placeholder={rtl ? "بريدك الإلكتروني" : "Your email"}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <button className="secondary" disabled={busy || !email.trim()} onClick={submit}>
+            {busy ? (rtl ? "جارٍ الإرسال…" : "Sending…") : rtl ? "أرسل رابط الترقية" : "Send upgrade link"}
+          </button>
+        </div>
+      )}
+      {result === "error" && <div className="reader-error inline">{error}</div>}
+    </details>
+  );
+}
+
 function Library({
   rtl,
   title,
@@ -810,6 +1009,7 @@ function Library({
   booksLoading,
   booksError,
   onRetry,
+  onBooksChanged,
   searchQuery,
   onOpenPilot,
 }: {
@@ -821,6 +1021,7 @@ function Library({
   booksLoading: boolean;
   booksError: string;
   onRetry: () => void;
+  onBooksChanged: () => void;
   searchQuery: string;
   onOpenPilot: (book: PilotBook) => void;
 }) {
@@ -882,24 +1083,19 @@ function Library({
           <h3>{rtl ? "مكتبتك الفعلية" : "Your live library"}</h3>
           <p className="pilot-session-warning">
             {rtl
-              ? "تنبيه النسخة التجريبية: دخولك مرتبط بهذا المتصفح حاليًا؛ لا تمسح بيانات المتصفح حتى نضيف الحساب الدائم والاسترجاع."
-              : "Pilot notice: access is currently tied to this browser. Do not clear browser data until permanent accounts and recovery are added."}
+              ? "تنبيه النسخة التجريبية: دخولك مرتبط بهذا المتصفح حاليًا؛ لا تمسح بيانات المتصفح قبل الترقية إلى حساب دائم أدناه."
+              : "Pilot notice: access is currently tied to this browser. Do not clear browser data before upgrading to a permanent account below."}
           </p>
-          <div className="live-book-list">
+          <AccountUpgradePanel rtl={rtl} />
+          <div className="library-full live-book-grid">
             {filteredPilotBooks.map((book) => (
-              <button key={book.id} onClick={() => onOpenPilot(book)}>
-                <i>▤</i>
-                <span>
-                  <strong>{book.title}</strong>
-                  <small>
-                    {book.source_language.toUpperCase()} · {book.status}
-                  </small>
-                </span>
-                <b>←</b>
-              </button>
+              <LiveBookCard key={book.id} book={book} rtl={rtl} onOpen={() => onOpenPilot(book)} />
             ))}
           </div>
         </section>
+      )}
+      {!booksLoading && !booksError && (
+        <DuplicateReviewPanel rtl={rtl} groups={groupDuplicateBooks(pilotBooks)} onBooksChanged={onBooksChanged} />
       )}
       {!query || filteredDemoBooks.length > 0 ? (
         <>
@@ -927,11 +1123,13 @@ function PilotWorkspace({
   book,
   onBack,
   onOpenReader,
+  onBookPatched,
 }: {
   rtl: boolean;
   book: PilotBook;
   onBack: () => void;
   onOpenReader: () => void;
+  onBookPatched: (bookId: string, patch: Partial<PilotBook>) => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [results, setResults] = useState<Record<string, unknown> | null>(null);
@@ -952,6 +1150,8 @@ function PilotWorkspace({
   const [manualText, setManualText] = useState("");
   const [manualErrors, setManualErrors] = useState<string[]>([]);
   const [manualBusy, setManualBusy] = useState(false);
+  const [bookSearchTerm, setBookSearchTerm] = useState("");
+  const [bookSearchResults, setBookSearchResults] = useState<BookSearchMatch[] | null>(null);
   const sizeMb = Math.max(0.1, (book.file_size || 0) / 1048576);
   const band = sizeMb < 5 ? "small" : sizeMb < 20 ? "medium" : "large";
   const estimates = {
@@ -1050,10 +1250,13 @@ function PilotWorkspace({
     setLocalError("");
     setLocalProgress(null);
     try {
-      const analysis = await runLocalStructuralAnalysis(book, setLocalProgress);
+      const { analysis, appliedBookPatch } = await runLocalStructuralAnalysis(book, setLocalProgress);
       setLocalAnalysis(analysis);
+      setBookSearchResults(null);
+      if (Object.keys(appliedBookPatch).length > 0) onBookPatched(book.id, appliedBookPatch);
     } catch (e) {
       const raw = e instanceof Error ? e.message : "";
+      console.error("SPL: local analysis failed", e);
       setLocalError(
         raw.startsWith("MIGRATION_REQUIRED")
           ? rtl
@@ -1065,6 +1268,9 @@ function PilotWorkspace({
     } finally {
       setLocalBusy(false);
     }
+  };
+  const runBookSearch = () => {
+    setBookSearchResults(searchInsideBook(localAnalysis?.pages_text, bookSearchTerm));
   };
   const submitManualImport = async () => {
     setManualErrors([]);
@@ -1348,6 +1554,47 @@ function PilotWorkspace({
                 </ul>
               </details>
             )}
+            <div className="book-search">
+              <h4>{rtl ? "بحث داخل الكتاب (محلي)" : "Search inside the book (local)"}</h4>
+              <p className="disclosure-note">
+                {rtl
+                  ? "بحث حرفي عن كلمة أو عبارة داخل صفحات الكتاب نفسها — ليس سؤالًا ذكيًا ولا يفهم المعنى، فقط يطابق النص ويعيد رقم الصفحة ومقتطفًا حقيقيًا."
+                  : "A literal word/phrase match across the book's own pages — not a smart question, no meaning understanding, just real text matches with page numbers and a real snippet."}
+              </p>
+              {localAnalysis.pages_text ? (
+                <>
+                  <div className="book-search-form">
+                    <input
+                      type="text"
+                      value={bookSearchTerm}
+                      onChange={(e) => setBookSearchTerm(e.target.value)}
+                      placeholder={rtl ? "اكتب كلمة أو عبارة…" : "Type a word or phrase…"}
+                      onKeyDown={(e) => e.key === "Enter" && runBookSearch()}
+                    />
+                    <button className="secondary" onClick={runBookSearch} disabled={bookSearchTerm.trim().length < 2}>
+                      {rtl ? "بحث" : "Search"}
+                    </button>
+                  </div>
+                  {bookSearchResults && (
+                    bookSearchResults.length > 0 ? (
+                      <ul className="candidate-list">
+                        {bookSearchResults.map((match, index) => (
+                          <li key={`${match.page}-${index}`}>
+                            <em>{rtl ? `ص ${match.page}` : `p. ${match.page}`}</em> {match.snippet}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="disclosure-note">{rtl ? "لا توجد نتائج مطابقة." : "No matches found."}</p>
+                    )
+                  )}
+                </>
+              ) : (
+                <p className="disclosure-note">
+                  {rtl ? "غير متاح لهذا الكتاب — أعد تشغيل التحليل المحلي أعلاه لتفعيل البحث." : "Not available for this book — re-run the local analysis above to enable search."}
+                </p>
+              )}
+            </div>
             <p className="disclosure-note">{localAnalysis.disclosure}</p>
             <button
               className="text-button"
