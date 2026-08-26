@@ -117,12 +117,46 @@ export type LocalStructuralAnalysis = {
   pdf_metadata: Record<string, unknown>;
   heading_candidates: HeadingCandidate[];
   top_terms: TermCount[];
+  extractive_summary?: Array<{ page: number; text: string }>;
   content_per_page: Array<{ page: number; word_count: number; character_count: number }>;
   disclosure: string;
 };
 
 const DISCLOSURE_AR =
-  "هذا تحليل بنيوي محلي منتَج بقواعد ثابتة داخل متصفحك عبر PDF.js فقط. ليس تلخيصًا ولا ترجمة ولا تحليلًا بالذكاء الاصطناعي، ولم يُرسل نص الكتاب إلى أي خدمة خارجية.";
+  "هذا تحليل بنيوي وخلاصة استخراجية محلية منتَجة بقواعد ثابتة داخل متصفحك عبر PDF.js فقط. ليست ترجمة ولا تحليلًا بالذكاء الاصطناعي، ولم يُرسل نص الكتاب إلى أي خدمة خارجية. الخلاصة تختار جملًا من النص الأصلي ولا تعيد صياغتها.";
+
+/**
+ * Produces a small, clearly labelled extractive overview without any model or
+ * network call. Sentences are scored by the book's frequent content terms,
+ * then returned in source order with their page numbers.
+ */
+export function buildExtractiveSummary(
+  pagesText: string[],
+  terms: TermCount[],
+  limit = 8,
+): Array<{ page: number; text: string }> {
+  const weights = new Map(terms.map(({ term, count }) => [term, count]));
+  const candidates: Array<{ page: number; order: number; text: string; score: number }> = [];
+  let order = 0;
+  pagesText.forEach((pageText, pageIndex) => {
+    const sentences = pageText
+      .split(/(?<=[.!?؟؛])\s+|\n+/u)
+      .map((sentence) => sentence.replace(/\s+/g, " ").trim())
+      .filter((sentence) => sentence.length >= 45 && sentence.length <= 420);
+    for (const sentence of sentences) {
+      const sentenceTokens = tokenize(sentence);
+      if (sentenceTokens.length < 7) continue;
+      const score = sentenceTokens.reduce((sum, token) => sum + (weights.get(token) ?? 0), 0) /
+        Math.sqrt(sentenceTokens.length);
+      candidates.push({ page: pageIndex + 1, order: order++, text: sentence, score });
+    }
+  });
+  return candidates
+    .sort((a, b) => b.score - a.score || a.order - b.order)
+    .slice(0, limit)
+    .sort((a, b) => a.order - b.order)
+    .map(({ page, text }) => ({ page, text }));
+}
 
 /** Assembles the final local_structural_analysis payload from already-extracted per-page text. */
 export function buildLocalStructuralAnalysis(
@@ -132,6 +166,7 @@ export function buildLocalStructuralAnalysis(
   const fullText = pagesText.join("\n");
   const language = detectLanguage(fullText);
   const tokens = tokenize(fullText);
+  const terms = topTerms(tokens, language, 24);
   const contentPerPage = pagesText.map((pageText, index) => ({
     page: index + 1,
     word_count: tokenize(pageText).length,
@@ -146,15 +181,31 @@ export function buildLocalStructuralAnalysis(
     detected_language: language,
     pdf_metadata: pdfMetadata,
     heading_candidates: findHeadingCandidates(pagesText),
-    top_terms: topTerms(tokens, language, 24),
+    top_terms: terms,
+    extractive_summary: buildExtractiveSummary(pagesText, terms),
     content_per_page: contentPerPage,
     disclosure: DISCLOSURE_AR,
   };
 }
 
+/** Safari/WKWebView compatible Blob reader (Blob.arrayBuffer is not universal). */
+export async function blobToArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
+  if (typeof blob.arrayBuffer === "function") return blob.arrayBuffer();
+  if (typeof FileReader === "undefined") return new Response(blob).arrayBuffer();
+  return new Promise<ArrayBuffer>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("BLOB_READ_FAILED"));
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) resolve(reader.result);
+      else reject(new Error("BLOB_READ_FAILED"));
+    };
+    reader.readAsArrayBuffer(blob);
+  });
+}
+
 /** SHA-256 hex digest of a File/Blob's bytes, computed entirely in the browser (Web Crypto). */
 export async function hashFile(file: Blob): Promise<string> {
-  const buffer = await file.arrayBuffer();
+  const buffer = await blobToArrayBuffer(file);
   const digest = await crypto.subtle.digest("SHA-256", buffer);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
