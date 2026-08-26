@@ -29,6 +29,12 @@ async function openAI(path: string, init: RequestInit) {
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
+    // Fail closed. The paid path stays unavailable unless the project owner
+    // explicitly creates this server-side secret with the exact value "true".
+    // A browser flag alone is not a financial security boundary.
+    if (Deno.env.get("SPL_PAID_AI_ENABLED") !== "true") {
+      return json({ error: "PAID_AI_DISABLED" }, 403);
+    }
     const auth = request.headers.get("Authorization") ?? "";
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,

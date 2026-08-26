@@ -1,17 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
-import Reader from "./Reader";
+import Reader, { type SavedBookRef } from "./Reader";
 import {
   getBookResults,
+  getLegalConsentStatus,
   getPrivateAudioUrl,
   invokeBookAI,
   listPilotBooks,
   rollbackPilotBook,
+  saveFeedback,
   saveLegalConsent,
+  saveManualImport,
   uploadPilotBook,
   type OutputLanguage,
   type PilotBook,
+  type StoredAnalysis,
 } from "./lib/library";
 import { supabaseConfigured } from "./lib/supabase";
+import { ZERO_COST_MODE } from "./lib/config";
+import { runLocalStructuralAnalysis, type LocalAnalysisProgress } from "./lib/localAnalysis";
+import { validateManualImport, type LocalStructuralAnalysis, type ManualImportPayload } from "./lib/textAnalysis";
 
 type Lang = "ar" | "en";
 type View =
@@ -27,7 +34,7 @@ type View =
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "النسخة المجانية أولًا — V0.6.3",
+    version: "النسخة التجريبية المجانية — V0.7.1",
     search: "ابحث في كتبك وأفكارك…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -45,7 +52,7 @@ const text = {
     journey: "رحلة كتابك",
     uploadTitle: "أضف كتابًا إلى مكتبتك",
     uploadSub: "الملف يبقى خاصًا، ولن يُنشر أو يُشارك مع مستخدم آخر.",
-    choose: "اختر PDF أو EPUB",
+    choose: "اختر PDF",
     rights1:
       "أقرّ أنني أملك حق استخدام هذا الملف أو لدي تصريح بمعالجته للاستخدام الشخصي.",
     rights2:
@@ -58,7 +65,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Free-first pilot — V0.6.3",
+    version: "Zero-cost functional pilot — V0.7.1",
     search: "Search your books and ideas…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -77,7 +84,7 @@ const text = {
     uploadTitle: "Add a book to your library",
     uploadSub:
       "Your file stays private and is never published or shared with another user.",
-    choose: "Choose PDF or EPUB",
+    choose: "Choose PDF",
     rights1:
       "I confirm that I own this file or have permission to process it for personal use.",
     rights2:
@@ -154,12 +161,17 @@ export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [outputLanguage, setOutputLanguage] = useState<OutputLanguage>("ar");
   const [pilotBooks, setPilotBooks] = useState<PilotBook[]>([]);
+  const [booksLoading, setBooksLoading] = useState(true);
+  const [booksError, setBooksError] = useState("");
+  const [booksLoadToken, setBooksLoadToken] = useState(0);
   const [activePilotBook, setActivePilotBook] = useState<PilotBook | null>(
     null,
   );
+  const [readerBook, setReaderBook] = useState<SavedBookRef | null>(null);
   const [processing, setProcessing] = useState(false);
   const [percent, setPercent] = useState(0);
   const [notice, setNotice] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const t = text[lang];
   const rtl = lang === "ar";
   useEffect(() => {
@@ -173,11 +185,35 @@ export default function Home() {
         .catch(() => undefined);
   }, []);
   useEffect(() => {
-    if (supabaseConfigured)
-      listPilotBooks()
-        .then(setPilotBooks)
-        .catch(() => undefined);
-  }, []);
+    if (!supabaseConfigured) {
+      setBooksLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setBooksLoading(true);
+    setBooksError("");
+    listPilotBooks()
+      .then((books) => {
+        if (cancelled) return;
+        setPilotBooks(books);
+      })
+      .catch((loadError) => {
+        if (cancelled) return;
+        setBooksError(
+          rtl
+            ? `تعذر تحميل مكتبتك: ${loadError instanceof Error ? loadError.message : "خطأ غير معروف"}`
+            : `Could not load your library: ${loadError instanceof Error ? loadError.message : "Unknown error"}`,
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setBooksLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [booksLoadToken]);
+  const reloadPilotBooks = () => setBooksLoadToken((n) => n + 1);
   const switchLang = () => {
     const next = lang === "ar" ? "en" : "ar";
     setLang(next);
@@ -187,6 +223,14 @@ export default function Home() {
     () => navigation[lang].find((x) => x[0] === view)?.[1] || t.name,
     [lang, view, t.name],
   );
+  const openReaderFor = (book: PilotBook) => {
+    setReaderBook({ id: book.id, title: book.title, storagePath: book.storage_path });
+    setView("reader");
+  };
+  const openReaderStandalone = () => {
+    setReaderBook(null);
+    setView("reader");
+  };
   const startProcessing = async () => {
     if (!file || !rights1 || !rights2) return;
     if (!supabaseConfigured) {
@@ -201,13 +245,18 @@ export default function Home() {
     setPercent(12);
     try {
       setPercent(35);
-      const book = await uploadPilotBook(file, outputLanguage);
+      const { book, deduped } = await uploadPilotBook(file, outputLanguage);
       setPercent(75);
-      try {
-        await saveLegalConsent(book.id, rights1, rights2);
-      } catch (consentError) {
-        await rollbackPilotBook(book);
-        throw consentError;
+      if (deduped) {
+        const consent = await getLegalConsentStatus(book.id);
+        if (!consent.recorded) await saveLegalConsent(book.id, rights1, rights2);
+      } else {
+        try {
+          await saveLegalConsent(book.id, rights1, rights2);
+        } catch (consentError) {
+          await rollbackPilotBook(book);
+          throw consentError;
+        }
       }
       setPercent(100);
       const all = await listPilotBooks();
@@ -217,9 +266,13 @@ export default function Home() {
       setUpload(false);
       setView("pilot");
       setNotice(
-        rtl
-          ? "حُفظ الكتاب فقط. لم يُرسل إلى OpenAI ولم يُخصم من رصيدك."
-          : "Book saved only. Nothing was sent to OpenAI and no API credit was used.",
+        deduped
+          ? rtl
+            ? "هذا الكتاب موجود بالفعل في مكتبتك — فتحنا نسختك المحفوظة دون رفع نسخة ثانية."
+            : "This book is already in your library — opened your saved copy instead of uploading a duplicate."
+          : rtl
+            ? "حُفظ الكتاب فقط. لم يُرسل إلى OpenAI ولم يُخصم من رصيدك."
+            : "Book saved only. Nothing was sent to OpenAI and no API credit was used.",
       );
       setFile(null);
       setRights1(false);
@@ -233,8 +286,15 @@ export default function Home() {
       setTimeout(() => setNotice(""), 7000);
     }
   };
-  const go = (id: string) =>
-    id === "upload" ? setUpload(true) : setView(id as View);
+  const go = (id: string) => {
+    if (id === "upload") {
+      setUpload(true);
+    } else if (id === "reader") {
+      openReaderStandalone();
+    } else {
+      setView(id as View);
+    }
+  };
   return (
     <div
       className={dark ? "app dark" : "app"}
@@ -264,7 +324,7 @@ export default function Home() {
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "قارئ الجهاز المجاني V0.6.3" : "Free on-device reader V0.6.3"}
+            {rtl ? "التجربة المجانية الآمنة V0.7.1" : "Safe zero-cost pilot V0.7.1"}
           </strong>
           <p>
             {rtl
@@ -278,7 +338,17 @@ export default function Home() {
             <strong>عبدالرحمن</strong>
             <small>{rtl ? "المكتبة الخاصة" : "Private library"}</small>
           </div>
-          <button>⋮</button>
+          <button
+            className="disabled-soon"
+            disabled
+            title={
+              rtl
+                ? "إعدادات الحساب — قريبًا"
+                : "Account settings — coming soon"
+            }
+          >
+            ⋮
+          </button>
         </div>
       </aside>
       <main>
@@ -286,17 +356,33 @@ export default function Home() {
           <button className="mobile-brand" onClick={() => setView("home")}>
             ك
           </button>
-          <label className="search">
+          <form
+            className="search"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (searchQuery.trim()) setView("library");
+            }}
+          >
             <span>⌕</span>
-            <input placeholder={t.search} />
-          </label>
+            <input
+              placeholder={t.search}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </form>
           <div className="top-actions">
             <button onClick={switchLang} className="lang-switch">
               {rtl ? "EN" : "ع"}
             </button>
             <button onClick={() => setDark(!dark)}>{dark ? "☀" : "◐"}</button>
-            <button className="bell">
-              ♧<b>2</b>
+            <button
+              className="bell disabled-soon"
+              disabled
+              title={
+                rtl ? "الإشعارات — قريبًا" : "Notifications — coming soon"
+              }
+            >
+              ♧
             </button>
           </div>
         </header>
@@ -306,6 +392,7 @@ export default function Home() {
             t={t}
             onUpload={() => setUpload(true)}
             setView={setView}
+            onOpenReader={openReaderStandalone}
           />
         )}
         {view === "library" && (
@@ -315,6 +402,10 @@ export default function Home() {
             onUpload={() => setUpload(true)}
             onOpen={() => setView("book")}
             pilotBooks={pilotBooks}
+            booksLoading={booksLoading}
+            booksError={booksError}
+            onRetry={reloadPilotBooks}
+            searchQuery={searchQuery}
             onOpenPilot={(book) => {
               setActivePilotBook(book);
               setView("pilot");
@@ -329,10 +420,19 @@ export default function Home() {
             rtl={rtl}
             book={activePilotBook}
             onBack={() => setView("library")}
-            onOpenReader={() => setView("reader")}
+            onOpenReader={() => openReaderFor(activePilotBook)}
           />
         )}
-        {view === "reader" && <Reader rtl={rtl} />}
+        {view === "reader" && (
+          <Reader
+            rtl={rtl}
+            savedBook={readerBook}
+            onExitSavedBook={() => {
+              setReaderBook(null);
+              setView(activePilotBook ? "pilot" : "library");
+            }}
+          />
+        )}
         {view === "progress" && <Progress rtl={rtl} title={pageTitle} />}
         {view === "librarian" && <Librarian rtl={rtl} title={pageTitle} />}
         {view === "feedback" && <Feedback rtl={rtl} t={t} />}
@@ -377,11 +477,13 @@ function Dashboard({
   t,
   onUpload,
   setView,
+  onOpenReader,
 }: {
   rtl: boolean;
   t: typeof text.ar;
   onUpload: () => void;
   setView: (v: View) => void;
+  onOpenReader: () => void;
 }) {
   return (
     <div className="page">
@@ -395,7 +497,7 @@ function Dashboard({
           <h2>{t.hello}</h2>
           <p>{t.intro}</p>
           <div className="welcome-actions">
-            <button className="primary" onClick={() => setView("reader")}>
+            <button className="primary" onClick={onOpenReader}>
               ◫ {rtl ? "اقرأ واستمع مجانًا" : "Read & listen for free"}
             </button>
             <button className="secondary" onClick={onUpload}>
@@ -519,7 +621,7 @@ function Dashboard({
           <button className="add-book-card" onClick={onUpload}>
             <i>＋</i>
             <strong>{rtl ? "أضف كتابًا جديدًا" : "Add a new book"}</strong>
-            <span>PDF / EPUB</span>
+                <span>PDF</span>
           </button>
         </div>
       </section>
@@ -534,7 +636,7 @@ function Dashboard({
               "01",
               "⇧",
               rtl ? "ارفع كتابك" : "Upload",
-              rtl ? "PDF أو EPUB خاص بك" : "Your PDF or EPUB",
+              rtl ? "ملف PDF خاص بك" : "Your private PDF",
             ],
             [
               "02",
@@ -705,6 +807,10 @@ function Library({
   onUpload,
   onOpen,
   pilotBooks,
+  booksLoading,
+  booksError,
+  onRetry,
+  searchQuery,
   onOpenPilot,
 }: {
   rtl: boolean;
@@ -712,8 +818,23 @@ function Library({
   onUpload: () => void;
   onOpen: () => void;
   pilotBooks: PilotBook[];
+  booksLoading: boolean;
+  booksError: string;
+  onRetry: () => void;
+  searchQuery: string;
   onOpenPilot: (book: PilotBook) => void;
 }) {
+  const query = searchQuery.trim().toLowerCase();
+  const filteredPilotBooks = query
+    ? pilotBooks.filter((book) => book.title.toLowerCase().includes(query))
+    : pilotBooks;
+  const filteredDemoBooks = query
+    ? books.filter(
+        (b) =>
+          b.title.toLowerCase().includes(query) ||
+          b.en.toLowerCase().includes(query),
+      )
+    : books;
   return (
     <div className="page">
       <PageTitle
@@ -726,10 +847,37 @@ function Library({
         action={rtl ? "أضف كتابًا" : "Add a book"}
         onAction={onUpload}
       />
-      {pilotBooks.length > 0 && (
+      {query && (
+        <p className="search-status">
+          {rtl
+            ? `نتائج البحث عن «${searchQuery}»: ${filteredPilotBooks.length + filteredDemoBooks.length}`
+            : `Search results for "${searchQuery}": ${filteredPilotBooks.length + filteredDemoBooks.length}`}
+        </p>
+      )}
+      {booksLoading && (
+        <section className="panel state-panel">
+          {rtl ? "جارٍ تحميل مكتبتك…" : "Loading your library…"}
+        </section>
+      )}
+      {!booksLoading && booksError && (
+        <section className="panel state-panel error">
+          <p>{booksError}</p>
+          <button className="secondary" onClick={onRetry}>
+            {rtl ? "إعادة المحاولة" : "Retry"}
+          </button>
+        </section>
+      )}
+      {!booksLoading && !booksError && pilotBooks.length === 0 && !query && (
+        <section className="panel state-panel empty">
+          {rtl
+            ? "لم تحفظ أي كتاب بعد. أضف كتابك الأول لتراه هنا بعد كل تحديث للصفحة."
+            : "You haven't saved a book yet. Add your first one to see it here after every refresh."}
+        </section>
+      )}
+      {!booksLoading && !booksError && filteredPilotBooks.length > 0 && (
         <section className="panel live-books">
           <span className="eyebrow">
-            {rtl ? "كتب V0.5 المحفوظة" : "Saved V0.5 books"}
+            {rtl ? "كتب V0.7 المحفوظة" : "Saved V0.7 books"}
           </span>
           <h3>{rtl ? "مكتبتك الفعلية" : "Your live library"}</h3>
           <p className="pilot-session-warning">
@@ -738,7 +886,7 @@ function Library({
               : "Pilot notice: access is currently tied to this browser. Do not clear browser data until permanent accounts and recovery are added."}
           </p>
           <div className="live-book-list">
-            {pilotBooks.map((book) => (
+            {filteredPilotBooks.map((book) => (
               <button key={book.id} onClick={() => onOpenPilot(book)}>
                 <i>▤</i>
                 <span>
@@ -753,19 +901,23 @@ function Library({
           </div>
         </section>
       )}
-      <div className="filters">
-        <button className="active">
-          {rtl
-            ? `الكل ${pilotBooks.length + 3}`
-            : `All ${pilotBooks.length + 3}`}
-        </button>
-        <button>{rtl ? "نماذج العرض" : "Display samples"}</button>
-      </div>
-      <div className="library-full">
-        {books.map((b) => (
-          <BookCard key={b.title} book={b} rtl={rtl} onOpen={onOpen} />
-        ))}
-      </div>
+      {!query || filteredDemoBooks.length > 0 ? (
+        <>
+          <div className="filters">
+            <button className="active" disabled title={rtl ? "فلتر العرض التجريبي" : "Display-sample filter"}>
+              {rtl
+                ? `الكل ${filteredDemoBooks.length}`
+                : `All ${filteredDemoBooks.length}`}
+            </button>
+            <button disabled>{rtl ? "نماذج العرض" : "Display samples"}</button>
+          </div>
+          <div className="library-full">
+            {filteredDemoBooks.map((b) => (
+              <BookCard key={b.title} book={b} rtl={rtl} onOpen={onOpen} />
+            ))}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -783,6 +935,9 @@ function PilotWorkspace({
 }) {
   const [loading, setLoading] = useState(true);
   const [results, setResults] = useState<Record<string, unknown> | null>(null);
+  const [localAnalysis, setLocalAnalysis] = useState<LocalStructuralAnalysis | null>(null);
+  const [manualImportSaved, setManualImportSaved] = useState<StoredAnalysis | null>(null);
+  const [consent, setConsent] = useState<{ recorded: boolean; acceptedAt: string | null } | null>(null);
   const [q, setQ] = useState("");
   const [answer, setAnswer] = useState<Record<string, unknown> | null>(null);
   const [audioUrls, setAudioUrls] = useState<string[]>([]);
@@ -791,6 +946,12 @@ function PilotWorkspace({
   const [confirming, setConfirming] = useState<
     "process" | "ask" | "audio" | ""
   >("");
+  const [localBusy, setLocalBusy] = useState(false);
+  const [localProgress, setLocalProgress] = useState<LocalAnalysisProgress | null>(null);
+  const [localError, setLocalError] = useState("");
+  const [manualText, setManualText] = useState("");
+  const [manualErrors, setManualErrors] = useState<string[]>([]);
+  const [manualBusy, setManualBusy] = useState(false);
   const sizeMb = Math.max(0.1, (book.file_size || 0) / 1048576);
   const band = sizeMb < 5 ? "small" : sizeMb < 20 ? "medium" : "large";
   const estimates = {
@@ -802,10 +963,18 @@ function PilotWorkspace({
     `$${low.toFixed(2)}–$${high.toFixed(2)}`;
   const reload = async () => {
     const data = await getBookResults(book.id);
-    const first = data.analyses[0]?.content as
-      | Record<string, unknown>
-      | undefined;
-    setResults(first ?? null);
+    const paid = data.analyses.find(
+      (a) =>
+        ["overview", "chapters", "critical", "metadata"].includes(a.kind) &&
+        (!a.source || a.source === "openai"),
+    );
+    setResults((paid?.content as Record<string, unknown>) ?? null);
+    const local = data.analyses.find((a) => a.kind === "local_structural");
+    setLocalAnalysis(
+      (local?.content as unknown as LocalStructuralAnalysis) ?? null,
+    );
+    const manual = data.analyses.find((a) => a.kind === "manual_import");
+    setManualImportSaved(manual ?? null);
     if (data.audio.length)
       setAudioUrls(
         await Promise.all(
@@ -817,8 +986,12 @@ function PilotWorkspace({
     reload()
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+    getLegalConsentStatus(book.id)
+      .then(setConsent)
+      .catch(() => setConsent(null));
   }, [book.id]);
   const process = async () => {
+    if (ZERO_COST_MODE) return;
     setBusy("process");
     setError("");
     try {
@@ -832,6 +1005,7 @@ function PilotWorkspace({
     }
   };
   const ask = async () => {
+    if (ZERO_COST_MODE) return;
     if (!q.trim()) return;
     setBusy("ask");
     setError("");
@@ -849,6 +1023,7 @@ function PilotWorkspace({
     }
   };
   const audio = async () => {
+    if (ZERO_COST_MODE) return;
     setBusy("audio");
     setError("");
     try {
@@ -870,7 +1045,99 @@ function PilotWorkspace({
       setBusy("");
     }
   };
+  const runLocalAnalysis = async () => {
+    setLocalBusy(true);
+    setLocalError("");
+    setLocalProgress(null);
+    try {
+      const analysis = await runLocalStructuralAnalysis(book, setLocalProgress);
+      setLocalAnalysis(analysis);
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : "";
+      setLocalError(
+        raw.startsWith("MIGRATION_REQUIRED")
+          ? rtl
+            ? "يحتاج هذا إلى تطبيق ملف الترحيل (migration) الجديد أولًا — راجع CHANGED-FILES.md."
+            : "This needs the new migration file applied first — see CHANGED-FILES.md."
+          : raw ||
+              (rtl ? "تعذر إجراء التحليل المحلي" : "Local analysis failed"),
+      );
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+  const submitManualImport = async () => {
+    setManualErrors([]);
+    setManualBusy(true);
+    try {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(manualText);
+      } catch {
+        setManualErrors([
+          rtl
+            ? "النص المُدخل ليس JSON صالحًا."
+            : "The pasted text is not valid JSON.",
+        ]);
+        return;
+      }
+      const validation = validateManualImport(parsed);
+      if (!validation.ok) {
+        setManualErrors(validation.errors);
+        return;
+      }
+      await saveManualImport(book.id, validation.data);
+      await reload();
+      setManualText("");
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : "";
+      setManualErrors([
+        raw.startsWith("MIGRATION_REQUIRED")
+          ? rtl
+            ? "يحتاج هذا إلى تطبيق ملف الترحيل (migration) الجديد أولًا — راجع CHANGED-FILES.md."
+            : "This needs the new migration file applied first — see CHANGED-FILES.md."
+          : raw ||
+              (rtl
+                ? "تعذر حفظ الاستيراد اليدوي"
+                : "Could not save the manual import"),
+      ]);
+    } finally {
+      setManualBusy(false);
+    }
+  };
   const audioUrl = audioUrls[0] ?? "";
+  const statusLabelsAr: Record<PilotBook["status"], string> = {
+    uploaded: "محفوظ",
+    processing: "قيد المعالجة",
+    ready: "جاهز",
+    failed: "فشل",
+  };
+  const statusLabelsEn: Record<PilotBook["status"], string> = {
+    uploaded: "Saved",
+    processing: "Processing",
+    ready: "Ready",
+    failed: "Failed",
+  };
+  const languageLabel = (lang: string) =>
+    lang === "ar"
+      ? rtl
+        ? "العربية"
+        : "Arabic"
+      : lang === "en"
+        ? rtl
+          ? "الإنجليزية"
+          : "English"
+        : lang === "mixed"
+          ? rtl
+            ? "مختلطة"
+            : "Mixed"
+          : lang === "bilingual"
+            ? rtl
+              ? "ثنائية اللغة"
+              : "Bilingual"
+            : rtl
+              ? "غير معروفة"
+              : "Unknown";
   return (
     <div className="page">
       <button className="back" onClick={onBack}>
@@ -884,6 +1151,63 @@ function PilotWorkspace({
             : "Saved in your private space. Storage alone does not use OpenAI credit."
         }
       />
+      <section className="panel book-info-card">
+        <span className="eyebrow">
+          {rtl ? "بيانات الكتاب المحفوظ" : "Saved book details"}
+        </span>
+        <dl className="book-info-grid">
+          <div>
+            <dt>{rtl ? "اسم الملف" : "File name"}</dt>
+            <dd>{book.file_name}</dd>
+          </div>
+          <div>
+            <dt>{rtl ? "الحجم" : "Size"}</dt>
+            <dd>{sizeMb.toFixed(2)} MB</dd>
+          </div>
+          <div>
+            <dt>{rtl ? "تاريخ الرفع" : "Uploaded"}</dt>
+            <dd>
+              {new Date(book.created_at).toLocaleString(rtl ? "ar" : "en")}
+            </dd>
+          </div>
+          <div>
+            <dt>{rtl ? "الحالة" : "Status"}</dt>
+            <dd>
+              {rtl ? statusLabelsAr[book.status] : statusLabelsEn[book.status]}
+            </dd>
+          </div>
+          <div>
+            <dt>{rtl ? "لغة المصدر" : "Source language"}</dt>
+            <dd>{languageLabel(book.source_language)}</dd>
+          </div>
+          <div>
+            <dt>{rtl ? "لغة المخرجات" : "Output language"}</dt>
+            <dd>{languageLabel(book.output_language)}</dd>
+          </div>
+          <div>
+            <dt>{rtl ? "مسار التخزين" : "Storage path"}</dt>
+            <dd className="mono">{book.storage_path}</dd>
+          </div>
+          <div>
+            <dt>{rtl ? "إقرار الحقوق" : "Legal consent"}</dt>
+            <dd>
+              {consent === null
+                ? rtl
+                  ? "جارٍ التحقق…"
+                  : "Checking…"
+                : consent.recorded
+                  ? `${rtl ? "مُسجَّل" : "Recorded"}${
+                      consent.acceptedAt
+                        ? ` — ${new Date(consent.acceptedAt).toLocaleDateString(rtl ? "ar" : "en")}`
+                        : ""
+                    }`
+                  : rtl
+                    ? "غير مُسجَّل"
+                    : "Not recorded"}
+            </dd>
+          </div>
+        </dl>
+      </section>
       <section className="service-map panel">
         <div className="free-lane">
           <span>{rtl ? "مجاني" : "FREE"}</span>
@@ -910,10 +1234,168 @@ function PilotWorkspace({
           </h3>
           <p>
             {rtl
-              ? `لغة النتيجة: ${book.output_language === "ar" ? "العربية" : book.output_language === "en" ? "الإنجليزية" : "العربية والإنجليزية"}. لا تبدأ الخدمة إلا بعد تأكيدك.`
-              : `Output: ${book.output_language === "ar" ? "Arabic" : book.output_language === "en" ? "English" : "Arabic and English"}. The service starts only after confirmation.`}
+              ? `لغة النتيجة: ${languageLabel(book.output_language)}. لا تبدأ الخدمة إلا بعد تأكيدك.`
+              : `Output: ${languageLabel(book.output_language)}. The service starts only after confirmation.`}
           </p>
+          {ZERO_COST_MODE && (
+            <p className="locked-note">
+              🔒{" "}
+              {rtl
+                ? "مُقفلة في هذا الإصدار (وضع التكلفة الصفرية) — لا يُرسل أي طلب إلى OpenAI."
+                : "Locked in this build (Zero-Cost Mode) — no request is ever sent to OpenAI."}
+            </p>
+          )}
         </div>
+      </section>
+      <section className="panel local-analysis-card">
+        <span className="eyebrow">
+          {rtl ? "مجاني — بدون OpenAI" : "FREE — no OpenAI"}
+        </span>
+        <h3>
+          {rtl ? "التجربة المحلية المجانية" : "Free local experience"}
+        </h3>
+        <p>
+          {rtl
+            ? "تحليل بنيوي يعمل داخل متصفحك فقط عبر PDF.js: عدد الصفحات والكلمات، لغة النص، عناوين مرشّحة، أكثر الكلمات تكرارًا. هذا ليس تلخيصًا ولا ترجمة ولا تحليلًا بالذكاء الاصطناعي."
+            : "A structural pass that runs only in your browser via PDF.js: page/word counts, detected language, candidate headings, top terms. This is not a summary, translation, or AI analysis."}
+        </p>
+        {!localAnalysis && !localBusy && (
+          <button className="secondary" onClick={runLocalAnalysis}>
+            ⌕ {rtl ? "شغّل التحليل المحلي المجاني" : "Run free local analysis"}
+          </button>
+        )}
+        {localBusy && (
+          <div className="local-progress">
+            <Bar
+              value={
+                localProgress
+                  ? Math.round((localProgress.page / localProgress.totalPages) * 100)
+                  : 0
+              }
+            />
+            <small>
+              {localProgress
+                ? rtl
+                  ? `صفحة ${localProgress.page} من ${localProgress.totalPages}`
+                  : `Page ${localProgress.page} of ${localProgress.totalPages}`
+                : rtl
+                  ? "جارٍ التحميل…"
+                  : "Loading…"}
+            </small>
+          </div>
+        )}
+        {localError && <div className="reader-error inline">{localError}</div>}
+        {localAnalysis && (
+          <div className="local-analysis-results">
+            <div className="local-stats">
+              <b>
+                {localAnalysis.page_count}
+                <small>{rtl ? "صفحة" : "pages"}</small>
+              </b>
+              <b>
+                {localAnalysis.word_count}
+                <small>{rtl ? "كلمة" : "words"}</small>
+              </b>
+              <b>
+                {languageLabel(localAnalysis.detected_language)}
+                <small>{rtl ? "اللغة المكتشفة" : "detected language"}</small>
+              </b>
+              <b>
+                {localAnalysis.heading_candidates.length}
+                <small>{rtl ? "عنوان مرشّح" : "heading candidates"}</small>
+              </b>
+            </div>
+            {localAnalysis.heading_candidates.length > 0 && (
+              <details>
+                <summary>
+                  {rtl ? "العناوين المرشّحة" : "Heading candidates"}
+                </summary>
+                <ul className="candidate-list">
+                  {localAnalysis.heading_candidates.slice(0, 15).map((h, i) => (
+                    <li key={i}>
+                      <em>{rtl ? `ص ${h.page}` : `p. ${h.page}`}</em> {h.text}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            {localAnalysis.top_terms.length > 0 && (
+              <details>
+                <summary>{rtl ? "أكثر الكلمات تكرارًا" : "Top terms"}</summary>
+                <ul className="candidate-list">
+                  {localAnalysis.top_terms.slice(0, 15).map((term) => (
+                    <li key={term.term}>
+                      {term.term} — {term.count}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            <p className="disclosure-note">{localAnalysis.disclosure}</p>
+            <button
+              className="text-button"
+              onClick={runLocalAnalysis}
+              disabled={localBusy}
+            >
+              {rtl ? "إعادة التشغيل" : "Re-run"}
+            </button>
+          </div>
+        )}
+      </section>
+      <section className="panel manual-import-card">
+        <span className="eyebrow">
+          {rtl ? "مجاني — استيراد يدوي" : "FREE — manual import"}
+        </span>
+        <h3>
+          {rtl
+            ? "تجربة تلخيص/ترجمة بلا تكلفة (JSON يدوي)"
+            : "No-cost summarization/translation trial (manual JSON)"}
+        </h3>
+        <p>
+          {rtl
+            ? "الصق هنا نتيجة JSON أنشأتها بنفسك عبر ChatGPT أو Claude خارج هذا التطبيق، وفق القالب الموثّق. لن يُرسل نص الكتاب تلقائيًا إلى أي مكان."
+            : "Paste a JSON result you generated yourself via ChatGPT or Claude outside this app, following the documented template. The book text is never auto-sent anywhere."}
+        </p>
+        {manualImportSaved && (
+          <div className="manual-import-saved">
+            <b>
+              ✓{" "}
+              {rtl
+                ? "مستورد يدويًا — غير منتَج عبر API"
+                : "Manually imported — not API-generated"}
+            </b>
+            <small>
+              {rtl ? "المصدر" : "Source"}: {manualImportSaved.source} ·{" "}
+              {rtl ? "بتاريخ" : "on"}{" "}
+              {new Date(manualImportSaved.created_at).toLocaleDateString(
+                rtl ? "ar" : "en",
+              )}
+            </small>
+            <pre className="result-json">
+              {JSON.stringify(manualImportSaved.content, null, 2)}
+            </pre>
+          </div>
+        )}
+        <textarea
+          className="manual-import-textarea"
+          value={manualText}
+          onChange={(e) => setManualText(e.target.value)}
+          placeholder={rtl ? "الصق JSON هنا…" : "Paste JSON here…"}
+        />
+        {manualErrors.length > 0 && (
+          <ul className="manual-import-errors">
+            {manualErrors.map((err, i) => (
+              <li key={i}>{err}</li>
+            ))}
+          </ul>
+        )}
+        <button
+          className="secondary"
+          disabled={!manualText.trim() || manualBusy}
+          onClick={submitManualImport}
+        >
+          {manualBusy ? "…" : rtl ? "تحقق واحفظ" : "Validate & save"}
+        </button>
       </section>
       <section className="budget-card panel">
         <div>
@@ -977,7 +1459,17 @@ function PilotWorkspace({
                 ? "الخلاصة والتحليل والفصول"
                 : "Summary, analysis and chapters"}
             </h3>
-            {!results && (
+            {ZERO_COST_MODE ? (
+              <div className="paid-empty locked">
+                <p>
+                  🔒{" "}
+                  {rtl
+                    ? "هذه الميزة مقفلة في وضع التكلفة الصفرية لهذا الإصدار. جرّب بدلًا منها التحليل المحلي المجاني أو الاستيراد اليدوي أعلاه."
+                    : "This feature is locked in this build's Zero-Cost Mode. Try the free local analysis or manual import above instead."}
+                </p>
+              </div>
+            ) : (
+              !results && (
               <div className="paid-empty">
                 <p>
                   {rtl
@@ -1024,6 +1516,7 @@ function PilotWorkspace({
                   </div>
                 )}
               </div>
+              )
             )}
             <pre className="result-json">
               {results ? JSON.stringify(results, null, 2) : ""}
@@ -1032,91 +1525,113 @@ function PilotWorkspace({
           <aside className="detail-aside">
             <section className="panel">
               <h3>{rtl ? "اسأل الكتاب — مدفوع" : "Ask the book — paid"}</h3>
-              <textarea
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder={rtl ? "اكتب سؤالك…" : "Type your question…"}
-              />
-              {confirming !== "ask" ? (
-                <button
-                  className="secondary"
-                  disabled={!results || !q.trim()}
-                  onClick={() => setConfirming("ask")}
-                >
-                  {rtl ? "راجع التكلفة وأرسل" : "Review cost & ask"}
-                </button>
+              {ZERO_COST_MODE ? (
+                <p className="locked-note">
+                  🔒{" "}
+                  {rtl
+                    ? "قريبًا — غير مفعّلة في وضع التكلفة الصفرية لهذا الإصدار."
+                    : "Coming soon — disabled in this build's Zero-Cost Mode."}
+                </p>
               ) : (
-                <div className="cost-confirm">
-                  <p>
-                    {rtl
-                      ? "كل سؤال يستخدم API. ابدأ بعدد قليل في التجربة."
-                      : "Each question uses the API. Keep the pilot small."}
-                  </p>
-                  <button
-                    className="primary"
-                    disabled={busy === "ask"}
-                    onClick={ask}
-                  >
-                    {busy === "ask"
-                      ? "…"
-                      : rtl
-                        ? "تأكيد وإرسال"
-                        : "Confirm & ask"}
-                  </button>
-                </div>
-              )}
-              {answer && (
-                <pre className="answer-live">
-                  {JSON.stringify(answer, null, 2)}
-                </pre>
+                <>
+                  <textarea
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder={rtl ? "اكتب سؤالك…" : "Type your question…"}
+                  />
+                  {confirming !== "ask" ? (
+                    <button
+                      className="secondary"
+                      disabled={!results || !q.trim()}
+                      onClick={() => setConfirming("ask")}
+                    >
+                      {rtl ? "راجع التكلفة وأرسل" : "Review cost & ask"}
+                    </button>
+                  ) : (
+                    <div className="cost-confirm">
+                      <p>
+                        {rtl
+                          ? "كل سؤال يستخدم API. ابدأ بعدد قليل في التجربة."
+                          : "Each question uses the API. Keep the pilot small."}
+                      </p>
+                      <button
+                        className="primary"
+                        disabled={busy === "ask"}
+                        onClick={ask}
+                      >
+                        {busy === "ask"
+                          ? "…"
+                          : rtl
+                            ? "تأكيد وإرسال"
+                            : "Confirm & ask"}
+                      </button>
+                    </div>
+                  )}
+                  {answer && (
+                    <pre className="answer-live">
+                      {JSON.stringify(answer, null, 2)}
+                    </pre>
+                  )}
+                </>
               )}
             </section>
             <section className="panel">
               <h3>
                 {rtl ? "الصوت الاحترافي — مدفوع" : "Professional voice — paid"}
               </h3>
-              <p>
-                {rtl
-                  ? `تقدير الخلاصة الصوتية: ${money(estimates.audio)}. صوت الجهاز المجاني موجود في القارئ.`
-                  : `Estimated audio summary: ${money(estimates.audio)}. Free device voice is available in the reader.`}
-              </p>
-              {confirming !== "audio" ? (
-                <button
-                  className="secondary"
-                  disabled={!results}
-                  onClick={() => setConfirming("audio")}
-                >
-                  {rtl ? "راجع التكلفة" : "Review cost"}
-                </button>
+              {ZERO_COST_MODE ? (
+                <p className="locked-note">
+                  🔒{" "}
+                  {rtl
+                    ? "قريبًا — غير مفعّلة في وضع التكلفة الصفرية لهذا الإصدار. صوت الجهاز المجاني متاح في القارئ."
+                    : "Coming soon — disabled in this build's Zero-Cost Mode. Free device voice is available in the reader."}
+                </p>
               ) : (
-                <div className="cost-confirm">
-                  <button
-                    className="primary"
-                    disabled={busy === "audio"}
-                    onClick={audio}
-                  >
-                    {busy === "audio"
-                      ? "…"
-                      : rtl
-                        ? "أوافق وأنشئ الصوت"
-                        : "Confirm & generate"}
-                  </button>
-                  <button
-                    className="secondary"
-                    onClick={() => setConfirming("")}
-                  >
-                    {rtl ? "تراجع" : "Go back"}
-                  </button>
-                </div>
-              )}
-              {audioUrl && (
                 <>
-                  <audio controls src={audioUrl} />
-                  <small>
+                  <p>
                     {rtl
-                      ? "هذا الصوت مولد بالذكاء الاصطناعي."
-                      : "This voice is AI-generated."}
-                  </small>
+                      ? `تقدير الخلاصة الصوتية: ${money(estimates.audio)}. صوت الجهاز المجاني موجود في القارئ.`
+                      : `Estimated audio summary: ${money(estimates.audio)}. Free device voice is available in the reader.`}
+                  </p>
+                  {confirming !== "audio" ? (
+                    <button
+                      className="secondary"
+                      disabled={!results}
+                      onClick={() => setConfirming("audio")}
+                    >
+                      {rtl ? "راجع التكلفة" : "Review cost"}
+                    </button>
+                  ) : (
+                    <div className="cost-confirm">
+                      <button
+                        className="primary"
+                        disabled={busy === "audio"}
+                        onClick={audio}
+                      >
+                        {busy === "audio"
+                          ? "…"
+                          : rtl
+                            ? "أوافق وأنشئ الصوت"
+                            : "Confirm & generate"}
+                      </button>
+                      <button
+                        className="secondary"
+                        onClick={() => setConfirming("")}
+                      >
+                        {rtl ? "تراجع" : "Go back"}
+                      </button>
+                    </div>
+                  )}
+                  {audioUrl && (
+                    <>
+                      <audio controls src={audioUrl} />
+                      <small>
+                        {rtl
+                          ? "هذا الصوت مولد بالذكاء الاصطناعي."
+                          : "This voice is AI-generated."}
+                      </small>
+                    </>
+                  )}
                 </>
               )}
             </section>
@@ -1130,7 +1645,7 @@ function PilotWorkspace({
 
 function BookDetail({ rtl, onBack }: { rtl: boolean; onBack: () => void }) {
   const [tab, setTab] = useState("summary");
-  const [playing, setPlaying] = useState(false);
+  const [playing] = useState(false);
   const tabs = rtl
     ? [
         ["summary", "الخلاصة"],
@@ -1304,7 +1819,7 @@ function BookDetail({ rtl, onBack }: { rtl: boolean; onBack: () => void }) {
                           ? "يعرض الفصل المفاهيم الأساسية والحجج والأمثلة، مع فصل واضح بين ما ورد في النص وما استنتجته المنصة."
                           : "The chapter presents its main concepts, arguments, and examples, clearly separating source content from platform inference."}
                       </p>
-                      <button className="text-button">
+                      <button className="text-button disabled-soon" disabled title={rtl ? "نموذج عرض" : "Display sample"}>
                         {rtl
                           ? `افتح الفصل عند الصفحة ${18 + n * 12}`
                           : `Open chapter at page ${18 + n * 12}`}{" "}
@@ -1403,7 +1918,7 @@ function BookDetail({ rtl, onBack }: { rtl: boolean; onBack: () => void }) {
                   [166, "بناء ذاكرة مؤسسية"],
                   [231, "مؤشرات قياس الأثر"],
                 ].map(([p, s], i) => (
-                  <button key={p}>
+                  <button key={p} disabled title={rtl ? "نموذج عرض" : "Display sample"}>
                     <b>{i + 1}</b>
                     <span>
                       {rtl
@@ -1432,7 +1947,7 @@ function BookDetail({ rtl, onBack }: { rtl: boolean; onBack: () => void }) {
                 }
               />
               <div className="audio-player">
-                <button onClick={() => setPlaying(!playing)}>
+                <button disabled title={rtl ? "مشغّل نموذجي غير متصل بملف صوت" : "Sample player without an audio file"}>
                   {playing ? "Ⅱ" : "▶"}
                 </button>
                 <div>
@@ -1498,7 +2013,7 @@ function BookDetail({ rtl, onBack }: { rtl: boolean; onBack: () => void }) {
               </select>
             </label>
           </div>
-          <button className="feedback-mini">
+          <button className="feedback-mini disabled-soon" disabled>
             ✎ {rtl ? "سجّل ملاحظتك عن هذا الكتاب" : "Log feedback on this book"}
           </button>
         </aside>
@@ -1613,7 +2128,7 @@ function Reminder({ time, value }: { time: string; value: string }) {
         <strong>{value}</strong>
         <span>{time}</span>
       </div>
-      <button>⋮</button>
+      <button className="disabled-soon" disabled title="قريبًا / Coming soon">⋮</button>
     </div>
   );
 }
@@ -1654,7 +2169,7 @@ function Librarian({ rtl, title }: { rtl: boolean; title: string }) {
                   ? "تظهر الإجابة هنا مع فصل الكتاب ورقم الصفحة وبطاقة توضح ما إذا كانت من النص أو من تحليل المنصة."
                   : "The answer appears with chapter, page, and a trust card identifying source text versus platform analysis."}
               </p>
-              <button>{rtl ? "افتح في الصفحة 74" : "Open at page 74"} ←</button>
+              <button className="disabled-soon" disabled>{rtl ? "نموذج عرض — صفحة 74" : "Display sample — page 74"} ←</button>
             </div>
           )}
           <div className="chat-input">
@@ -1696,34 +2211,74 @@ function Librarian({ rtl, title }: { rtl: boolean; title: string }) {
 }
 
 function Feedback({ rtl, t }: { rtl: boolean; t: typeof text.ar }) {
+  const featureOptions = rtl
+    ? [
+        "رفع كتاب وتحليله",
+        "الملخص العام",
+        "ملخصات الفصول",
+        "الاستماع",
+        "أمين المكتبة",
+      ]
+    : [
+        "Upload and analyse a book",
+        "Book overview",
+        "Chapter summaries",
+        "Audio",
+        "AI librarian",
+      ];
+  const [feature, setFeature] = useState(featureOptions[0]);
+  const [rating, setRating] = useState<number | null>(null);
+  const [note, setNote] = useState("");
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [busy, setBusy] = useState(false);
   return (
     <div className="page">
       <PageTitle title={t.journal} description={t.journalSub} />
       <form
         className="feedback panel"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          setSaved(true);
+          setSaved(false);
+          setSaveError("");
+          setBusy(true);
+          try {
+            await saveFeedback(feature, rating, note);
+            setSaved(true);
+            setNote("");
+            setRating(null);
+          } catch (err) {
+            setSaveError(
+              err instanceof Error
+                ? err.message
+                : rtl
+                  ? "تعذر حفظ الملاحظة"
+                  : "Could not save the note",
+            );
+          } finally {
+            setBusy(false);
+          }
         }}
       >
         <label>
           {rtl ? "ما الذي جربته؟" : "What did you test?"}
-          <select>
-            <option>
-              {rtl ? "رفع كتاب وتحليله" : "Upload and analyse a book"}
-            </option>
-            <option>{rtl ? "الملخص العام" : "Book overview"}</option>
-            <option>{rtl ? "ملخصات الفصول" : "Chapter summaries"}</option>
-            <option>{rtl ? "الاستماع" : "Audio"}</option>
-            <option>{rtl ? "أمين المكتبة" : "AI librarian"}</option>
+          <select value={feature} onChange={(e) => setFeature(e.target.value)}>
+            {featureOptions.map((option) => (
+              <option key={option}>{option}</option>
+            ))}
           </select>
         </label>
         <label>
           {rtl ? "هل ساعدك على الفهم؟" : "Did it improve understanding?"}
           <div className="rating">
             {[1, 2, 3, 4, 5].map((n) => (
-              <button type="button" key={n}>
+              <button
+                type="button"
+                key={n}
+                className={rating === n ? "active" : ""}
+                onClick={() => setRating(n)}
+                aria-pressed={rating === n}
+              >
                 {n}
               </button>
             ))}
@@ -1732,6 +2287,8 @@ function Feedback({ rtl, t }: { rtl: boolean; t: typeof text.ar }) {
         <label>
           {rtl ? "ملاحظتك بالتفصيل" : "Your detailed note"}
           <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
             placeholder={
               rtl
                 ? "ما الذي نجح؟ ما الذي أربكك؟ وما الذي أعادك إلى الكتاب؟"
@@ -1739,15 +2296,16 @@ function Feedback({ rtl, t }: { rtl: boolean; t: typeof text.ar }) {
             }
           />
         </label>
-        <button className="primary" type="submit">
-          {rtl ? "حفظ الملاحظة" : "Save note"}
+        <button className="primary" type="submit" disabled={busy}>
+          {busy ? "…" : rtl ? "حفظ الملاحظة" : "Save note"}
         </button>
+        {saveError && <div className="reader-error inline">{saveError}</div>}
         {saved && (
           <span className="saved">
             ✓{" "}
             {rtl
-              ? "حُفظت الملاحظة في هذه الجلسة التجريبية"
-              : "Note saved for this demo session"}
+              ? "حُفظت الملاحظة في مكتبتك الخاصة"
+              : "Note saved to your private library"}
           </span>
         )}
       </form>
@@ -1819,7 +2377,7 @@ function Upload({
             <label className="dropzone">
               <input
                 type="file"
-                accept=".pdf,.epub"
+                accept="application/pdf,.pdf"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />
               <i>▤</i>

@@ -1,12 +1,16 @@
 {
   "name": "smart-personal-library",
-  "version": "0.6.3",
+  "version": "0.7.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:unit": "node --experimental-strip-types scripts/test-text-analysis.mjs",
+    "test:zero-cost": "node --experimental-strip-types scripts/verify-zero-cost.mjs",
+    "test:release": "node scripts/verify-v071-release.mjs",
+    "test": "npm run test:unit && npm run test:zero-cost && npm run test:release"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
