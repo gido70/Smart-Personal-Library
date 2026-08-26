@@ -9,6 +9,8 @@ import {
   buildExtractiveSummary,
   extractPdfPageText,
   validateManualImport,
+  stripRepeatedLines,
+  searchInsideBook,
 } from "../src/lib/textAnalysis.ts";
 
 let passed = 0;
@@ -89,6 +91,49 @@ check("validateManualImport: rejects a non-object root", invalidResult3.ok === f
 const badChapterShape = { ...validPayload, chapters: [{ title: "بلا ملخص" }] };
 const invalidResult4 = validateManualImport(badChapterShape);
 check("validateManualImport: rejects a chapter missing summary", invalidResult4.ok === false && invalidResult4.errors.some((e) => e.includes("chapters[0]")));
+
+// --- V0.7.3: repeated header/footer stripping (fixes FAILURE-EVIDENCE.md #4:
+// desktop summary repeated one running-header line across pages 60-67) ---
+const headerRepro = [
+  "الفصل الخامس\nنص فعلي مختلف في هذه الصفحة يتحدث عن موضوع أول بجملة طويلة كافية للاختيار.",
+  "Claude 5: كزميل عمل\nنص فعلي مختلف في هذه الصفحة يتحدث عن موضوع ثانٍ بجملة طويلة كافية للاختيار.",
+  "Claude 5: كزميل عمل\nنص فعلي مختلف في هذه الصفحة يتحدث عن موضوع ثالث بجملة طويلة كافية للاختيار.",
+  "Claude 5: كزميل عمل\nنص فعلي مختلف في هذه الصفحة يتحدث عن موضوع رابع بجملة طويلة كافية للاختيار.",
+  "Claude 5: كزميل عمل\nنص فعلي مختلف في هذه الصفحة يتحدث عن موضوع خامس بجملة طويلة كافية للاختيار.",
+];
+const cleaned = stripRepeatedLines(headerRepro);
+check(
+  "stripRepeatedLines: removes a header repeated on >= 4 pages",
+  cleaned.slice(1).every((pageText) => !pageText.includes("Claude 5: كزميل عمل")),
+);
+check(
+  "stripRepeatedLines: keeps each page's real distinct sentence",
+  cleaned[2].includes("موضوع ثالث") && cleaned[4].includes("موضوع خامس"),
+);
+check("stripRepeatedLines: keeps the one non-repeated page untouched", cleaned[0].includes("الفصل الخامس"));
+
+const headerReproAnalysis = buildLocalStructuralAnalysis(headerRepro, {});
+const summaryLines = headerReproAnalysis.extractive_summary.map((item) => item.text);
+check(
+  "buildLocalStructuralAnalysis: extractive summary never repeats the stripped header as a sentence",
+  !summaryLines.some((text) => text.trim() === "Claude 5: كزميل عمل"),
+);
+
+// --- V0.7.3: local search-inside-the-book (acceptance test #11) ---
+const searchable = buildLocalStructuralAnalysis(
+  [
+    "الفصل الأول: مقدمة\nهذا النص يتحدث عن إدارة المعرفة في المؤسسات الحديثة بشكل عام.",
+    "الفصل الثاني: التطبيق\nهنا نستعرض إدارة المعرفة في سياق عملي داخل فريق العمل اليومي.",
+    "صفحة ختامية بلا صلة بالموضوع الأساسي المطروح سابقًا في الكتاب.",
+  ],
+  {},
+);
+check("buildLocalStructuralAnalysis: stores pages_text for search", Array.isArray(searchable.pages_text) && searchable.pages_text.length === 3);
+const searchHits = searchInsideBook(searchable.pages_text, "إدارة المعرفة");
+check("searchInsideBook: finds real matches with correct page numbers", searchHits.length === 2 && searchHits[0].page === 1 && searchHits[1].page === 2);
+check("searchInsideBook: snippet actually contains the query", searchHits.every((hit) => hit.snippet.includes("إدارة المعرفة")));
+check("searchInsideBook: no match returns an empty array, not an error", searchInsideBook(searchable.pages_text, "كلمة غير موجودة إطلاقًا").length === 0);
+check("searchInsideBook: missing pages_text returns [] instead of throwing", searchInsideBook(undefined, "أي شيء").length === 0);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

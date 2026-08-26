@@ -325,3 +325,86 @@ export async function saveFeedback(feature: string, rating: number | null, note:
   });
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// Real-book metadata backfill from the free local analysis (fixes bug ب/ج:
+// uploaded books permanently showing "UNKNOWN" because nothing in the free
+// path ever wrote a detected language back to spl_books — only the now-
+// locked paid Edge Function did). Conservative on purpose: never overwrites
+// a language the user/paid path already established, never overwrites a
+// title with something worse, and never touches the existing metadata jsonb
+// column so it cannot clobber anything the paid path may have written there.
+// ---------------------------------------------------------------------------
+
+export async function backfillBookMetadataFromLocalAnalysis(
+  book: Pick<PilotBook, "id" | "title" | "source_language">,
+  analysis: LocalStructuralAnalysis,
+): Promise<Partial<PilotBook>> {
+  await ensurePilotSession();
+  const patch: Record<string, unknown> = {};
+  if (book.source_language === "unknown" && analysis.detected_language !== "unknown") {
+    patch.source_language = analysis.detected_language;
+  }
+  const pdfTitle = typeof analysis.pdf_metadata?.Title === "string" ? (analysis.pdf_metadata.Title as string).trim() : "";
+  if (pdfTitle.length >= 2 && pdfTitle.length <= 180 && pdfTitle !== book.title) {
+    patch.title = pdfTitle;
+  }
+  if (Object.keys(patch).length === 0) return {};
+  const { data, error } = await supabase!.from("spl_books").update(patch).eq("id", book.id).select().maybeSingle();
+  if (error) {
+    // Never block the local-analysis result on this best-effort backfill.
+    console.warn("SPL: book metadata backfill skipped", error);
+    return {};
+  }
+  return (data as Partial<PilotBook>) ?? {};
+}
+
+// ---------------------------------------------------------------------------
+// Safe duplicate review (CLAUDE-REVIEW-PROMPT.md §3): never deletes
+// anything automatically. Groups the user's own books (RLS already scopes
+// listPilotBooks() to them) by content_sha256 when present — a real,
+// content-based match — and, only as a secondary, clearly-labelled
+// "unconfirmed" grouping, by normalized title + exact file size for older
+// rows uploaded before the hash column existed. Deletion of any row still
+// requires an explicit per-row click from the review screen
+// (rollbackPilotBook), never happens here.
+// ---------------------------------------------------------------------------
+
+export type DuplicateGroup = {
+  key: string;
+  confirmed: boolean; // true = matched by real content hash; false = title+size heuristic only
+  books: PilotBook[];
+};
+
+function normalizeTitleForGrouping(title: string): string {
+  return title.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function groupDuplicateBooks(books: PilotBook[]): DuplicateGroup[] {
+  const byHash = new Map<string, PilotBook[]>();
+  const unhashed: PilotBook[] = [];
+  for (const book of books) {
+    if (book.content_sha256) {
+      const list = byHash.get(book.content_sha256) ?? [];
+      list.push(book);
+      byHash.set(book.content_sha256, list);
+    } else {
+      unhashed.push(book);
+    }
+  }
+  const groups: DuplicateGroup[] = [];
+  for (const [hash, list] of byHash) {
+    if (list.length > 1) groups.push({ key: `hash:${hash}`, confirmed: true, books: list });
+  }
+  const byHeuristic = new Map<string, PilotBook[]>();
+  for (const book of unhashed) {
+    const key = `${normalizeTitleForGrouping(book.title)}::${book.file_size}`;
+    const list = byHeuristic.get(key) ?? [];
+    list.push(book);
+    byHeuristic.set(key, list);
+  }
+  for (const [key, list] of byHeuristic) {
+    if (list.length > 1) groups.push({ key: `heuristic:${key}`, confirmed: false, books: list });
+  }
+  return groups.sort((a, b) => b.books.length - a.books.length);
+}

@@ -101,6 +101,11 @@ export default function Reader({
   const [selectedVoiceURI, setSelectedVoiceURI] = useState("");
   const [speechProgress, setSpeechProgress] = useState<{ index: number; total: number } | null>(null);
   const [savedProgressReady, setSavedProgressReady] = useState(false);
+  // Set when the current page has no usable text layer (cover/scanned page):
+  // the nearest page forward that DOES have real text, so the UI can offer a
+  // one-click jump instead of just failing (CLAUDE-REVIEW-PROMPT.md §د).
+  const [suggestedTextPage, setSuggestedTextPage] = useState<number | null>(null);
+  const [scanningForText, setScanningForText] = useState(false);
 
   const speechGenerationRef = useRef(0);
   const speechQueueRef = useRef<string[]>([]);
@@ -252,7 +257,7 @@ export default function Reader({
   useEffect(() => () => { if (fileUrl) URL.revokeObjectURL(fileUrl); }, [fileUrl]);
   useEffect(() => () => { if (ambientUrl) URL.revokeObjectURL(ambientUrl); }, [ambientUrl]);
   useEffect(() => () => stopSpeechRef.current(), []);
-  useEffect(() => { stopSpeechRef.current(); }, [page]);
+  useEffect(() => { stopSpeechRef.current(); setSuggestedTextPage(null); setScanningForText(false); }, [page]);
   useEffect(() => {
     if (!("speechSynthesis" in window)) return;
     const loadVoices = () => setVoices(window.speechSynthesis.getVoices());
@@ -360,6 +365,47 @@ export default function Reader({
     setAmbientUrl(URL.createObjectURL(selected)); setAmbientName(selected.name); setAmbientOn(true);
   };
 
+  /**
+   * Scans forward (then, if nothing found, backward) up to 25 pages for the
+   * nearest page with a real text layer, so a cover/scanned page can offer a
+   * one-click jump instead of a dead end. Bails out immediately if `gen` is
+   * superseded (page changed / speech stopped) so a slow scan never lands on
+   * a page the user has since navigated away from.
+   */
+  const findNextTextPage = async (fromPage: number, doc: PdfDocument, gen: number): Promise<number | null> => {
+    const maxScan = 25;
+    const tryPage = async (pageNumber: number): Promise<boolean> => {
+      try {
+        const candidate = await doc.getPage(pageNumber);
+        const content = await candidate.getTextContent();
+        const text = extractPdfPageText(content.items);
+        return (text.match(/[\p{L}]/gu) ?? []).length >= 10;
+      } catch {
+        return false;
+      }
+    };
+    for (let offset = 1; offset <= maxScan; offset++) {
+      if (gen !== speechGenerationRef.current) return null;
+      const forward = fromPage + offset;
+      if (forward <= doc.numPages && (await tryPage(forward))) return forward;
+    }
+    for (let offset = 1; offset <= maxScan; offset++) {
+      if (gen !== speechGenerationRef.current) return null;
+      const backward = fromPage - offset;
+      if (backward >= 1 && (await tryPage(backward))) return backward;
+    }
+    return null;
+  };
+
+  const jumpToSuggestedTextPage = () => {
+    if (suggestedTextPage === null) return;
+    stopSpeech();
+    setError("");
+    setSuggestedTextPage(null);
+    setViewMode("book");
+    setPage(suggestedTextPage);
+  };
+
   const speakPage = async () => {
     if (!document || !("speechSynthesis" in window)) {
       setError(rtl ? "هذا المتصفح لا يدعم صوت الجهاز." : "This browser does not support device speech.");
@@ -391,9 +437,15 @@ export default function Reader({
       const pageText = extractPdfPageText(content.items).replace(/\s+/g, " ").trim();
       const readableLetters = pageText.match(/[\p{L}]/gu) ?? [];
       if (readableLetters.length < 10) {
-        setError(rtl ? "هذه الصفحة فارغة أو لا تحتوي نصًا كافيًا للقراءة. انتقل إلى صفحة فيها محتوى؛ وإذا كانت الصفحة مصوّرة فستحتاج OCR." : "This page is blank or has too little readable text. Move to a content page; scanned pages require OCR.");
+        setError(rtl ? "هذه الصفحة فارغة أو لا تحتوي نصًا كافيًا للقراءة — على الأرجح غلاف أو صفحة مصوّرة، وهذا يحتاج OCR لا نوفره في هذه النسخة المجانية." : "This page is blank or has too little readable text — most likely a cover or a scanned image, which needs OCR that this free tier does not provide.");
+        setSuggestedTextPage(null);
+        setScanningForText(true);
+        void findNextTextPage(page, document, myGeneration)
+          .then((found) => { if (myGeneration === speechGenerationRef.current) setSuggestedTextPage(found); })
+          .finally(() => { if (myGeneration === speechGenerationRef.current) setScanningForText(false); });
         return;
       }
+      setSuggestedTextPage(null);
       const arabicLetters = (pageText.match(/[؀-ۿ]/g) ?? []).length;
       const latinLetters = (pageText.match(/[A-Za-z]/g) ?? []).length;
       const detectedLanguage: "ar-SA" | "en-US" = arabicLetters >= latinLetters ? "ar-SA" : "en-US";
@@ -466,7 +518,12 @@ export default function Reader({
         window.speechSynthesis.speak(utterance);
       };
       playChunk(0);
-    } catch {
+    } catch (extractionError) {
+      // Logged (not swallowed) so a real engine/compatibility failure is
+      // diagnosable from the console instead of only ever showing this one
+      // generic message — this is exactly the catch block that was masking
+      // the Promise.withResolvers TypeError in V0.7.2 (see lib/polyfills.ts).
+      console.error("SPL: speakPage text extraction failed", extractionError);
       setError(rtl ? "تعذر استخراج نص هذه الصفحة للصوت المجاني." : "Could not extract this page for free device speech.");
     }
   };
@@ -479,6 +536,7 @@ export default function Reader({
     setDocument(null); setFileName(""); setFileKey(""); setPage(1); setError("");
     setCompatibility("untested"); setBookmarks([]); setAmbientUrl(""); setAmbientName(""); setAmbientOn(false);
     setSavedProgressReady(false);
+    setSuggestedTextPage(null); setScanningForText(false);
     setSource("none");
     onExitSavedBook?.();
   };
@@ -496,7 +554,7 @@ export default function Reader({
     : (rtl ? "▶ استمع لهذه الصفحة" : "▶ Listen to this page");
 
   return <div className="page source-reader-page">
-    <header className="page-title"><div><span>{rtl ? "القارئ والصوت المجاني — V0.7.2" : "Free reader & device voice — V0.7.2"}</span><h2>{isSaved ? (rtl ? "كتاب من مكتبتك" : "A book from your library") : (rtl ? "قارئ الكتب متعدد اللغات" : "Multilingual book reader")}</h2><p>{rtl ? "اعرض الكتاب واقرأ صفحته بصوت جهازك بلا OpenAI وبلا تكلفة API." : "View your book and hear each page through your device voice—no OpenAI call or API charge."}</p></div>{activeUrl && <button className="secondary" onClick={close}>{isSaved ? (rtl ? "العودة إلى الكتاب" : "Back to the book") : (rtl ? "إغلاق الكتاب" : "Close book")}</button>}</header>
+    <header className="page-title"><div><span>{rtl ? "القارئ والصوت المجاني — V0.7.3-candidate" : "Free reader & device voice — V0.7.3-candidate"}</span><h2>{isSaved ? (rtl ? "كتاب من مكتبتك" : "A book from your library") : (rtl ? "قارئ الكتب متعدد اللغات" : "Multilingual book reader")}</h2><p>{rtl ? "اعرض الكتاب واقرأ صفحته بصوت جهازك بلا OpenAI وبلا تكلفة API." : "View your book and hear each page through your device voice—no OpenAI call or API charge."}</p></div>{activeUrl && <button className="secondary" onClick={close}>{isSaved ? (rtl ? "العودة إلى الكتاب" : "Back to the book") : (rtl ? "إغلاق الكتاب" : "Close book")}</button>}</header>
 
     {savedBook && !activeUrl ? <section className="reader-empty panel">
       <div className="reader-emblem">◫</div><span className="eyebrow">{rtl ? "فتح من مكتبتك" : "Opening from your library"}</span>
@@ -547,6 +605,13 @@ export default function Reader({
       </div>
       <footer className="reader-footer"><button onClick={() => turn(-1)} disabled={page === 1 || compatibility !== "passed"}>{rtl ? "السابق" : "Previous"}</button><div><input type="range" min="1" max={document.numPages} value={page} disabled={compatibility !== "passed"} onChange={e => setPage(Number(e.target.value))}/><span>{rtl ? `الصفحة ${page} من ${document.numPages}` : `Page ${page} of ${document.numPages}`}</span></div><button className="speak-current" onClick={speakPage} disabled={compatibility!=="passed"}>{speechFooterLabel}</button><button onClick={() => turn(1)} disabled={page === document.numPages || compatibility !== "passed"}>{rtl ? "التالي" : "Next"}</button></footer></> : null}
       {error && <div className="reader-error inline">{error}</div>}
+      {scanningForText && <div className="text-page-hint">{rtl ? "جارٍ البحث عن أقرب صفحة نصية…" : "Looking for the nearest text page…"}</div>}
+      {suggestedTextPage !== null && (
+        <div className="text-page-hint">
+          <span>{rtl ? `أقرب صفحة فيها نص: ${suggestedTextPage}` : `Nearest page with text: ${suggestedTextPage}`}</span>
+          <button className="secondary" onClick={jumpToSuggestedTextPage}>{rtl ? "انتقل إليها" : "Jump there"}</button>
+        </div>
+      )}
       <div className="local-proof">◆ {isSaved ? (rtl ? "يُحفظ رقم الصفحة والعلامات في مكتبتك؛ لا يُعاد رفع ملف الكتاب — هو محفوظ أصلًا في مساحتك الخاصة." : "Page position and bookmarks are saved to your library; the book file itself is not re-uploaded — it is already stored in your private space.") : (rtl ? "يُحفظ رقم الصفحة والعلامات فقط على هذا الجهاز؛ ملف الكتاب والصوت الخلفي غير محفوظين في المنصة." : "Only page position and bookmarks are stored on this device; book and ambience files are not stored.")}</div>
     </section>}
 

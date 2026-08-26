@@ -77,6 +77,50 @@ export function extractPdfPageText(items: PdfTextFragment[]): string {
 }
 
 /**
+ * Detects lines that repeat across many pages — running headers, footers,
+ * page-number stamps — and strips them before heading/summary detection.
+ *
+ * Fixes bug (و) from FAILURE-EVIDENCE.md: the desktop extractive summary
+ * repeated a single running-header line ("Claude 5: كزميل عمل 100 خطوة
+ * لإتقان") once per page for pages 60-67, because nothing filtered lines
+ * that are structurally boilerplate rather than book content. A line is
+ * boilerplate here if its normalized form (trimmed, digits collapsed to a
+ * single placeholder so "Page 12"/"Page 13" count as the same line) occurs
+ * on at least 4 distinct pages, or on more than a third of all pages,
+ * whichever is smaller — a real sentence essentially never repeats near-
+ * verbatim that often, while headers/footers/page stamps do by design.
+ * Only the first and last 3 lines of each page are checked, since running
+ * headers/footers live at page edges, not in the body text.
+ */
+export function stripRepeatedLines(pages: string[]): string[] {
+  if (pages.length < 4) return pages;
+  const normalize = (line: string) =>
+    line
+      .trim()
+      .replace(/\d+/g, "#")
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+  const pageLines = pages.map((pageText) => pageText.split(/\n+/).map((line) => line.trim()).filter(Boolean));
+  const edgeCounts = new Map<string, Set<number>>();
+  pageLines.forEach((lines, pageIndex) => {
+    const edges = [...lines.slice(0, 3), ...lines.slice(-3)];
+    for (const line of edges) {
+      if (line.length < 3 || line.length > 90) continue;
+      const key = normalize(line);
+      if (!key) continue;
+      if (!edgeCounts.has(key)) edgeCounts.set(key, new Set());
+      edgeCounts.get(key)!.add(pageIndex);
+    }
+  });
+  const threshold = Math.min(4, Math.ceil(pages.length / 3));
+  const boilerplateKeys = new Set(
+    [...edgeCounts.entries()].filter(([, pageSet]) => pageSet.size >= threshold).map(([key]) => key),
+  );
+  if (boilerplateKeys.size === 0) return pages;
+  return pageLines.map((lines) => lines.filter((line) => !boilerplateKeys.has(normalize(line))).join("\n"));
+}
+
+/**
  * Heuristic table-of-contents detector over per-page plain text.
  * Rule-based only (no AI): a line is a heading candidate when it is short,
  * does not end with a mid-sentence connector, and is not a full stopword-heavy sentence.
@@ -120,6 +164,15 @@ export type LocalStructuralAnalysis = {
   extractive_summary?: Array<{ page: number; text: string }>;
   content_per_page: Array<{ page: number; word_count: number; character_count: number }>;
   disclosure: string;
+  /**
+   * Full per-page text, capped per page, used only by the free local
+   * "بحث داخل الكتاب" (search inside the book) feature — see
+   * searchInsideBook() below. Never sent anywhere and never labeled as
+   * AI/semantic search; it backs plain substring matching only. Absent on
+   * analyses produced before this field existed (older saved books simply
+   * cannot be searched until re-analyzed).
+   */
+  pages_text?: string[];
 };
 
 const DISCLOSURE_AR =
@@ -158,6 +211,11 @@ export function buildExtractiveSummary(
     .map(({ page, text }) => ({ page, text }));
 }
 
+/** Caps a single page's text for storage in the searchable pages_text array. */
+const MAX_SEARCH_PAGE_CHARS = 6000;
+/** Above this page count, pages_text is omitted to keep the saved analysis row small. */
+const MAX_SEARCHABLE_PAGES = 1200;
+
 /** Assembles the final local_structural_analysis payload from already-extracted per-page text. */
 export function buildLocalStructuralAnalysis(
   pagesText: string[],
@@ -172,6 +230,10 @@ export function buildLocalStructuralAnalysis(
     word_count: tokenize(pageText).length,
     character_count: pageText.length,
   }));
+  // Boilerplate (running headers/footers/page numbers) is stripped only for
+  // heading detection and the extractive summary — word/character counts
+  // above stay based on the real, unstripped page text.
+  const cleanedPages = stripRepeatedLines(pagesText);
   return {
     engine: "local_js",
     generated_at: new Date().toISOString(),
@@ -180,12 +242,54 @@ export function buildLocalStructuralAnalysis(
     character_count: fullText.length,
     detected_language: language,
     pdf_metadata: pdfMetadata,
-    heading_candidates: findHeadingCandidates(pagesText),
+    heading_candidates: findHeadingCandidates(cleanedPages),
     top_terms: terms,
-    extractive_summary: buildExtractiveSummary(pagesText, terms),
+    extractive_summary: buildExtractiveSummary(cleanedPages, terms),
     content_per_page: contentPerPage,
     disclosure: DISCLOSURE_AR,
+    pages_text:
+      pagesText.length <= MAX_SEARCHABLE_PAGES
+        ? pagesText.map((pageText) => pageText.slice(0, MAX_SEARCH_PAGE_CHARS))
+        : undefined,
   };
+}
+
+export type BookSearchMatch = { page: number; snippet: string };
+
+/** Strips Arabic diacritics (tashkeel) so search matches regardless of vocalization. */
+function foldForSearch(text: string): string {
+  return text.replace(/[ً-ٰٟ]/g, "").toLowerCase();
+}
+
+/**
+ * Plain, local, zero-cost substring search over the book's own cached page
+ * text — this is the honest "بحث داخل الكتاب" from CLAUDE-REVIEW-PROMPT.md
+ * §هـ(1): no model, no ranking by meaning, just real matching pages and
+ * snippets. Returns [] (not an error) when pages_text is missing (analysis
+ * predates this field, or the book exceeded MAX_SEARCHABLE_PAGES) so the
+ * caller can show an honest "re-run the local analysis" message instead of
+ * a fabricated result.
+ */
+export function searchInsideBook(pagesText: string[] | undefined, query: string, contextChars = 60): BookSearchMatch[] {
+  const needle = foldForSearch(query.trim());
+  if (!pagesText || needle.length < 2) return [];
+  const matches: BookSearchMatch[] = [];
+  pagesText.forEach((pageText, pageIndex) => {
+    const haystack = foldForSearch(pageText);
+    let from = 0;
+    let guard = 0;
+    while (guard++ < 20) {
+      const at = haystack.indexOf(needle, from);
+      if (at === -1) break;
+      const start = Math.max(0, at - contextChars);
+      const end = Math.min(pageText.length, at + needle.length + contextChars);
+      const snippet = `${start > 0 ? "…" : ""}${pageText.slice(start, end).replace(/\s+/g, " ").trim()}${end < pageText.length ? "…" : ""}`;
+      matches.push({ page: pageIndex + 1, snippet });
+      from = at + needle.length;
+      if (matches.length >= 40) break;
+    }
+  });
+  return matches;
 }
 
 /** Safari/WKWebView compatible Blob reader (Blob.arrayBuffer is not universal). */
