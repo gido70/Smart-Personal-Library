@@ -203,12 +203,14 @@ export default function Reader({ rtl }: { rtl: boolean }) {
       utterance.lang = requestedLanguage; utterance.rate = speechRate;
       const availableVoices = voices.length ? voices : window.speechSynthesis.getVoices();
       const matchingVoice = availableVoices.find(voice => voice.lang.toLowerCase().startsWith(requestedLanguage.slice(0,2).toLowerCase()));
-      if (!matchingVoice) {
-        setError(rtl ? `لا يوجد صوت ${requestedLanguage.startsWith("ar") ? "عربي" : "إنجليزي"} متاح. في Windows اضغط Win + Ctrl + N، ثم «إضافة أصوات» وثبّت اللغة المطلوبة، وبعدها أغلق المتصفح وافتحه.` : `No ${requestedLanguage.startsWith("ar") ? "Arabic" : "English"} voice is available. In Windows press Win + Ctrl + N, choose Add voices, install the language, then restart the browser.`);
-        return;
-      }
-      utterance.voice = matchingVoice;
-      utterance.onend = () => setSpeaking(false); utterance.onerror = () => setSpeaking(false);
+      if (matchingVoice) utterance.voice = matchingVoice;
+      utterance.onend = () => setSpeaking(false);
+      utterance.onerror = () => {
+        setSpeaking(false);
+        setError(rtl
+          ? "تعذر على محرك المتصفح التلقائي نطق هذه اللغة. جرّب فتح المكتبة في Microsoft Edge؛ وإذا استمر التعذر نحتاج محرك صوت مستقلًا."
+          : "The browser's automatic voice engine could not speak this language. Try Microsoft Edge; if it still fails, a separate voice engine is required.");
+      };
       window.speechSynthesis.cancel(); window.speechSynthesis.speak(utterance); setSpeaking(true);
     } catch {
       setError(rtl ? "تعذر استخراج نص هذه الصفحة للصوت المجاني." : "Could not extract this page for free device speech.");
@@ -224,7 +226,7 @@ export default function Reader({ rtl }: { rtl: boolean }) {
   };
 
   return <div className="page source-reader-page">
-    <header className="page-title"><div><span>{rtl ? "القارئ والصوت المجاني — V0.6.2" : "Free reader & device voice — V0.6.2"}</span><h2>{rtl ? "قارئ الكتب متعدد اللغات" : "Multilingual book reader"}</h2><p>{rtl ? "اعرض الكتاب واقرأ صفحته بصوت جهازك بلا OpenAI وبلا تكلفة API." : "View your book and hear each page through your device voice—no OpenAI call or API charge."}</p></div>{fileUrl && <button className="secondary" onClick={close}>{rtl ? "إغلاق الكتاب" : "Close book"}</button>}</header>
+    <header className="page-title"><div><span>{rtl ? "القارئ والصوت المجاني — V0.6.3" : "Free reader & device voice — V0.6.3"}</span><h2>{rtl ? "قارئ الكتب متعدد اللغات" : "Multilingual book reader"}</h2><p>{rtl ? "اعرض الكتاب واقرأ صفحته بصوت جهازك بلا OpenAI وبلا تكلفة API." : "View your book and hear each page through your device voice—no OpenAI call or API charge."}</p></div>{fileUrl && <button className="secondary" onClick={close}>{rtl ? "إغلاق الكتاب" : "Close book"}</button>}</header>
 
     {!fileUrl ? <section className="reader-empty panel">
       <div className="reader-emblem">◫</div><span className="eyebrow">{rtl ? "قراءة خاصة على جهازك" : "Private on-device reading"}</span>

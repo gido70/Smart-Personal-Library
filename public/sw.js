@@ -1,4 +1,4 @@
-const CACHE_NAME = "smart-personal-library-v0.6.2";
+const CACHE_NAME = "smart-personal-library-v0.6.3";
 const APP_SHELL = ["./", "./manifest.webmanifest", "./favicon.svg"];
 
 self.addEventListener("install", (event) => {

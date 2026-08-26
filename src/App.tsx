@@ -27,7 +27,7 @@ type View =
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "النسخة المجانية أولًا — V0.6.2",
+    version: "النسخة المجانية أولًا — V0.6.3",
     search: "ابحث في كتبك وأفكارك…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -58,7 +58,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Free-first pilot — V0.6.2",
+    version: "Free-first pilot — V0.6.3",
     search: "Search your books and ideas…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -264,7 +264,7 @@ export default function Home() {
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "قارئ الجهاز المجاني V0.6.2" : "Free on-device reader V0.6.2"}
+            {rtl ? "قارئ الجهاز المجاني V0.6.3" : "Free on-device reader V0.6.3"}
           </strong>
           <p>
             {rtl
