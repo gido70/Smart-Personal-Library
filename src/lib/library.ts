@@ -1,4 +1,6 @@
 import { ensurePilotSession, supabase } from "./supabase";
+import { hashFile } from "./textAnalysis";
+import type { LocalStructuralAnalysis, ManualImportPayload, ManualImportSource } from "./textAnalysis";
 
 export type OutputLanguage = "ar" | "en" | "bilingual";
 
@@ -11,6 +13,7 @@ export type PilotBook = {
   source_language: "ar" | "en" | "mixed" | "unknown";
   output_language: OutputLanguage;
   status: "uploaded" | "processing" | "ready" | "failed";
+  content_sha256: string | null;
   created_at: string;
 };
 
@@ -19,18 +22,82 @@ function safeName(name: string) {
   return `book.${extension}`;
 }
 
-export async function listPilotBooks(): Promise<PilotBook[]> {
-  await ensurePilotSession();
-  const { data, error } = await supabase!
-    .from("spl_books")
-    .select("id,title,file_name,file_size,storage_path,source_language,output_language,status,created_at")
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as PilotBook[];
+/**
+ * True once we've confirmed the `content_sha256` column exists on spl_books.
+ * Stays `null` (unknown) until the first real check, so we only pay the extra
+ * query once per page load instead of once per upload.
+ */
+let hashColumnAvailable: boolean | null = null;
+
+function isMissingColumnError(error: unknown): boolean {
+  const message = String((error as { message?: string } | null)?.message ?? error ?? "");
+  // Postgres/PostgREST report an unknown column as 42703, or PostgREST's own
+  // "column ... does not exist" text depending on the failure point.
+  const code = (error as { code?: string } | null)?.code;
+  return code === "42703" || /column .*does not exist/i.test(message) || /content_sha256/.test(message);
 }
 
-export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage) {
+async function checkHashColumnAvailable(): Promise<boolean> {
+  if (hashColumnAvailable !== null) return hashColumnAvailable;
+  const { error } = await supabase!.from("spl_books").select("content_sha256").limit(1);
+  hashColumnAvailable = !error || !isMissingColumnError(error);
+  return hashColumnAvailable;
+}
+
+export async function listPilotBooks(): Promise<PilotBook[]> {
+  await ensurePilotSession();
+  const hasHash = await checkHashColumnAvailable();
+  const columns = hasHash
+    ? "id,title,file_name,file_size,storage_path,source_language,output_language,status,content_sha256,created_at"
+    : "id,title,file_name,file_size,storage_path,source_language,output_language,status,created_at";
+  const { data, error } = await supabase!
+    .from("spl_books")
+    .select(columns)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (
+    (data ?? []) as unknown as Array<Omit<PilotBook, "content_sha256"> & { content_sha256?: string | null }>
+  ).map((row) => ({ ...row, content_sha256: row.content_sha256 ?? null }));
+}
+
+export type UploadResult = { book: PilotBook; deduped: boolean };
+
+/**
+ * Uploads a book exactly once per distinct file content for a given user.
+ * Computes a SHA-256 of the file in the browser first; if a book with the same
+ * hash already exists for this user (RLS already scopes the lookup to them),
+ * that existing record is returned instead of creating a duplicate upload.
+ *
+ * Safe to call before the V0.7 migration is applied: if `content_sha256` is not
+ * yet a column on spl_books, dedupe is silently skipped (old upload behaviour)
+ * rather than throwing, so this ships without requiring the migration first.
+ */
+export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage): Promise<UploadResult> {
   const session = await ensurePilotSession();
+  const hasHash = await checkHashColumnAvailable();
+
+  let contentHash: string | null = null;
+  if (hasHash) {
+    try {
+      contentHash = await hashFile(file);
+      const { data: existing, error: lookupError } = await supabase!
+        .from("spl_books")
+        .select("id,title,file_name,file_size,storage_path,source_language,output_language,status,content_sha256,created_at")
+        .eq("content_sha256", contentHash)
+        .limit(1)
+        .maybeSingle();
+      if (!lookupError && existing) {
+        return { book: existing as PilotBook, deduped: true };
+      }
+    } catch (hashOrLookupError) {
+      // Never block an upload because the dedupe check itself failed (e.g. a
+      // browser without SubtleCrypto in an insecure context, or a transient
+      // network error). Fall through to a normal upload.
+      console.warn("SPL: duplicate-check skipped", hashOrLookupError);
+      contentHash = null;
+    }
+  }
+
   const bookId = crypto.randomUUID();
   const storagePath = `${session.user.id}/${bookId}/${safeName(file.name)}`;
   const { error: uploadError } = await supabase!.storage
@@ -38,26 +105,25 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
     .upload(storagePath, file, { contentType: file.type || "application/pdf", upsert: false });
   if (uploadError) throw uploadError;
 
-  const { data: book, error: bookError } = await supabase!
-    .from("spl_books")
-    .insert({
-      id: bookId,
-      user_id: session.user.id,
-      title: file.name.replace(/\.(pdf|epub)$/i, ""),
-      file_name: file.name,
-      mime_type: file.type || "application/pdf",
-      file_size: file.size,
-      storage_path: storagePath,
-      output_language: outputLanguage,
-      status: "uploaded",
-    })
-    .select()
-    .single();
+  const insertPayload: Record<string, unknown> = {
+    id: bookId,
+    user_id: session.user.id,
+    title: file.name.replace(/\.(pdf|epub)$/i, ""),
+    file_name: file.name,
+    mime_type: file.type || "application/pdf",
+    file_size: file.size,
+    storage_path: storagePath,
+    output_language: outputLanguage,
+    status: "uploaded",
+  };
+  if (hasHash && contentHash) insertPayload.content_sha256 = contentHash;
+
+  const { data: book, error: bookError } = await supabase!.from("spl_books").insert(insertPayload).select().single();
   if (bookError) {
     await supabase!.storage.from("spl-books").remove([storagePath]);
     throw bookError;
   }
-  return book as PilotBook;
+  return { book: book as PilotBook, deduped: false };
 }
 
 export async function saveLegalConsent(bookId: string, rightsOwned: boolean, personalUse: boolean) {
@@ -68,10 +134,23 @@ export async function saveLegalConsent(bookId: string, rightsOwned: boolean, per
     book_id: bookId,
     rights_owned: rightsOwned,
     personal_use_only: personalUse,
-    policy_version: "V0.5-pilot",
+    policy_version: "V0.7-zero-cost-pilot",
     user_agent: navigator.userAgent,
   });
   if (error) throw error;
+}
+
+export async function getLegalConsentStatus(bookId: string): Promise<{ recorded: boolean; acceptedAt: string | null }> {
+  await ensurePilotSession();
+  const { data, error } = await supabase!
+    .from("spl_legal_consents")
+    .select("accepted_at")
+    .eq("book_id", bookId)
+    .order("accepted_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return { recorded: Boolean(data), acceptedAt: (data?.accepted_at as string | undefined) ?? null };
 }
 
 export async function rollbackPilotBook(book: Pick<PilotBook, "id" | "storage_path">) {
@@ -81,6 +160,23 @@ export async function rollbackPilotBook(book: Pick<PilotBook, "id" | "storage_pa
   if (deleteError || storageError) throw deleteError ?? storageError;
 }
 
+/**
+ * A time-limited, owner-scoped URL to read a saved book directly from Supabase
+ * Storage — this is what lets Reader open a saved book without asking the user
+ * to re-pick the file from disk. RLS on storage.objects still applies to the
+ * request that mints the URL; the URL itself is a bearer token for `expiresIn`
+ * seconds, matching the pattern already used for private audio output.
+ */
+export async function createBookSignedUrl(storagePath: string, expiresIn = 3600): Promise<{ url: string; expiresAt: number }> {
+  await ensurePilotSession();
+  const { data, error } = await supabase!.storage.from("spl-books").createSignedUrl(storagePath, expiresIn);
+  if (error) throw error;
+  return { url: data.signedUrl, expiresAt: Date.now() + expiresIn * 1000 };
+}
+
+// ZERO_COST_MODE gates whether this is ever called from the UI (see src/lib/config.ts
+// and scripts/verify-zero-cost.mjs) — the function itself is kept intact so the paid
+// path can be re-enabled later without rewriting this module.
 export async function invokeBookAI(bookId: string, action: "process" | "ask" | "audio", payload: Record<string, unknown> = {}) {
   await ensurePilotSession();
   const { data, error } = await supabase!.functions.invoke("spl-ai", {
@@ -90,15 +186,27 @@ export async function invokeBookAI(bookId: string, action: "process" | "ask" | "
   return data;
 }
 
+export type StoredAnalysis = {
+  kind: "overview" | "chapters" | "critical" | "metadata" | "local_structural" | "manual_import";
+  language: "ar" | "en";
+  source?: "openai" | "local_js" | "manual_chatgpt" | "manual_claude" | "manual_other";
+  content: Record<string, unknown>;
+  template_version?: string | null;
+  created_at: string;
+};
+
 export async function getBookResults(bookId: string) {
   await ensurePilotSession();
   const [{ data: analyses, error: analysesError }, { data: audio, error: audioError }] = await Promise.all([
-    supabase!.from("spl_analyses").select("kind,language,content,created_at").eq("book_id", bookId),
+    supabase!
+      .from("spl_analyses")
+      .select("kind,language,source,content,template_version,created_at")
+      .eq("book_id", bookId),
     supabase!.from("spl_audio_outputs").select("id,language,voice,storage_path,created_at").eq("book_id", bookId),
   ]);
   if (analysesError) throw analysesError;
   if (audioError) throw audioError;
-  return { analyses: analyses ?? [], audio: audio ?? [] };
+  return { analyses: (analyses ?? []) as StoredAnalysis[], audio: audio ?? [] };
 }
 
 export async function getPrivateAudioUrl(storagePath: string) {
@@ -106,4 +214,114 @@ export async function getPrivateAudioUrl(storagePath: string) {
   const { data, error } = await supabase!.storage.from("spl-audio").createSignedUrl(storagePath, 3600);
   if (error) throw error;
   return data.signedUrl;
+}
+
+// ---------------------------------------------------------------------------
+// Zero-cost local structural analysis (kind = "local_structural", source = "local_js")
+// ---------------------------------------------------------------------------
+
+/**
+ * Persists the output of the free, on-device PDF.js structural pass. Uses
+ * upsert on (book_id, kind, language) so re-running the analysis on the same
+ * book replaces the previous local pass instead of erroring on the existing
+ * uniqueness constraint.
+ *
+ * Requires the V0.7 migration (adds the "local_structural" kind and the
+ * "source"/"template_version" columns to spl_analyses). If the migration has
+ * not been applied yet, this throws a clear, typed error the UI can show
+ * instead of a raw Postgres message.
+ */
+export async function saveLocalAnalysis(bookId: string, language: "ar" | "en", content: LocalStructuralAnalysis) {
+  const session = await ensurePilotSession();
+  const { error } = await supabase!.from("spl_analyses").upsert(
+    {
+      user_id: session.user.id,
+      book_id: bookId,
+      kind: "local_structural",
+      language,
+      source: "local_js",
+      content,
+      template_version: "local-structural-v1",
+    },
+    { onConflict: "book_id,kind,language" },
+  );
+  if (error) {
+    if (isMissingColumnError(error) || /violates check constraint/i.test(String(error.message))) {
+      throw new Error(
+        "MIGRATION_REQUIRED: spl_analyses needs the V0.7 migration (local_structural kind + source/template_version columns) before this can be saved.",
+      );
+    }
+    throw error;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Manual (pasted from ChatGPT/Claude) import (kind = "manual_import")
+// ---------------------------------------------------------------------------
+
+export async function saveManualImport(bookId: string, payload: ManualImportPayload) {
+  const session = await ensurePilotSession();
+  const language: "ar" | "en" = payload.output_language === "en" ? "en" : "ar";
+  const { error } = await supabase!.from("spl_analyses").upsert(
+    {
+      user_id: session.user.id,
+      book_id: bookId,
+      kind: "manual_import",
+      language,
+      source: payload.source as ManualImportSource,
+      content: payload,
+      template_version: payload.template_version,
+    },
+    { onConflict: "book_id,kind,language" },
+  );
+  if (error) {
+    if (isMissingColumnError(error) || /violates check constraint/i.test(String(error.message))) {
+      throw new Error(
+        "MIGRATION_REQUIRED: spl_analyses needs the V0.7 migration (manual_import kind + source/template_version columns) before this can be saved.",
+      );
+    }
+    throw error;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reading progress for saved (Supabase-backed) books — replaces the localStorage
+// key-by-filename scheme, which only worked for temporary local reads.
+// ---------------------------------------------------------------------------
+
+export async function getReadingProgress(bookId: string): Promise<{ page: number; bookmarks: number[] } | null> {
+  const session = await ensurePilotSession();
+  const { data, error } = await supabase!
+    .from("spl_reading_progress")
+    .select("page,bookmarks")
+    .eq("book_id", bookId)
+    .eq("user_id", session.user.id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return { page: data.page as number, bookmarks: (data.bookmarks as number[]) ?? [] };
+}
+
+export async function saveReadingProgress(bookId: string, page: number, bookmarks: number[]) {
+  const session = await ensurePilotSession();
+  const { error } = await supabase!
+    .from("spl_reading_progress")
+    .upsert({ user_id: session.user.id, book_id: bookId, page, bookmarks }, { onConflict: "user_id,book_id" });
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Feedback (spl_feedback table existed in the schema but no code ever wrote to it)
+// ---------------------------------------------------------------------------
+
+export async function saveFeedback(feature: string, rating: number | null, note: string, bookId?: string) {
+  const session = await ensurePilotSession();
+  const { error } = await supabase!.from("spl_feedback").insert({
+    user_id: session.user.id,
+    book_id: bookId ?? null,
+    feature,
+    rating,
+    note: note.trim() || null,
+  });
+  if (error) throw error;
 }
