@@ -18,7 +18,7 @@ type Compatibility = "untested" | "passed" | "failed";
 /** A book already saved in Supabase — passed in by App.tsx when the reader is
  * opened from the library, as opposed to the standalone "pick a local file" entry
  * point. The two paths are never mixed in one button (V0.7 requirement §4.5). */
-export type SavedBookRef = { id: string; title: string; storagePath: string };
+export type SavedBookRef = { id: string; title: string; storagePath: string; initialPage?: number };
 
 const speedMs: Record<Speed, number> = { slow: 920, normal: 650, fast: 390 };
 
@@ -152,11 +152,11 @@ export default function Reader({
         if (cancelled) return;
         setRemoteUrl(signed.url);
         setRemoteUrlExpiresAt(signed.expiresAt);
-        let restoredPage = 1;
+        let restoredPage = Math.max(1, savedBook.initialPage ?? 1);
         let restoredMarks: number[] = [];
         try {
           const progress = await getReadingProgress(savedBook.id);
-          if (progress) {
+          if (progress && savedBook.initialPage == null) {
             restoredPage = Math.max(1, progress.page);
             restoredMarks = progress.bookmarks;
           }

@@ -1,4 +1,5 @@
 import { ensurePilotSession, supabase } from "./supabase";
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { hashFile } from "./textAnalysis";
 import type { LocalStructuralAnalysis, ManualImportPayload, ManualImportSource } from "./textAnalysis";
 
@@ -14,12 +15,23 @@ export type PilotBook = {
   output_language: OutputLanguage;
   status: "uploaded" | "processing" | "ready" | "failed";
   content_sha256: string | null;
+  metadata: Record<string, unknown>;
   created_at: string;
 };
 
 function safeName(name: string) {
   const extension = name.match(/\.([a-z0-9]{1,8})$/i)?.[1]?.toLowerCase() || "pdf";
   return `book.${extension}`;
+}
+
+async function inspectPdfForAcceptance(file: File) {
+  const pdfjs = await import("pdfjs-dist");
+  pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+  const document = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), disableFontFace: true }).promise;
+  if (document.numPages > 250) throw new Error("TOO_MANY_PAGES_250");
+  let info: Record<string, unknown> = {};
+  try { info = ((await document.getMetadata()).info as Record<string, unknown>) ?? {}; } catch { /* optional metadata */ }
+  return { pageCount: document.numPages, info };
 }
 
 /**
@@ -48,8 +60,8 @@ export async function listPilotBooks(): Promise<PilotBook[]> {
   await ensurePilotSession();
   const hasHash = await checkHashColumnAvailable();
   const columns = hasHash
-    ? "id,title,file_name,file_size,storage_path,source_language,output_language,status,content_sha256,created_at"
-    : "id,title,file_name,file_size,storage_path,source_language,output_language,status,created_at";
+    ? "id,title,file_name,file_size,storage_path,source_language,output_language,status,content_sha256,metadata,created_at"
+    : "id,title,file_name,file_size,storage_path,source_language,output_language,status,metadata,created_at";
   const { data, error } = await supabase!
     .from("spl_books")
     .select(columns)
@@ -57,7 +69,7 @@ export async function listPilotBooks(): Promise<PilotBook[]> {
   if (error) throw error;
   return (
     (data ?? []) as unknown as Array<Omit<PilotBook, "content_sha256"> & { content_sha256?: string | null }>
-  ).map((row) => ({ ...row, content_sha256: row.content_sha256 ?? null }));
+  ).map((row) => ({ ...row, content_sha256: row.content_sha256 ?? null, metadata: row.metadata ?? {} }));
 }
 
 export type UploadResult = { book: PilotBook; deduped: boolean };
@@ -73,6 +85,9 @@ export type UploadResult = { book: PilotBook; deduped: boolean };
  * rather than throwing, so this ships without requiring the migration first.
  */
 export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage): Promise<UploadResult> {
+  if (!/\.pdf$/i.test(file.name) || (file.type && file.type !== "application/pdf")) throw new Error("PDF_ONLY");
+  if (file.size > 20 * 1024 * 1024) throw new Error("FILE_TOO_LARGE_20MB");
+  const inspection = await inspectPdfForAcceptance(file);
   const session = await ensurePilotSession();
   const hasHash = await checkHashColumnAvailable();
 
@@ -82,7 +97,7 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
       contentHash = await hashFile(file);
       const { data: existing, error: lookupError } = await supabase!
         .from("spl_books")
-        .select("id,title,file_name,file_size,storage_path,source_language,output_language,status,content_sha256,created_at")
+        .select("id,title,file_name,file_size,storage_path,source_language,output_language,status,content_sha256,metadata,created_at")
         .eq("content_sha256", contentHash)
         .limit(1)
         .maybeSingle();
@@ -108,13 +123,21 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
   const insertPayload: Record<string, unknown> = {
     id: bookId,
     user_id: session.user.id,
-    title: file.name.replace(/\.(pdf|epub)$/i, ""),
+    title: (typeof inspection.info.Title === "string" && inspection.info.Title.trim())
+      ? inspection.info.Title.trim()
+      : file.name.replace(/\.(pdf|epub)$/i, ""),
     file_name: file.name,
     mime_type: file.type || "application/pdf",
     file_size: file.size,
     storage_path: storagePath,
     output_language: outputLanguage,
     status: "uploaded",
+    metadata: {
+      acceptance_profile: "pdf-text-250-pages",
+      original_cover: "derived-from-page-1",
+      page_count: inspection.pageCount,
+      author: typeof inspection.info.Author === "string" ? inspection.info.Author : null,
+    },
   };
   if (hasHash && contentHash) insertPayload.content_sha256 = contentHash;
 

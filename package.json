@@ -1,6 +1,6 @@
 {
   "name": "smart-personal-library",
-  "version": "0.7.3-candidate",
+  "version": "0.8.0-acceptance",
   "private": true,
   "type": "module",
   "scripts": {

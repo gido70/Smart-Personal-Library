@@ -55,3 +55,25 @@ export async function upgradeAnonymousSessionToEmail(email: string) {
   if (error) throw error;
   return data;
 }
+
+/** Sign in to an already-created permanent library account from another device. */
+export async function sendExistingAccountMagicLink(email: string) {
+  if (!supabase) throw new Error("SUPABASE_NOT_CONFIGURED");
+  const trimmed = email.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) throw new Error("INVALID_EMAIL");
+  const { data, error } = await supabase.auth.signInWithOtp({
+    email: trimmed,
+    options: {
+      shouldCreateUser: false,
+      emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}`,
+    },
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function signOutLibraryAccount() {
+  if (!supabase) throw new Error("SUPABASE_NOT_CONFIGURED");
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+}
