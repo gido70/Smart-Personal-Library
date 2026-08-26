@@ -1,11 +1,12 @@
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { createBookSignedUrl, getReadingProgress, saveReadingProgress } from "./lib/library";
+import { extractPdfPageText } from "./lib/textAnalysis";
 
 type PdfViewport = { width: number; height: number };
 type PdfPage = {
   getViewport: (options: { scale: number }) => PdfViewport;
-  getTextContent: () => Promise<{ items: Array<{ str?: string }> }>;
+  getTextContent: (options?: { disableNormalization?: boolean }) => Promise<{ items: Array<{ str?: string; hasEOL?: boolean }> }>;
   render: (options: { canvasContext: CanvasRenderingContext2D; viewport: PdfViewport; canvas: HTMLCanvasElement }) => { promise: Promise<void> };
 };
 type PdfDocument = { numPages: number; getPage: (page: number) => Promise<PdfPage> };
@@ -378,9 +379,16 @@ export default function Reader({
     try {
       const pdfPage = await document.getPage(page);
       if (myGeneration !== speechGenerationRef.current) return;
-      const content = await pdfPage.getTextContent();
+      let content: { items: Array<{ str?: string; hasEOL?: boolean }> };
+      try {
+        content = await pdfPage.getTextContent();
+      } catch {
+        // A second, simpler extraction pass helps Safari/WKWebView with PDFs
+        // whose font normalization fails while the rendered page is still valid.
+        content = await pdfPage.getTextContent({ disableNormalization: true });
+      }
       if (myGeneration !== speechGenerationRef.current) return;
-      const pageText = content.items.map(item => item.str ?? "").join(" ").replace(/\s+/g, " ").trim();
+      const pageText = extractPdfPageText(content.items).replace(/\s+/g, " ").trim();
       const readableLetters = pageText.match(/[\p{L}]/gu) ?? [];
       if (readableLetters.length < 10) {
         setError(rtl ? "هذه الصفحة فارغة أو لا تحتوي نصًا كافيًا للقراءة. انتقل إلى صفحة فيها محتوى؛ وإذا كانت الصفحة مصوّرة فستحتاج OCR." : "This page is blank or has too little readable text. Move to a content page; scanned pages require OCR.");
@@ -401,7 +409,14 @@ export default function Reader({
       // fall back to whatever the browser's default voice happens to be — on many
       // systems with no Arabic voice pack installed, that default is an English
       // voice that mispronounces the Arabic text entirely. Refuse instead.
-      if (!matchingVoice) {
+      const isAppleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+      // iOS/WKWebView frequently omits Siri voices from getVoices(), but will
+      // still select the correct system voice when utterance.lang is set. Allow
+      // that native language selection only on Apple mobile; desktop browsers
+      // remain fail-closed to avoid English mispronunciation.
+      const allowNativeLanguageVoice = isAppleMobile && requestedLanguage === "ar-SA";
+      if (!matchingVoice && !allowNativeLanguageVoice) {
         setSpeaking(false);
         setSpeechProgress(null);
         setError(
@@ -433,7 +448,7 @@ export default function Reader({
         const utterance = new SpeechSynthesisUtterance(speechQueueRef.current[index]);
         utterance.lang = requestedLanguage;
         utterance.rate = speechRate;
-        utterance.voice = matchingVoice;
+        if (matchingVoice) utterance.voice = matchingVoice;
         utterance.onend = () => {
           if (myGeneration !== speechGenerationRef.current) return;
           playChunk(index + 1);
@@ -481,7 +496,7 @@ export default function Reader({
     : (rtl ? "▶ استمع لهذه الصفحة" : "▶ Listen to this page");
 
   return <div className="page source-reader-page">
-    <header className="page-title"><div><span>{rtl ? "القارئ والصوت المجاني — V0.7" : "Free reader & device voice — V0.7"}</span><h2>{isSaved ? (rtl ? "كتاب من مكتبتك" : "A book from your library") : (rtl ? "قارئ الكتب متعدد اللغات" : "Multilingual book reader")}</h2><p>{rtl ? "اعرض الكتاب واقرأ صفحته بصوت جهازك بلا OpenAI وبلا تكلفة API." : "View your book and hear each page through your device voice—no OpenAI call or API charge."}</p></div>{activeUrl && <button className="secondary" onClick={close}>{isSaved ? (rtl ? "العودة إلى الكتاب" : "Back to the book") : (rtl ? "إغلاق الكتاب" : "Close book")}</button>}</header>
+    <header className="page-title"><div><span>{rtl ? "القارئ والصوت المجاني — V0.7.2" : "Free reader & device voice — V0.7.2"}</span><h2>{isSaved ? (rtl ? "كتاب من مكتبتك" : "A book from your library") : (rtl ? "قارئ الكتب متعدد اللغات" : "Multilingual book reader")}</h2><p>{rtl ? "اعرض الكتاب واقرأ صفحته بصوت جهازك بلا OpenAI وبلا تكلفة API." : "View your book and hear each page through your device voice—no OpenAI call or API charge."}</p></div>{activeUrl && <button className="secondary" onClick={close}>{isSaved ? (rtl ? "العودة إلى الكتاب" : "Back to the book") : (rtl ? "إغلاق الكتاب" : "Close book")}</button>}</header>
 
     {savedBook && !activeUrl ? <section className="reader-empty panel">
       <div className="reader-emblem">◫</div><span className="eyebrow">{rtl ? "فتح من مكتبتك" : "Opening from your library"}</span>
