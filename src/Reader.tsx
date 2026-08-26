@@ -263,8 +263,15 @@ export default function Reader({
     const loadVoices = () => setVoices(window.speechSynthesis.getVoices());
     loadVoices();
     window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
-    const retry = window.setTimeout(loadVoices, 500);
-    return () => { window.clearTimeout(retry); window.speechSynthesis.removeEventListener("voiceschanged", loadVoices); };
+    // Chrome can populate its voice list well after the first render and does
+    // not always emit voiceschanged consistently on Windows. A few short,
+    // bounded retries make the installed Arabic voice visible without polling
+    // forever or requiring the user to reopen the page repeatedly.
+    const retries = [250, 750, 1500, 3000].map((delay) => window.setTimeout(loadVoices, delay));
+    return () => {
+      retries.forEach((retry) => window.clearTimeout(retry));
+      window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
+    };
   }, []);
 
   useEffect(() => {
@@ -463,19 +470,21 @@ export default function Reader({
       // voice that mispronounces the Arabic text entirely. Refuse instead.
       const isAppleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
         (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-      // iOS/WKWebView frequently omits Siri voices from getVoices(), but will
-      // still select the correct system voice when utterance.lang is set. Allow
-      // that native language selection only on Apple mobile; desktop browsers
-      // remain fail-closed to avoid English mispronunciation.
-      const allowNativeLanguageVoice = isAppleMobile && requestedLanguage === "ar-SA";
+      const isGoogleChrome = /(?:Chrome|CriOS)\//.test(navigator.userAgent) &&
+        !/(?:Edg|OPR)\//.test(navigator.userAgent);
+      // iOS and Google Chrome may omit an installed/online Arabic voice from
+      // getVoices(), while still routing an utterance correctly from its lang.
+      // The user explicitly targets Chrome, so allow Chrome's own language
+      // routing instead of blocking before speechSynthesis gets a chance.
+      const allowNativeLanguageVoice = requestedLanguage === "ar-SA" && (isAppleMobile || isGoogleChrome);
       if (!matchingVoice && !allowNativeLanguageVoice) {
         setSpeaking(false);
         setSpeechProgress(null);
         setError(
           requestedLanguage === "ar-SA"
             ? rtl
-              ? "لا يوجد صوت عربي مثبَّت على هذا الجهاز، ولن نستخدم صوتًا إنجليزيًا لتجنّب نطق مضلِّل. أضف حزمة صوت عربية في إعدادات نظام التشغيل، أو جرّب متصفح Microsoft Edge الذي يحمل أصواتًا عربية افتراضيًا."
-              : "No Arabic voice is installed on this device, and we will not substitute an English voice for Arabic text. Install an Arabic voice pack in your OS settings, or try Microsoft Edge, which ships Arabic voices by default."
+              ? "لم يعثر Google Chrome على صوت عربي. فعّل العربية في إعدادات اللغة والصوت بالجهاز، أغلق Chrome بالكامل ثم افتحه من جديد."
+              : "Google Chrome could not find an Arabic voice. Enable Arabic in your device language and speech settings, fully close Chrome, then reopen it."
             : rtl
               ? "لا يوجد صوت مطابق للغة المطلوبة على هذا الجهاز."
               : "No voice matching the requested language is installed on this device.",
@@ -511,8 +520,8 @@ export default function Reader({
           setSpeechProgress(null);
           setError(
             rtl
-              ? "تعذر على محرك المتصفح التلقائي نطق هذه اللغة. جرّب فتح المكتبة في Microsoft Edge؛ وإذا استمر التعذر نحتاج محرك صوت مستقلًا."
-              : "The browser's automatic voice engine could not speak this language. Try Microsoft Edge; if it still fails, a separate voice engine is required.",
+              ? "تعذر على Google Chrome تشغيل الصوت المحدد. أغلق Chrome بالكامل بعد تثبيت الصوت العربي ثم افتحه مجددًا، أو استخدم الصوت الاحترافي المستقل في V0.9."
+              : "Google Chrome could not play the selected voice. Fully close Chrome after installing Arabic speech, then reopen it, or use V0.9's independent professional voice.",
           );
         };
         window.speechSynthesis.speak(utterance);
