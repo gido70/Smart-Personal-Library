@@ -1,6 +1,6 @@
 {
   "name": "smart-personal-library",
-  "version": "0.9.0-paid-pilot",
+  "version": "0.9.1-paid-pilot",
   "private": true,
   "type": "module",
   "scripts": {

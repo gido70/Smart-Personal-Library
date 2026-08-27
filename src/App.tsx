@@ -40,7 +40,7 @@ type View =
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "المختبر الشخصي المدفوع — V0.9",
+    version: "المختبر الشخصي المدفوع — V0.9.1",
     search: "ابحث في كتبك وأفكارك…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -71,7 +71,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Private paid pilot — V0.9",
+    version: "Private paid pilot — V0.9.1",
     search: "Search your books and ideas…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -198,6 +198,11 @@ export default function Home() {
     }
     let cancelled = false;
     setBooksLoading(true);
+    // Never leave a restored/bfcached tab showing a library snapshot that may
+    // have been deleted or changed in another tab. Hide the old snapshot while
+    // Supabase is being read again.
+    setPilotBooks([]);
+    setLibraryStats({ analysedBooks: 0, questions: 0, audioParts: 0 });
     setBooksError("");
     Promise.all([listPilotBooks(), getLibraryStats()])
       .then(([books, stats]) => {
@@ -221,6 +226,23 @@ export default function Home() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [booksLoadToken]);
+  useEffect(() => {
+    const refreshFromSupabase = () => setBooksLoadToken((n) => n + 1);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refreshFromSupabase();
+    };
+    // Mobile Chrome and Safari may restore a complete React page from the
+    // back-forward cache. Revalidate the library whenever that page becomes
+    // active instead of trusting the restored in-memory list.
+    window.addEventListener("pageshow", refreshFromSupabase);
+    window.addEventListener("focus", refreshFromSupabase);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("pageshow", refreshFromSupabase);
+      window.removeEventListener("focus", refreshFromSupabase);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, []);
   const reloadPilotBooks = () => setBooksLoadToken((n) => n + 1);
   const patchPilotBook = (bookId: string, patch: Partial<PilotBook>) => {
     setPilotBooks((prev) => prev.map((b) => (b.id === bookId ? { ...b, ...patch } : b)));
@@ -345,7 +367,7 @@ export default function Home() {
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "المختبر الشخصي المدفوع الآمن V0.9" : "Safe private paid pilot V0.9"}
+            {rtl ? "المختبر الشخصي المدفوع الآمن V0.9.1" : "Safe private paid pilot V0.9"}
           </strong>
           <p>
             {rtl

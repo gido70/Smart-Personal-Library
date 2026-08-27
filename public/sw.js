@@ -1,4 +1,4 @@
-const CACHE_NAME = "smart-personal-library-v0.7.3";
+const CACHE_NAME = "smart-personal-library-v0.9.1";
 const APP_SHELL = ["./", "./manifest.webmanifest", "./favicon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -12,7 +12,7 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   if (event.request.mode === "navigate") {
-    event.respondWith(fetch(event.request).then((response) => {
+    event.respondWith(fetch(event.request, { cache: "no-store" }).then((response) => {
       const copy = response.clone();
       caches.open(CACHE_NAME).then((cache) => cache.put("./", copy));
       return response;
