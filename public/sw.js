@@ -1,4 +1,4 @@
-const CACHE_NAME = "smart-personal-library-v0.9.1";
+const CACHE_NAME = "smart-personal-library-v0.9.2";
 const APP_SHELL = ["./", "./manifest.webmanifest", "./favicon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -11,6 +11,10 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  // Never intercept or cache Supabase/API responses. Library data must always
+  // come from the authenticated network request, not an old browser snapshot.
+  const requestUrl = new URL(event.request.url);
+  if (requestUrl.origin !== self.location.origin) return;
   if (event.request.mode === "navigate") {
     event.respondWith(fetch(event.request, { cache: "no-store" }).then((response) => {
       const copy = response.clone();
