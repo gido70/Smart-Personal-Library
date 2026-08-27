@@ -40,7 +40,7 @@ type View =
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "المختبر الشخصي المدفوع — V0.9.2",
+    version: "المختبر الشخصي المدفوع — V0.9.3",
     search: "ابحث في كتبك وأفكارك…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -71,7 +71,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Private paid pilot — V0.9.2",
+    version: "Private paid pilot — V0.9.3",
     search: "Search your books and ideas…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -393,7 +393,7 @@ export default function Home() {
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "المختبر الشخصي المدفوع الآمن V0.9.2" : "Safe private paid pilot V0.9.2"}
+            {rtl ? "المختبر الشخصي المدفوع الآمن V0.9.3" : "Safe private paid pilot V0.9.3"}
           </strong>
           <p>
             {rtl
@@ -1048,12 +1048,12 @@ function DuplicateReviewPanel({
   );
 }
 
-function AccountUpgradePanel({ rtl }: { rtl: boolean }) {
-  const [email, setEmail] = useState("");
+function AccountUpgradePanel({ rtl, hasBooks }: { rtl: boolean; hasBooks: boolean }) {
+  const [email, setEmail] = useState("aarahman70@gmail.com");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<"idle" | "sent" | "error">("idle");
   const [error, setError] = useState("");
-  const [mode, setMode] = useState<"upgrade" | "signin">("upgrade");
+  const [mode, setMode] = useState<"upgrade" | "signin">(hasBooks ? "upgrade" : "signin");
   const submit = async () => {
     setBusy(true);
     setError("");
@@ -1069,21 +1069,21 @@ function AccountUpgradePanel({ rtl }: { rtl: boolean }) {
     }
   };
   return (
-    <details className="account-upgrade">
-      <summary>{rtl ? "الحساب الدائم والدخول من جهاز آخر" : "Permanent account and cross-device sign-in"}</summary>
+    <details className="account-upgrade" open>
+      <summary>{rtl ? "الدخول الدائم بالبريد — نفس المكتبة على كل أجهزتك" : "Permanent email sign-in — one library on every device"}</summary>
       <div className="account-mode-tabs">
-        <button className={mode === "upgrade" ? "active" : ""} onClick={() => setMode("upgrade")}>{rtl ? "اربط الكتب الموجودة بهذا البريد" : "Attach these books to email"}</button>
-        <button className={mode === "signin" ? "active" : ""} onClick={() => setMode("signin")}>{rtl ? "ادخل إلى حساب موجود" : "Sign in to existing account"}</button>
+        <button className={mode === "upgrade" ? "active" : ""} onClick={() => { setMode("upgrade"); setResult("idle"); }}>{rtl ? "هذا الجهاز فيه كتبي: اربطه أولًا" : "This device has my books: link it first"}</button>
+        <button className={mode === "signin" ? "active" : ""} onClick={() => { setMode("signin"); setResult("idle"); }}>{rtl ? "جهاز آخر: ادخل إلى حسابي" : "Another device: sign in to my account"}</button>
       </div>
       <p className="disclosure-note">
         {mode === "upgrade" ? (rtl
-          ? "ندخل بريدك على نفس الهوية الحالية بلا نقل بيانات: كل كتاب محفوظ يبقى كما هو. سنرسل رابط تأكيد إلى بريدك؛ لن تصبح الترقية فعلية إلا بعد الضغط عليه."
+          ? "نفّذ هذا مرة واحدة فقط من كروم الذي يظهر فيه كتابك. سنربط البريد بنفس هوية الكتاب بلا نقل أو حذف، ثم نرسل رابط تأكيد إلى Gmail."
           : "This attaches your email to your existing identity — no data migration, every saved book stays exactly as-is. We send a confirmation link to your email; the upgrade only takes effect once you click it.") : (rtl
-          ? "استخدم البريد الذي ربطته سابقًا بالمكتبة. سنرسل رابط دخول، وبعد فتحه تظهر مكتبتك نفسها على هذا الجهاز."
+          ? "استخدم هذا الخيار في Edge أو الآيفون أو أي جهاز آخر بعد إكمال الربط الأول في كروم. سنرسل رابط دخول إلى Gmail، وبعد فتحه تظهر المكتبة نفسها."
           : "Use the email already attached to your library. The sign-in link opens the same library on this device.")}
       </p>
       {result === "sent" ? (
-        <p className="dup-confirmed">{rtl ? "أُرسل رابط التأكيد. افتح بريدك وأكمل الخطوة هناك." : "Confirmation link sent. Check your inbox to finish."}</p>
+        <p className="dup-confirmed">{rtl ? "أُرسل الرابط إلى Gmail. افتحه على الجهاز الذي تنفذ منه هذه الخطوة، ثم ارجع إلى المكتبة." : "The link was sent to Gmail. Open it on this device, then return to the library."}</p>
       ) : (
         <div className="account-upgrade-form">
           <input
@@ -1248,6 +1248,9 @@ function Library({
             : "You haven't saved a book yet. Add your first one to see it here after every refresh."}
         </section>
       )}
+      {!booksLoading && !booksError && (
+        <AccountUpgradePanel rtl={rtl} hasBooks={pilotBooks.length > 0} />
+      )}
       {!booksLoading && !booksError && filteredPilotBooks.length > 0 && (
         <section className="panel live-books">
           <span className="eyebrow">
@@ -1259,7 +1262,6 @@ function Library({
               ? "تنبيه النسخة التجريبية: دخولك مرتبط بهذا المتصفح حاليًا؛ لا تمسح بيانات المتصفح قبل الترقية إلى حساب دائم أدناه."
               : "Pilot notice: access is currently tied to this browser. Do not clear browser data before upgrading to a permanent account below."}
           </p>
-          <AccountUpgradePanel rtl={rtl} />
           <div className="library-full live-book-grid">
             {filteredPilotBooks.map((book) => (
               <LiveBookCard key={book.id} book={book} rtl={rtl} onOpen={() => onOpenPilot(book)} />
