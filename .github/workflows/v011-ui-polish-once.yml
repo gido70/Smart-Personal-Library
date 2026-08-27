@@ -1,0 +1,64 @@
+name: V0.11 One-shot UI State Polish
+
+on:
+  push:
+    branches:
+      - docs/wajeez-reference-and-v011-prep
+    paths:
+      - .github/workflows/v011-ui-polish-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: docs/wajeez-reference-and-v011-prep
+      - name: Patch real reading-state filters and iPhone guidance
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/AppV11.tsx')
+          s = p.read_text()
+          replacements = [
+            (
+              '    VAPID_NOT_CONFIGURED: ["Web Push جاهز في الكود لكن مفاتيحه لم تُضف بعد.", "Web Push is coded, but its keys are not configured yet."],\n',
+              '    VAPID_NOT_CONFIGURED: ["Web Push جاهز في الكود لكن مفاتيحه لم تُضف بعد.", "Web Push is coded, but its keys are not configured yet."],\n    IOS_HOME_SCREEN_REQUIRED: ["على iPhone/iPad: أضف المكتبة إلى الشاشة الرئيسية وافتحها كتطبيق، ثم اضغط الجرس لتفعيل الإشعارات.", "On iPhone/iPad: add the library to the Home Screen, open it as a web app, then tap the bell to enable notifications."],\n'
+            ),
+            (
+              '  const [loading, setLoading] = useState(false);\n',
+              '  const [loading, setLoading] = useState(false);\n  const [readingIds, setReadingIds] = useState<Set<string>>(new Set());\n  const [recentBookId, setRecentBookId] = useState<string | null>(null);\n'
+            ),
+            (
+              '      const [nextBooks, nextStats] = await Promise.all([listPilotBooks(), getLibraryStats()]);\n      setBooks(nextBooks);\n      setStats(nextStats);\n',
+              '      const [nextBooks, nextStats, progressResult] = await Promise.all([\n        listPilotBooks(),\n        getLibraryStats(),\n        supabase!.from("spl_reading_progress").select("book_id,updated_at").order("updated_at", { ascending: false }),\n      ]);\n      setBooks(nextBooks);\n      setStats(nextStats);\n      const progressRows = progressResult.data ?? [];\n      setReadingIds(new Set(progressRows.map((row) => String(row.book_id))));\n      setRecentBookId(progressRows.length ? String(progressRows[0].book_id) : null);\n'
+            ),
+            (
+              '    const filterOk = filter === "all" || (filter === "new" && book.status === "uploaded") || (filter === "ready" && book.status === "ready") || (filter === "reading" && book.status !== "failed");\n',
+              '    const filterOk = filter === "all" || (filter === "new" && book.status === "uploaded" && !readingIds.has(book.id)) || (filter === "ready" && book.status === "ready") || (filter === "reading" && readingIds.has(book.id));\n'
+            ),
+            (
+              '{view === "home" && <Home rtl={rtl} books={books} stats={stats} onAdd={() => setUploadOpen(true)} onLibrary={() => setView("library")} onOpen={openBook} onRead={readBook} />}\n',
+              '{view === "home" && <Home rtl={rtl} books={books} stats={stats} recentBookId={recentBookId} onAdd={() => setUploadOpen(true)} onLibrary={() => setView("library")} onOpen={openBook} onRead={readBook} />}\n'
+            ),
+            (
+              'function Home({ rtl, books, stats, onAdd, onLibrary, onOpen, onRead }: { rtl: boolean; books: PilotBook[]; stats: LibraryStats; onAdd: () => void; onLibrary: () => void; onOpen: (book: PilotBook) => void; onRead: (book: PilotBook) => void }) {\n  const latest = books[0];\n',
+              'function Home({ rtl, books, stats, recentBookId, onAdd, onLibrary, onOpen, onRead }: { rtl: boolean; books: PilotBook[]; stats: LibraryStats; recentBookId: string | null; onAdd: () => void; onLibrary: () => void; onOpen: (book: PilotBook) => void; onRead: (book: PilotBook) => void }) {\n  const latest = books.find((book) => book.id === recentBookId) ?? books[0];\n'
+            ),
+          ]
+          for old, new in replacements:
+            if old not in s:
+              raise SystemExit(f'Expected source fragment not found: {old[:100]!r}')
+            s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+      - name: Commit verified source patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/AppV11.tsx
+          git commit -m "V0.11: use real reading progress for active shelf"
+          git push origin HEAD:docs/wajeez-reference-and-v011-prep
