@@ -49,3 +49,41 @@ button.danger{background:var(--red);color:#fff;border:none;border-radius:10px;pa
 .display-samples-note{color:var(--soft);font-size:11px;margin:14px 0 8px}
 .search-result-link{width:100%;border:0;background:transparent;color:inherit;text-align:start;padding:0}
 .search-result-link em{color:var(--gold);font-weight:700}
+.paid-result-view{display:grid;gap:16px;margin-top:16px}.paid-result-view>section{padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--card2)}.paid-result-view h4{margin:0 0 10px;color:var(--green)}.paid-summary{white-space:pre-wrap;line-height:2;overflow-wrap:anywhere}.paid-result-meta{display:flex;gap:8px;flex-wrap:wrap}.paid-result-meta span{padding:7px 10px;border-radius:999px;background:color-mix(in srgb,#e8f6ef 76%,var(--card));font-size:11px}.paid-result-view ol,.paid-result-view ul{margin:0;padding-inline-start:22px;display:grid;gap:7px;line-height:1.75}.chapters{display:grid;gap:8px}.chapters details{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--card)}.chapters summary{display:flex;align-items:center;gap:10px;cursor:pointer}.chapters summary b{color:var(--gold)}.chapters summary span{flex:1}.chapters summary em{font-style:normal;color:var(--soft);font-size:11px}.chapters p{line-height:1.8}.analysis-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.analysis-grid>div,.inference{padding:12px;border-radius:11px;background:var(--card)}.paid-language-select{display:grid;gap:6px;margin:10px 0}.paid-language-select select{width:100%;border:1px solid var(--line);border-radius:10px;background:var(--card2);color:var(--ink);padding:9px}.professional-audio-list{display:grid;gap:10px;margin-top:12px}.professional-audio-list label{display:grid;gap:5px}.professional-audio-list audio{width:100%;margin:0}.question-history{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}.question-history summary{cursor:pointer;font-weight:700}.question-history>div{margin-top:8px;padding:9px;border-radius:9px;background:var(--card2)}.question-history p{margin:5px 0 0;line-height:1.6}
+@media(max-width:760px){.analysis-grid{grid-template-columns:1fr}.paid-result-view>section{padding:12px}}
+
+/* Keep the pilot readable when the app-level dark theme is enabled.
+   Several pilot panels previously inherited light-theme foregrounds or used
+   fixed green-on-green colours, which made explanatory copy disappear on
+   phones.  These overrides intentionally affect interface chrome only; PDF
+   pages keep their original colours. */
+.app.dark .local-analysis-card,
+.app.dark .zero-cost-explainer,
+.app.dark .manual-import-card,
+.app.dark .budget-card,
+.app.dark .book-info-card,
+.app.dark .paid-result-view,
+.app.dark .detail-aside{color:var(--ink)}
+.app.dark .local-analysis-card p,
+.app.dark .zero-cost-explainer p,
+.app.dark .manual-import-card p,
+.app.dark .budget-card p,
+.app.dark .book-info-card p,
+.app.dark .paid-result-view p,
+.app.dark .detail-aside p,
+.app.dark .locked-note,
+.app.dark .disclosure-note,
+.app.dark .search-status{color:var(--soft)}
+.app.dark .free-lane,
+.app.dark .paid-lane,
+.app.dark .paid-empty,
+.app.dark .free-notice{background:var(--card2);color:var(--ink);border-color:var(--line)}
+.app.dark .free-lane span,
+.app.dark .paid-lane span,
+.app.dark .free-notice b,
+.app.dark .free-notice span{color:var(--gold2)}
+.app.dark .pilot-session-warning{background:#3a2d13;color:#f3d886;border:1px solid #6d5521}
+.app.dark .reader-error,
+.app.dark .manual-import-errors li{background:#3b211e;color:#ffb4aa}
+.app.dark input::placeholder,
+.app.dark textarea::placeholder{color:#91aaa1;opacity:1}

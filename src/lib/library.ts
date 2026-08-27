@@ -72,6 +72,25 @@ export async function listPilotBooks(): Promise<PilotBook[]> {
   ).map((row) => ({ ...row, content_sha256: row.content_sha256 ?? null, metadata: row.metadata ?? {} }));
 }
 
+export type LibraryStats = { analysedBooks: number; questions: number; audioParts: number };
+
+export async function getLibraryStats(): Promise<LibraryStats> {
+  await ensurePilotSession();
+  const [analysesResult, questionsResult, audioResult] = await Promise.all([
+    supabase!.from("spl_analyses").select("book_id").eq("kind", "overview").eq("source", "openai"),
+    supabase!.from("spl_questions").select("id", { count: "exact", head: true }),
+    supabase!.from("spl_audio_outputs").select("id", { count: "exact", head: true }),
+  ]);
+  if (analysesResult.error) throw analysesResult.error;
+  if (questionsResult.error) throw questionsResult.error;
+  if (audioResult.error) throw audioResult.error;
+  return {
+    analysedBooks: new Set((analysesResult.data ?? []).map((item) => item.book_id)).size,
+    questions: questionsResult.count ?? 0,
+    audioParts: audioResult.count ?? 0,
+  };
+}
+
 export type UploadResult = { book: PilotBook; deduped: boolean };
 
 /**
@@ -157,7 +176,7 @@ export async function saveLegalConsent(bookId: string, rightsOwned: boolean, per
     book_id: bookId,
     rights_owned: rightsOwned,
     personal_use_only: personalUse,
-    policy_version: "V0.7-zero-cost-pilot",
+    policy_version: "V0.9-private-paid-pilot",
     user_agent: navigator.userAgent,
   });
   if (error) throw error;
@@ -197,15 +216,26 @@ export async function createBookSignedUrl(storagePath: string, expiresIn = 3600)
   return { url: data.signedUrl, expiresAt: Date.now() + expiresIn * 1000 };
 }
 
-// ZERO_COST_MODE gates whether this is ever called from the UI (see src/lib/config.ts
-// and scripts/verify-zero-cost.mjs) — the function itself is kept intact so the paid
-// path can be re-enabled later without rewriting this module.
+// V0.9 exposes these actions in the UI, but the Edge Function remains the
+// authoritative financial boundary (enabled secret, exact pilot email, book
+// and question caps, ownership, and legal-consent checks).
 export async function invokeBookAI(bookId: string, action: "process" | "ask" | "audio", payload: Record<string, unknown> = {}) {
   await ensurePilotSession();
   const { data, error } = await supabase!.functions.invoke("spl-ai", {
     body: { action, bookId, ...payload },
   });
-  if (error) throw error;
+  if (error) {
+    const context = (error as { context?: Response }).context;
+    if (context) {
+      try {
+        const body = await context.clone().json() as { error?: string };
+        if (body.error) throw new Error(body.error);
+      } catch (parsed) {
+        if (parsed instanceof Error && parsed.message !== "Unexpected end of JSON input") throw parsed;
+      }
+    }
+    throw error;
+  }
   return data;
 }
 
@@ -218,18 +248,51 @@ export type StoredAnalysis = {
   created_at: string;
 };
 
+export type StoredQuestion = {
+  id: string;
+  question: string;
+  answer: Record<string, unknown>;
+  language: "ar" | "en";
+  created_at: string;
+};
+
+export type AiUsageEvent = {
+  action: "process" | "ask" | "audio";
+  model: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
 export async function getBookResults(bookId: string) {
   await ensurePilotSession();
-  const [{ data: analyses, error: analysesError }, { data: audio, error: audioError }] = await Promise.all([
+  const [
+    { data: analyses, error: analysesError },
+    { data: audio, error: audioError },
+    { data: questions, error: questionsError },
+    { data: usage, error: usageError },
+  ] = await Promise.all([
     supabase!
       .from("spl_analyses")
       .select("kind,language,source,content,template_version,created_at")
       .eq("book_id", bookId),
     supabase!.from("spl_audio_outputs").select("id,language,voice,storage_path,created_at").eq("book_id", bookId),
+    supabase!.from("spl_questions").select("id,question,answer,language,created_at").eq("book_id", bookId).order("created_at", { ascending: false }).limit(20),
+    supabase!.from("spl_ai_usage").select("action,model,input_tokens,output_tokens,metadata,created_at").eq("book_id", bookId).order("created_at", { ascending: false }),
   ]);
   if (analysesError) throw analysesError;
   if (audioError) throw audioError;
-  return { analyses: (analyses ?? []) as StoredAnalysis[], audio: audio ?? [] };
+  if (questionsError) throw questionsError;
+  // V0.9 migration is additive. Until it is applied, results still load and
+  // the UI simply shows no usage history instead of hiding the book.
+  const safeUsage = usageError ? [] : (usage ?? []);
+  return {
+    analyses: (analyses ?? []) as StoredAnalysis[],
+    audio: audio ?? [],
+    questions: (questions ?? []) as StoredQuestion[],
+    usage: safeUsage as AiUsageEvent[],
+  };
 }
 
 export async function getPrivateAudioUrl(storagePath: string) {

@@ -24,3 +24,43 @@
 @media(max-width:760px){.reader-footer{grid-template-columns:auto 1fr auto}.reader-footer .speak-current{grid-column:1/-1}.fidelity-note{flex-wrap:wrap}}
 .text-page-hint{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;font-size:.9em;color:var(--soft)}
 .reader-shell.theme-night .paper-page canvas,.reader-shell.night .paper-page canvas{filter:none!important}
+
+/* V0.9 device acceptance: Chrome Android/Samsung, iPhone/iPad and tablets. */
+@media(min-width:761px) and (max-width:1100px){
+  .reader-toolbar{flex-wrap:wrap}
+  .reader-file-name{flex:1 1 300px}
+  .reader-modes{order:3;flex:1 1 100%}
+  .reader-modes button{flex:1;min-height:42px}
+  .reader-tools button{min-width:42px;min-height:42px}
+  .reader-stage{min-height:560px;padding:24px 44px}
+  .reader-footer{grid-template-columns:auto minmax(180px,1fr) auto auto}
+}
+@media(max-width:760px){
+  .reader-shell{border-radius:14px}
+  .reader-toolbar{padding:10px;position:relative}
+  .reader-file-name{width:calc(100% - 42px);margin-inline-start:42px}
+  .reader-file-name strong{max-width:100%}
+  .reader-tools{overflow-x:auto;justify-content:flex-start;padding-bottom:2px}
+  .reader-tools button,.reader-modes button,.option-row button,.option-row select,.audio-picker{min-height:44px}
+  .reader-options{padding:12px 10px}
+  .option-row{display:grid;grid-template-columns:1fr 1fr}
+  .option-row select,.option-row button,.audio-picker{width:100%}
+  .reader-stage{min-height:430px;padding:16px 42px 150px;overflow:hidden}
+  .book-bed,.paper-page,.paper-page canvas{max-width:100%;width:100%}
+  .page-arrow{position:absolute;top:45%;z-index:6}
+  .page-arrow.previous{inset-inline-start:4px}
+  .page-arrow.next{inset-inline-end:4px}
+  .reader-footer{padding:10px;grid-template-columns:1fr 1fr;gap:8px}
+  .reader-footer>div,.reader-footer .speak-current{grid-column:1/-1}
+  .reader-footer>button{min-height:44px;font-size:12px}
+  .reader-footer .speak-current{order:-1}
+  .native-reader-stage{height:68vh;min-height:500px}
+  .compatibility-gate{width:calc(100% - 18px);padding:14px 12px}
+  .compatibility-gate button{min-height:44px}
+}
+@media(max-width:380px){
+  .reader-stage{padding-inline:38px}
+  .reader-footer{grid-template-columns:1fr}
+  .reader-footer>button,.reader-footer>div,.reader-footer .speak-current{grid-column:1}
+  .option-row{grid-template-columns:1fr}
+}

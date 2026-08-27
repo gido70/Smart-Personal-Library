@@ -3,6 +3,7 @@ import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import Reader, { type SavedBookRef } from "./Reader";
 import {
   getBookResults,
+  getLibraryStats,
   getLegalConsentStatus,
   getPrivateAudioUrl,
   createBookSignedUrl,
@@ -18,9 +19,10 @@ import {
   type OutputLanguage,
   type PilotBook,
   type StoredAnalysis,
+  type LibraryStats,
 } from "./lib/library";
 import { sendExistingAccountMagicLink, supabaseConfigured, upgradeAnonymousSessionToEmail } from "./lib/supabase";
-import { ZERO_COST_MODE } from "./lib/config";
+import { PAID_PILOT_MAX_BOOKS, ZERO_COST_MODE } from "./lib/config";
 import { runLocalStructuralAnalysis, type LocalAnalysisProgress } from "./lib/localAnalysis";
 import { searchInsideBook, validateManualImport, type BookSearchMatch, type LocalStructuralAnalysis, type ManualImportPayload } from "./lib/textAnalysis";
 
@@ -38,7 +40,7 @@ type View =
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "نسخة القبول المجانية — V0.8",
+    version: "المختبر الشخصي المدفوع — V0.9",
     search: "ابحث في كتبك وأفكارك…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -61,7 +63,7 @@ const text = {
       "أقرّ أنني أملك حق استخدام هذا الملف أو لدي تصريح بمعالجته للاستخدام الشخصي.",
     rights2:
       "أفهم أن المنصة لا تسمح بنشر الكتاب أو إنشاء قراءة حرفية كاملة لعمل محمي.",
-    start: "احفظ الكتاب فقط — بلا تكلفة OpenAI",
+    start: "احفظ الكتاب في مكتبتي",
     cancel: "إلغاء",
     journal: "سجل التجربة",
     journalSub:
@@ -69,7 +71,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Zero-cost acceptance build — V0.8",
+    version: "Private paid pilot — V0.9",
     search: "Search your books and ideas…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -93,7 +95,7 @@ const text = {
       "I confirm that I own this file or have permission to process it for personal use.",
     rights2:
       "I understand that the platform does not allow publishing the book or generating a full verbatim narration of a protected work.",
-    start: "Save book only — no OpenAI charge",
+    start: "Save book to my library",
     cancel: "Cancel",
     journal: "Experience journal",
     journalSub:
@@ -165,6 +167,7 @@ export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [outputLanguage, setOutputLanguage] = useState<OutputLanguage>("ar");
   const [pilotBooks, setPilotBooks] = useState<PilotBook[]>([]);
+  const [libraryStats, setLibraryStats] = useState<LibraryStats>({ analysedBooks: 0, questions: 0, audioParts: 0 });
   const [booksLoading, setBooksLoading] = useState(true);
   const [booksError, setBooksError] = useState("");
   const [booksLoadToken, setBooksLoadToken] = useState(0);
@@ -196,10 +199,11 @@ export default function Home() {
     let cancelled = false;
     setBooksLoading(true);
     setBooksError("");
-    listPilotBooks()
-      .then((books) => {
+    Promise.all([listPilotBooks(), getLibraryStats()])
+      .then(([books, stats]) => {
         if (cancelled) return;
         setPilotBooks(books);
+        setLibraryStats(stats);
       })
       .catch((loadError) => {
         if (cancelled) return;
@@ -341,12 +345,12 @@ export default function Home() {
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "نسخة القبول المجانية الآمنة V0.8" : "Safe zero-cost acceptance V0.8"}
+            {rtl ? "المختبر الشخصي المدفوع الآمن V0.9" : "Safe private paid pilot V0.9"}
           </strong>
           <p>
             {rtl
-              ? "القراءة وصوت الجهاز لا يستخدمان OpenAI. الخدمات المدفوعة منفصلة وواضحة."
-              : "Reading and device voice do not use OpenAI. Paid AI services are clearly separated."}
+              ? "حتى خمسة كتب فقط. لا يبدأ التحليل أو السؤال أو الصوت الاحترافي إلا بعد تأكيدك."
+              : "Limited to five books. Analysis, questions, and professional audio start only after your confirmation."}
           </p>
         </div>
         <div className="profile">
@@ -411,6 +415,7 @@ export default function Home() {
             setView={setView}
             onOpenReader={openReaderStandalone}
             pilotBooks={pilotBooks}
+            libraryStats={libraryStats}
             onOpenPilot={(book) => { setActivePilotBook(book); setView("pilot"); }}
           />
         )}
@@ -502,6 +507,7 @@ function Dashboard({
   setView,
   onOpenReader,
   pilotBooks,
+  libraryStats,
   onOpenPilot,
 }: {
   rtl: boolean;
@@ -510,6 +516,7 @@ function Dashboard({
   setView: (v: View) => void;
   onOpenReader: () => void;
   pilotBooks: PilotBook[];
+  libraryStats: LibraryStats;
   onOpenPilot: (book: PilotBook) => void;
 }) {
   const current = pilotBooks[0];
@@ -526,7 +533,7 @@ function Dashboard({
           <p>{t.intro}</p>
           <div className="welcome-actions">
             <button className="primary" onClick={onOpenReader}>
-              ◫ {rtl ? "اقرأ واستمع مجانًا" : "Read & listen for free"}
+              ◫ {rtl ? "افتح القارئ" : "Open reader"}
             </button>
             <button className="secondary" onClick={onUpload}>
               ＋ {rtl ? "أضف كتابًا" : "Add a book"}
@@ -554,21 +561,21 @@ function Dashboard({
         />
         <Metric
           icon="✓"
-          value={String(pilotBooks.filter((book) => book.status === "ready").length)}
+          value={String(libraryStats.analysedBooks)}
           label={t.ready}
-          note={rtl ? "نتائج محفوظة" : "Saved results"}
+          note={rtl ? "كتب لها تحليل AI محفوظ" : "Books with saved AI analysis"}
         />
         <Metric
           icon="◖"
-          value="0"
-          label={t.minutes}
-          note={rtl ? "يبدأ بعد تفعيل سجل الاستماع" : "Listening log not enabled yet"}
+          value={String(libraryStats.questions)}
+          label={rtl ? "أسئلة محفوظة" : "Saved questions"}
+          note={rtl ? "إجابات مرتبطة بالكتب" : "Book-grounded answers"}
         />
         <Metric
           icon="↗"
-          value="0"
-          label={t.streak}
-          note={rtl ? "لا بيانات وهمية" : "No placeholder data"}
+          value={String(libraryStats.audioParts)}
+          label={rtl ? "مقاطع صوتية" : "Audio parts"}
+          note={rtl ? "خلاصات احترافية محفوظة" : "Saved professional summaries"}
         />
       </section>
       <section className="split-grid">
@@ -600,22 +607,22 @@ function Dashboard({
             {rtl ? "توصية شخصية" : "Personal recommendation"}
           </span>
           <h3>{t.suggestion}</h3>
-          <p>
-            {rtl
-              ? "لديك كتابان يتناولان إدارة المعرفة. اقرأ الفصل الثاني من «مستقبل المكتبات» بعد إنهاء الفصل الحالي؛ فهو يضيف منظور التحول الرقمي دون تكرار."
-              : "Two books discuss knowledge management. Read chapter two of ‘The Future of Libraries’ next for a complementary digital perspective."}
-          </p>
+          <p>{current
+            ? (rtl
+              ? `ابدأ بتحليل «${current.title}» ثم اسأل أمين المكتبة عن الأفكار والفصول التي تستحق العودة إلى المصدر.`
+              : `Analyze “${current.title}”, then ask the librarian which ideas and chapters deserve a return to the source.`)
+            : (rtl ? "أضف أول كتاب حقيقي ليبدأ الاقتراح من بيانات مكتبتك، لا من أمثلة وهمية." : "Add your first real book so recommendations use your library—not placeholder examples.")}</p>
           <div className="source-note">
             <b>{rtl ? "سبب الاقتراح" : "Why this suggestion"}</b>
             <span>
               {rtl
-                ? "مقارنة موضوعية داخل مكتبتك فقط"
-                : "A topical comparison within your library only"}
+                ? "يتفعّل من تحليلات كتبك المحفوظة فقط"
+                : "Enabled only from your saved book analyses"}
             </span>
           </div>
-          <button className="text-button disabled-soon" disabled>
-            {rtl ? "يُفعّل بعد اعتماد الذكاء الاصطناعي" : "Enabled after AI approval"}
-          </button>
+          {current && <button className="text-button" onClick={() => onOpenPilot(current)}>
+            {rtl ? "حلّل الكتاب واسأله" : "Analyze and ask this book"}
+          </button>}
         </article>
       </section>
       <section className="panel library-preview">
@@ -910,6 +917,7 @@ function DuplicateReviewPanel({
   onBooksChanged: () => void;
 }) {
   const [confirmingId, setConfirmingId] = useState("");
+  const [confirmingGroup, setConfirmingGroup] = useState("");
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
   if (groups.length === 0) return null;
@@ -924,6 +932,20 @@ function DuplicateReviewPanel({
     } finally {
       setBusyId("");
       setConfirmingId("");
+    }
+  };
+  const keepNewestOnly = async (group: DuplicateGroup) => {
+    const ordered = [...group.books].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    setBusyId(group.key);
+    setError("");
+    try {
+      for (const duplicate of ordered.slice(1)) await rollbackPilotBook(duplicate);
+      onBooksChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : rtl ? "تعذر تنظيف المجموعة." : "Could not clean this group.");
+    } finally {
+      setBusyId("");
+      setConfirmingGroup("");
     }
   };
   return (
@@ -947,6 +969,7 @@ function DuplicateReviewPanel({
                 ? "غير مؤكد — تطابق بالعنوان والحجم فقط"
                 : "Unconfirmed — title + size match only"}
           </small>
+          {confirmingGroup === group.key ? <span className="dup-confirm-row"><em>{rtl ? "سنُبقي أحدث نسخة ونحذف البقية. تأكيد؟" : "Keep the newest copy and delete the rest. Confirm?"}</em><button className="danger" disabled={busyId === group.key} onClick={() => keepNewestOnly(group)}>{rtl ? "نعم، نظّف المجموعة" : "Yes, clean group"}</button><button className="secondary" onClick={() => setConfirmingGroup("")}>{rtl ? "تراجع" : "Cancel"}</button></span> : <button className="primary compact" onClick={() => setConfirmingGroup(group.key)}>{rtl ? "أبقِ نسخة واحدة فقط" : "Keep one copy only"}</button>}
           <ul>
             {group.books.map((book) => (
               <li key={book.id}>
@@ -1028,6 +1051,83 @@ function AccountUpgradePanel({ rtl }: { rtl: boolean }) {
       )}
       {result === "error" && <div className="reader-error inline">{error}</div>}
     </details>
+  );
+}
+
+type PaidBookResult = {
+  source_language?: string;
+  metadata?: { title?: string; author?: string; subject?: string; pages_if_known?: string | number | null };
+  overview?: { summary?: string; key_ideas?: unknown[]; return_to_source?: unknown[] };
+  chapters?: Array<{ title?: string; summary?: string; pages_if_known?: string | number | null }>;
+  critical?: { strengths?: unknown[]; limitations?: unknown[]; platform_inferences?: unknown[] };
+  trust_notes?: unknown;
+};
+
+function readableItem(value: unknown): string {
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (!value || typeof value !== "object") return "";
+  const item = value as Record<string, unknown>;
+  return [item.page ?? item.pages ?? item.pages_if_known, item.reason ?? item.note ?? item.text ?? item.title]
+    .filter(Boolean)
+    .join(" — ");
+}
+
+function describeAiError(value: unknown, rtl: boolean) {
+  const raw = value instanceof Error ? value.message : String(value ?? "");
+  const code = raw.match(/(PAID_AI_DISABLED|PRIVATE_PILOT_EMAIL_REQUIRED|PAID_PILOT_BOOK_LIMIT_REACHED|DAILY_ANALYSIS_LIMIT_REACHED|DAILY_QUESTION_LIMIT_REACHED|PILOT_QUESTION_LIMIT_REACHED|OPENAI_API_KEY_MISSING|LEGAL_CONSENT_REQUIRED|BOOK_NOT_PROCESSED|ANALYSIS_NOT_READY)/)?.[1];
+  const ar: Record<string, string> = {
+    PAID_AI_DISABLED: "الخدمة المدفوعة ما زالت مغلقة من خادم Supabase؛ لم يُرسل الكتاب ولم يُخصم أي رصيد.",
+    PRIVATE_PILOT_EMAIL_REQUIRED: "سجّل دخولك بالبريد التجريبي المعتمد أولًا. الجلسة المجهولة لا تستطيع استخدام رصيد OpenAI.",
+    PAID_PILOT_BOOK_LIMIT_REACHED: "بلغت حد الكتب المدفوعة المسموح به في المختبر. لن يُخصم شيء لكتاب إضافي.",
+    DAILY_ANALYSIS_LIMIT_REACHED: "بلغت حد التحليلات اليومية الآمن. أوقفنا الطلب قبل الخصم الإضافي.",
+    DAILY_QUESTION_LIMIT_REACHED: "بلغت حد الأسئلة اليومية الآمن.",
+    PILOT_QUESTION_LIMIT_REACHED: "بلغت حد الأسئلة الإجمالي للتجربة الحالية.",
+    OPENAI_API_KEY_MISSING: "مفتاح OpenAI غير مضبوط داخل أسرار Supabase؛ لم تبدأ الخدمة.",
+    LEGAL_CONSENT_REQUIRED: "إقرار حقوق استخدام هذا الكتاب غير مسجل.",
+    BOOK_NOT_PROCESSED: "حلّل الكتاب أولًا قبل طرح الأسئلة.",
+    ANALYSIS_NOT_READY: "أنشئ الخلاصة بهذه اللغة أولًا، ثم أنشئ الصوت.",
+  };
+  const en: Record<string, string> = {
+    PAID_AI_DISABLED: "Paid AI is still locked on the Supabase server. Nothing was sent and no credit was used.",
+    PRIVATE_PILOT_EMAIL_REQUIRED: "Sign in with the approved pilot email first. Anonymous sessions cannot use OpenAI credit.",
+    PAID_PILOT_BOOK_LIMIT_REACHED: "The paid pilot book limit has been reached. No additional credit was used.",
+    DAILY_ANALYSIS_LIMIT_REACHED: "The safe daily analysis limit has been reached.",
+    DAILY_QUESTION_LIMIT_REACHED: "The safe daily question limit has been reached.",
+    PILOT_QUESTION_LIMIT_REACHED: "The pilot's total question limit has been reached.",
+    OPENAI_API_KEY_MISSING: "The OpenAI key is not configured in Supabase secrets; the service did not start.",
+    LEGAL_CONSENT_REQUIRED: "The rights declaration for this book is not recorded.",
+    BOOK_NOT_PROCESSED: "Analyze the book before asking questions.",
+    ANALYSIS_NOT_READY: "Create the summary in this language before generating audio.",
+  };
+  return code ? (rtl ? ar[code] : en[code]) : raw || (rtl ? "تعذر إكمال الطلب." : "The request could not be completed.");
+}
+
+function PaidResultView({ result, rtl }: { result: Record<string, unknown>; rtl: boolean }) {
+  const data = result as PaidBookResult;
+  const ideas = data.overview?.key_ideas ?? [];
+  const returns = data.overview?.return_to_source ?? [];
+  const strengths = data.critical?.strengths ?? [];
+  const limitations = data.critical?.limitations ?? [];
+  const inferences = data.critical?.platform_inferences ?? [];
+  return (
+    <div className="paid-result-view">
+      <div className="paid-result-meta">
+        <span>✓ {rtl ? "تحليل محفوظ" : "Saved analysis"}</span>
+        {data.metadata?.author && <span>{rtl ? "المؤلف" : "Author"}: {data.metadata.author}</span>}
+        {data.metadata?.subject && <span>{rtl ? "الموضوع" : "Subject"}: {data.metadata.subject}</span>}
+        {data.metadata?.pages_if_known && <span>{rtl ? "الصفحات" : "Pages"}: {String(data.metadata.pages_if_known)}</span>}
+      </div>
+      <section>
+        <h4>{rtl ? "الخلاصة الذكية" : "AI overview"}</h4>
+        <p className="paid-summary">{data.overview?.summary || (rtl ? "لم تُحفظ خلاصة." : "No overview was saved.")}</p>
+      </section>
+      {ideas.length > 0 && <section><h4>{rtl ? "الأفكار المحورية" : "Key ideas"}</h4><ol>{ideas.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ol></section>}
+      {(data.chapters?.length ?? 0) > 0 && <section><h4>{rtl ? "الفصول" : "Chapters"}</h4><div className="chapters">{data.chapters?.map((chapter, index) => <details key={index} open={index === 0}><summary><b>{String(index + 1).padStart(2, "0")}</b><span>{chapter.title || (rtl ? "فصل" : "Chapter")}</span><em>{chapter.pages_if_known ? `${rtl ? "ص" : "p."} ${chapter.pages_if_known}` : ""}</em></summary><p>{chapter.summary}</p></details>)}</div></section>}
+      {(strengths.length > 0 || limitations.length > 0) && <section><h4>{rtl ? "القراءة النقدية" : "Critical reading"}</h4><div className="analysis-grid"><div><h4>✓ {rtl ? "نقاط القوة" : "Strengths"}</h4><ul>{strengths.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul></div><div><h4>△ {rtl ? "الحدود" : "Limitations"}</h4><ul>{limitations.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul></div></div></section>}
+      {inferences.length > 0 && <section className="inference"><b>{rtl ? "استنتاجات المنصة" : "Platform inferences"}</b><ul>{inferences.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul></section>}
+      {returns.length > 0 && <section><h4>{rtl ? "مواضع العودة إلى الكتاب" : "Return to the source"}</h4><ol className="return-list paid-return-list">{returns.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ol></section>}
+      {Boolean(data.trust_notes) && <p className="disclosure-note">{rtl ? "ملاحظات الثقة: " : "Trust notes: "}{readableItem(data.trust_notes)}</p>}
+    </div>
   );
 }
 
@@ -1165,6 +1265,12 @@ function PilotWorkspace({
   const [q, setQ] = useState("");
   const [answer, setAnswer] = useState<Record<string, unknown> | null>(null);
   const [audioUrls, setAudioUrls] = useState<string[]>([]);
+  const [resultLanguage, setResultLanguage] = useState<"ar" | "en">(
+    book.output_language === "en" ? "en" : rtl ? "ar" : "en",
+  );
+  const [professionalVoice, setProfessionalVoice] = useState<"marin" | "cedar">("marin");
+  const [questionHistory, setQuestionHistory] = useState<Array<{ id: string; question: string; answer: Record<string, unknown>; language: "ar" | "en"; created_at: string }>>([]);
+  const [usageTotals, setUsageTotals] = useState({ calls: 0, input: 0, output: 0 });
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState<
@@ -1192,7 +1298,8 @@ function PilotWorkspace({
     const paid = data.analyses.find(
       (a) =>
         ["overview", "chapters", "critical", "metadata"].includes(a.kind) &&
-        (!a.source || a.source === "openai"),
+        (!a.source || a.source === "openai") &&
+        a.language === resultLanguage,
     );
     setResults((paid?.content as Record<string, unknown>) ?? null);
     const local = data.analyses.find((a) => a.kind === "local_structural");
@@ -1201,12 +1308,20 @@ function PilotWorkspace({
     );
     const manual = data.analyses.find((a) => a.kind === "manual_import");
     setManualImportSaved(manual ?? null);
-    if (data.audio.length)
+    setQuestionHistory(data.questions.filter((item) => item.language === resultLanguage));
+    setUsageTotals({
+      calls: data.usage.length,
+      input: data.usage.reduce((sum, item) => sum + (item.input_tokens ?? 0), 0),
+      output: data.usage.reduce((sum, item) => sum + (item.output_tokens ?? 0), 0),
+    });
+    const languageAudio = data.audio.filter((item) => item.language === resultLanguage);
+    if (languageAudio.length)
       setAudioUrls(
         await Promise.all(
-          data.audio.map((item) => getPrivateAudioUrl(item.storage_path)),
+          languageAudio.map((item) => getPrivateAudioUrl(item.storage_path)),
         ),
       );
+    else setAudioUrls([]);
   };
   useEffect(() => {
     reload()
@@ -1215,17 +1330,17 @@ function PilotWorkspace({
     getLegalConsentStatus(book.id)
       .then(setConsent)
       .catch(() => setConsent(null));
-  }, [book.id]);
+  }, [book.id, resultLanguage]);
   const process = async () => {
     if (ZERO_COST_MODE) return;
     setBusy("process");
     setError("");
     try {
-      await invokeBookAI(book.id, "process");
+      await invokeBookAI(book.id, "process", { language: resultLanguage });
       await reload();
       setConfirming("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Analysis failed");
+      setError(describeAiError(e, rtl));
     } finally {
       setBusy("");
     }
@@ -1238,12 +1353,12 @@ function PilotWorkspace({
     try {
       const data = await invokeBookAI(book.id, "ask", {
         question: q,
-        language: rtl ? "ar" : "en",
+        language: resultLanguage,
       });
       setAnswer(data.answer);
       setConfirming("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Question failed");
+      setError(describeAiError(e, rtl));
     } finally {
       setBusy("");
     }
@@ -1254,8 +1369,8 @@ function PilotWorkspace({
     setError("");
     try {
       const data = await invokeBookAI(book.id, "audio", {
-        language: rtl ? "ar" : "en",
-        voice: "marin",
+        language: resultLanguage,
+        voice: professionalVoice,
       });
       setAudioUrls(
         await Promise.all(
@@ -1266,7 +1381,7 @@ function PilotWorkspace({
       );
       setConfirming("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Audio failed");
+      setError(describeAiError(e, rtl));
     } finally {
       setBusy("");
     }
@@ -1337,7 +1452,6 @@ function PilotWorkspace({
       setManualBusy(false);
     }
   };
-  const audioUrl = audioUrls[0] ?? "";
   const statusLabelsAr: Record<PilotBook["status"], string> = {
     uploaded: "محفوظ",
     processing: "قيد المعالجة",
@@ -1636,15 +1750,15 @@ function PilotWorkspace({
       </section>
       <section className="panel zero-cost-explainer">
         <span className="eyebrow">
-          {rtl ? "حدود واضحة للتجربة المجانية" : "Clear zero-cost boundary"}
+          {rtl ? "مساران واضحان بلا التباس" : "Two clearly separated paths"}
         </span>
         <h3>
-          {rtl ? "لا نسخ ولا JSON ولا خطوات تقنية" : "No copying, JSON, or technical steps"}
+          {rtl ? "المحلي للاستخراج، وOpenAI للفهم" : "Local extraction; OpenAI understanding"}
         </h3>
         <p>
           {rtl
-            ? "أزلنا الاستيراد اليدوي من تجربة المستخدم. التحليل البنيوي والخلاصة الاستخراجية يعملان تلقائيًا داخل جهازك. أما الترجمة وإعادة الصياغة الدلالية فتحتاجان محركًا لغويًا، ولذلك تبقيان منفصلتين ومقفلتين ما دام وضع التكلفة الصفرية مفعّلًا."
-            : "Manual import has been removed from the user experience. Structural analysis and the extractive overview run automatically on your device. Semantic translation and rewriting require a language engine, so they remain separate and locked while zero-cost mode is enabled."}
+            ? "لا نسخ ولا JSON ولا خطوات تقنية. البحث الحرفي والبيانات البنيوية يعملان في المتصفح. التلخيص والترجمة والأسئلة والصوت الاحترافي تستخدم OpenAI فقط بعد تأكيد مستقل لكل خدمة."
+            : "No copying, JSON, or technical steps. Literal search and structural metadata run in the browser. Summaries, translation, questions, and professional audio use OpenAI only after a separate confirmation for each service."}
         </p>
       </section>
       <section className="budget-card panel">
@@ -1680,18 +1794,22 @@ function PilotWorkspace({
           </b>
           <b>
             {money([
-              10 * (estimates.analysis[0] + estimates.audio[0]),
-              10 * (estimates.analysis[1] + estimates.audio[1]),
+              PAID_PILOT_MAX_BOOKS * (estimates.analysis[0] + estimates.audio[0]),
+              PAID_PILOT_MAX_BOOKS * (estimates.analysis[1] + estimates.audio[1]),
             ])}
             <small>
-              {rtl ? "تقدير عشرة كتب مماثلة" : "estimate for 10 similar books"}
+              {rtl ? "سقف تخطيطي لخمسة كتب مماثلة" : "planning range for five similar books"}
             </small>
+          </b>
+          <b>
+            {usageTotals.calls}
+            <small>{rtl ? "استدعاءات مسجلة لهذا الكتاب" : "logged calls for this book"}</small>
           </b>
         </div>
         <small>
           {rtl
-            ? `حجم الملف: ${sizeMb.toFixed(1)} MB · الشحن التلقائي مغلق؛ عند نفاد الرصيد تتوقف طلبات API.`
-            : `File size: ${sizeMb.toFixed(1)} MB · Auto-reload is off; API requests stop when credit runs out.`}
+            ? `حجم الملف: ${sizeMb.toFixed(1)} MB · رموز النص المسجلة: إدخال ${usageTotals.input.toLocaleString()} / إخراج ${usageTotals.output.toLocaleString()} · الشحن التلقائي مغلق.`
+            : `File size: ${sizeMb.toFixed(1)} MB · logged text tokens: ${usageTotals.input.toLocaleString()} in / ${usageTotals.output.toLocaleString()} out · auto-reload is off.`}
         </small>
       </section>
       {loading ? (
@@ -1709,6 +1827,13 @@ function PilotWorkspace({
                 ? "الخلاصة والتحليل والفصول"
                 : "Summary, analysis and chapters"}
             </h3>
+            <label className="select-label paid-language-select">
+              {rtl ? "لغة النتيجة الحالية" : "Current result language"}
+              <select value={resultLanguage} onChange={(event) => setResultLanguage(event.target.value as "ar" | "en")}>
+                <option value="ar">العربية</option>
+                <option value="en">English</option>
+              </select>
+            </label>
             {ZERO_COST_MODE ? (
               <div className="paid-empty locked">
                 <p>
@@ -1768,9 +1893,7 @@ function PilotWorkspace({
               </div>
               )
             )}
-            <pre className="result-json">
-              {results ? JSON.stringify(results, null, 2) : ""}
-            </pre>
+            {results && <PaidResultView result={results} rtl={rtl} />}
           </article>
           <aside className="detail-aside">
             <section className="panel">
@@ -1817,11 +1940,8 @@ function PilotWorkspace({
                       </button>
                     </div>
                   )}
-                  {answer && (
-                    <pre className="answer-live">
-                      {JSON.stringify(answer, null, 2)}
-                    </pre>
-                  )}
+                  {answer && <div className="answer-live"><strong>{String(answer.answer ?? "")}</strong>{Array.isArray(answer.references) && <ul>{answer.references.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul>}<small>{rtl ? "الثقة" : "Confidence"}: {String(answer.confidence ?? "—")}</small></div>}
+                  {questionHistory.length > 0 && <details className="question-history"><summary>{rtl ? `الأسئلة المحفوظة (${questionHistory.length})` : `Saved questions (${questionHistory.length})`}</summary>{questionHistory.map((item) => <div key={item.id}><b>{item.question}</b><p>{String(item.answer.answer ?? "")}</p></div>)}</details>}
                 </>
               )}
             </section>
@@ -1843,6 +1963,13 @@ function PilotWorkspace({
                       ? `تقدير الخلاصة الصوتية: ${money(estimates.audio)}. صوت الجهاز المجاني موجود في القارئ.`
                       : `Estimated audio summary: ${money(estimates.audio)}. Free device voice is available in the reader.`}
                   </p>
+                  <label className="select-label paid-language-select">
+                    {rtl ? "الصوت" : "Voice"}
+                    <select value={professionalVoice} onChange={(event) => setProfessionalVoice(event.target.value as "marin" | "cedar")}>
+                      <option value="marin">Marin — {rtl ? "هادئ ومتوازن" : "calm and balanced"}</option>
+                      <option value="cedar">Cedar — {rtl ? "واضح ودافئ" : "clear and warm"}</option>
+                    </select>
+                  </label>
                   {confirming !== "audio" ? (
                     <button
                       className="secondary"
@@ -1872,16 +1999,7 @@ function PilotWorkspace({
                       </button>
                     </div>
                   )}
-                  {audioUrl && (
-                    <>
-                      <audio controls src={audioUrl} />
-                      <small>
-                        {rtl
-                          ? "هذا الصوت مولد بالذكاء الاصطناعي."
-                          : "This voice is AI-generated."}
-                      </small>
-                    </>
-                  )}
+                  {audioUrls.length > 0 && <div className="professional-audio-list">{audioUrls.map((url, index) => <label key={url}><span>{rtl ? `الجزء ${index + 1}` : `Part ${index + 1}`}</span><audio controls preload="metadata" src={url} /></label>)}<small>{rtl ? "هذه الأصوات مولدة بالذكاء الاصطناعي." : "These voices are AI-generated."}</small></div>}
                 </>
               )}
             </section>
