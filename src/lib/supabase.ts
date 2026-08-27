@@ -51,7 +51,10 @@ export async function upgradeAnonymousSessionToEmail(email: string) {
   if (!supabase) throw new Error("SUPABASE_NOT_CONFIGURED");
   const trimmed = email.trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) throw new Error("INVALID_EMAIL");
-  const { data, error } = await supabase.auth.updateUser({ email: trimmed });
+  const { data, error } = await supabase.auth.updateUser(
+    { email: trimmed },
+    { emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}` },
+  );
   if (error) throw error;
   return data;
 }
