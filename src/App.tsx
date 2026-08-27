@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import Reader, { type SavedBookRef } from "./Reader";
 import {
@@ -21,7 +21,7 @@ import {
   type StoredAnalysis,
   type LibraryStats,
 } from "./lib/library";
-import { sendExistingAccountMagicLink, supabaseConfigured, upgradeAnonymousSessionToEmail } from "./lib/supabase";
+import { signInLibraryAccount, signOutLibraryAccount, supabase, supabaseConfigured } from "./lib/supabase";
 import { PAID_PILOT_MAX_BOOKS, ZERO_COST_MODE } from "./lib/config";
 import { runLocalStructuralAnalysis, type LocalAnalysisProgress } from "./lib/localAnalysis";
 import { searchInsideBook, validateManualImport, type BookSearchMatch, type LocalStructuralAnalysis, type ManualImportPayload } from "./lib/textAnalysis";
@@ -40,7 +40,7 @@ type View =
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "المختبر الشخصي المدفوع — V0.9.3",
+    version: "حساب المكتبة الموحد — V0.10",
     search: "ابحث في كتبك وأفكارك…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -71,7 +71,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Private paid pilot — V0.9.3",
+    version: "Unified library account — V0.10",
     search: "Search your books and ideas…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -124,39 +124,6 @@ const navigation = {
   ],
 } as const;
 
-const books = [
-  {
-    title: "مدخل إلى إدارة المعرفة",
-    en: "Introduction to Knowledge Management",
-    author: "نموذج تجريبي",
-    subject: "إدارة المعرفة",
-    progress: 68,
-    tone: "emerald",
-    status: "أقرأ الآن",
-    pages: 284,
-  },
-  {
-    title: "The Future of Libraries",
-    en: "The Future of Libraries",
-    author: "Demo Edition",
-    subject: "المكتبات الرقمية",
-    progress: 34,
-    tone: "navy",
-    status: "ملخص جاهز",
-    pages: 216,
-  },
-  {
-    title: "التفكير النقدي والقراءة",
-    en: "Critical Thinking and Reading",
-    author: "كتاب تجريبي",
-    subject: "مهارات التفكير",
-    progress: 0,
-    tone: "gold",
-    status: "لم أبدأ",
-    pages: 192,
-  },
-];
-
 export default function Home() {
   const [lang, setLang] = useState<Lang>("ar");
   const [dark, setDark] = useState(false);
@@ -180,11 +147,32 @@ export default function Home() {
   const [percent, setPercent] = useState(0);
   const [notice, setNotice] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [authState, setAuthState] = useState<"loading" | "signed_out" | "authenticated">("loading");
+  const [accountEmail, setAccountEmail] = useState("");
   const t = text[lang];
   const rtl = lang === "ar";
   useEffect(() => {
     const saved = localStorage.getItem("spl-lang");
     if (saved === "ar" || saved === "en") setLang(saved);
+  }, []);
+  useEffect(() => {
+    const client = supabase;
+    if (!client) {
+      setAuthState("signed_out");
+      return;
+    }
+    const applySession = (session: Awaited<ReturnType<typeof client.auth.getSession>>["data"]["session"]) => {
+      const permanent = Boolean(session && !(session.user as { is_anonymous?: boolean }).is_anonymous);
+      setAuthState(permanent ? "authenticated" : "signed_out");
+      setAccountEmail(permanent ? session?.user.email ?? "" : "");
+      if (!permanent) {
+        setPilotBooks([]);
+        setLibraryStats({ analysedBooks: 0, questions: 0, audioParts: 0 });
+      }
+    };
+    client.auth.getSession().then(({ data }) => applySession(data.session));
+    const { data } = client.auth.onAuthStateChange((_event, session) => applySession(session));
+    return () => data.subscription.unsubscribe();
   }, []);
   useEffect(() => {
     let cancelled = false;
@@ -217,7 +205,7 @@ export default function Home() {
     };
   }, []);
   useEffect(() => {
-    if (!browserCacheReady) return;
+    if (!browserCacheReady || authState !== "authenticated") return;
     if (!supabaseConfigured) {
       setBooksLoading(false);
       return;
@@ -251,7 +239,7 @@ export default function Home() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booksLoadToken, browserCacheReady]);
+  }, [booksLoadToken, browserCacheReady, authState]);
   useEffect(() => {
     const refreshFromSupabase = () => setBooksLoadToken((n) => n + 1);
     const refreshWhenVisible = () => {
@@ -363,6 +351,16 @@ export default function Home() {
       setView(id as View);
     }
   };
+  if (authState !== "authenticated") {
+    return (
+      <LibraryLogin
+        rtl={rtl}
+        loading={authState === "loading"}
+        onLanguage={switchLang}
+        onSignedIn={() => setAuthState("authenticated")}
+      />
+    );
+  }
   return (
     <div
       className={dark ? "app dark" : "app"}
@@ -393,7 +391,7 @@ export default function Home() {
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "المختبر الشخصي المدفوع الآمن V0.9.3" : "Safe private paid pilot V0.9.3"}
+            {rtl ? "حساب موحد وآمن V0.10" : "Secure unified account V0.10"}
           </strong>
           <p>
             {rtl
@@ -404,20 +402,10 @@ export default function Home() {
         <div className="profile">
           <span>ع</span>
           <div>
-            <strong>عبدالرحمن</strong>
-            <small>{rtl ? "المكتبة الخاصة" : "Private library"}</small>
+            <strong>{accountEmail || (rtl ? "حساب المكتبة" : "Library account")}</strong>
+            <small>{rtl ? "محفوظ على أجهزتك" : "Synced across your devices"}</small>
           </div>
-          <button
-            className="disabled-soon"
-            disabled
-            title={
-              rtl
-                ? "إعدادات الحساب — قريبًا"
-                : "Account settings — coming soon"
-            }
-          >
-            ⋮
-          </button>
+          <button onClick={() => signOutLibraryAccount()} title={rtl ? "تسجيل الخروج" : "Sign out"}>↪</button>
         </div>
       </aside>
       <main>
@@ -472,7 +460,6 @@ export default function Home() {
             rtl={rtl}
             title={pageTitle}
             onUpload={() => setUpload(true)}
-            onOpen={() => setView("book")}
             pilotBooks={pilotBooks}
             booksLoading={booksLoading}
             booksError={booksError}
@@ -544,6 +531,81 @@ export default function Home() {
         />
       )}
       {notice && <div className="toast">✓ {notice}</div>}
+    </div>
+  );
+}
+
+function LibraryLogin({
+  rtl,
+  loading,
+  onLanguage,
+  onSignedIn,
+}: {
+  rtl: boolean;
+  loading: boolean;
+  onLanguage: () => void;
+  onSignedIn: () => void;
+}) {
+  const [email, setEmail] = useState("aarahman70@gmail.com");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await signInLibraryAccount(email, password);
+      onSignedIn();
+    } catch (loginError) {
+      const raw = loginError instanceof Error ? loginError.message : "LOGIN_FAILED";
+      setError(
+        raw.toLowerCase().includes("invalid login credentials")
+          ? rtl
+            ? "البريد أو كلمة المرور غير صحيحة."
+            : "Incorrect email or password."
+          : raw === "PASSWORD_TOO_SHORT"
+            ? rtl
+              ? "كلمة المرور يجب ألا تقل عن 6 أحرف."
+              : "Password must be at least 6 characters."
+            : raw,
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="login-page" dir={rtl ? "rtl" : "ltr"} lang={rtl ? "ar" : "en"}>
+      <button className="login-language" onClick={onLanguage}>{rtl ? "EN" : "ع"}</button>
+      <section className="login-card">
+        <div className="brand-mark">ك</div>
+        <span className="eyebrow">{rtl ? "المكتبة الشخصية الذكية" : "Smart Personal Library"}</span>
+        <h1>{rtl ? "ادخل إلى مكتبتك" : "Sign in to your library"}</h1>
+        <p>
+          {rtl
+            ? "حساب واحد ومكتبة واحدة على كروم وEdge والآيفون وسامسونج والتابلت. سجّل مرة واحدة في كل جهاز، ثم يبقى الدخول محفوظًا."
+            : "One account and one library across Chrome, Edge, iPhone, Samsung and tablets. Sign in once per device and the session stays saved."}
+        </p>
+        {loading ? (
+          <div className="login-loading">{rtl ? "جارٍ فحص الحساب…" : "Checking account…"}</div>
+        ) : (
+          <form onSubmit={submit}>
+            <label>
+              {rtl ? "البريد الإلكتروني" : "Email"}
+              <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" required />
+            </label>
+            <label>
+              {rtl ? "كلمة المرور" : "Password"}
+              <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" minLength={6} required />
+            </label>
+            <button className="primary" type="submit" disabled={busy}>
+              {busy ? (rtl ? "جارٍ الدخول…" : "Signing in…") : (rtl ? "دخول" : "Sign in")}
+            </button>
+          </form>
+        )}
+        {error && <div className="reader-error inline">{error}</div>}
+        <small>{rtl ? "لا توجد روابط بريد، ولا حسابات مجهولة، ولا نماذج كتب وهمية." : "No email links, anonymous accounts, or sample books."}</small>
+      </section>
     </div>
   );
 }
@@ -805,41 +867,6 @@ function BookCover({ tone, title }: { tone: string; title: string }) {
     </div>
   );
 }
-function BookCard({
-  book,
-  rtl,
-  onOpen,
-}: {
-  book: (typeof books)[number];
-  rtl: boolean;
-  onOpen?: () => void;
-}) {
-  return (
-    <button className="book-card" onClick={onOpen}>
-      <BookCover
-        tone={book.tone}
-        title={
-          rtl
-            ? book.title.split(" ").slice(0, 3).join(" ")
-            : book.en.split(" ").slice(0, 3).join(" ")
-        }
-      />
-      <div>
-        <span className="tag">{book.subject}</span>
-        <h4>{rtl ? book.title : book.en}</h4>
-        <p>{book.author}</p>
-        <Bar value={book.progress} />
-        <small>
-          {book.progress
-            ? `${book.progress}% — ${book.status}`
-            : rtl
-              ? "جاهز للبدء"
-              : "Ready to start"}
-        </small>
-      </div>
-    </button>
-  );
-}
 function PageTitle({
   title,
   description,
@@ -1048,60 +1075,6 @@ function DuplicateReviewPanel({
   );
 }
 
-function AccountUpgradePanel({ rtl, hasBooks }: { rtl: boolean; hasBooks: boolean }) {
-  const [email, setEmail] = useState("aarahman70@gmail.com");
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<"idle" | "sent" | "error">("idle");
-  const [error, setError] = useState("");
-  const [mode, setMode] = useState<"upgrade" | "signin">(hasBooks ? "upgrade" : "signin");
-  const submit = async () => {
-    setBusy(true);
-    setError("");
-    try {
-      if (mode === "upgrade") await upgradeAnonymousSessionToEmail(email);
-      else await sendExistingAccountMagicLink(email);
-      setResult("sent");
-    } catch (e) {
-      setResult("error");
-      setError(e instanceof Error ? e.message : rtl ? "تعذر بدء الترقية." : "Could not start the upgrade.");
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <details className="account-upgrade" open>
-      <summary>{rtl ? "الدخول الدائم بالبريد — نفس المكتبة على كل أجهزتك" : "Permanent email sign-in — one library on every device"}</summary>
-      <div className="account-mode-tabs">
-        <button className={mode === "upgrade" ? "active" : ""} onClick={() => { setMode("upgrade"); setResult("idle"); }}>{rtl ? "هذا الجهاز فيه كتبي: اربطه أولًا" : "This device has my books: link it first"}</button>
-        <button className={mode === "signin" ? "active" : ""} onClick={() => { setMode("signin"); setResult("idle"); }}>{rtl ? "جهاز آخر: ادخل إلى حسابي" : "Another device: sign in to my account"}</button>
-      </div>
-      <p className="disclosure-note">
-        {mode === "upgrade" ? (rtl
-          ? "نفّذ هذا مرة واحدة فقط من كروم الذي يظهر فيه كتابك. سنربط البريد بنفس هوية الكتاب بلا نقل أو حذف، ثم نرسل رابط تأكيد إلى Gmail."
-          : "This attaches your email to your existing identity — no data migration, every saved book stays exactly as-is. We send a confirmation link to your email; the upgrade only takes effect once you click it.") : (rtl
-          ? "استخدم هذا الخيار في Edge أو الآيفون أو أي جهاز آخر بعد إكمال الربط الأول في كروم. سنرسل رابط دخول إلى Gmail، وبعد فتحه تظهر المكتبة نفسها."
-          : "Use the email already attached to your library. The sign-in link opens the same library on this device.")}
-      </p>
-      {result === "sent" ? (
-        <p className="dup-confirmed">{rtl ? "أُرسل الرابط إلى Gmail. افتحه على الجهاز الذي تنفذ منه هذه الخطوة، ثم ارجع إلى المكتبة." : "The link was sent to Gmail. Open it on this device, then return to the library."}</p>
-      ) : (
-        <div className="account-upgrade-form">
-          <input
-            type="email"
-            placeholder={rtl ? "بريدك الإلكتروني" : "Your email"}
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <button className="secondary" disabled={busy || !email.trim()} onClick={submit}>
-            {busy ? (rtl ? "جارٍ الإرسال…" : "Sending…") : mode === "upgrade" ? (rtl ? "أرسل رابط الربط" : "Send linking email") : (rtl ? "أرسل رابط الدخول" : "Send sign-in link")}
-          </button>
-        </div>
-      )}
-      {result === "error" && <div className="reader-error inline">{error}</div>}
-    </details>
-  );
-}
-
 type PaidBookResult = {
   source_language?: string;
   metadata?: { title?: string; author?: string; subject?: string; pages_if_known?: string | number | null };
@@ -1183,7 +1156,6 @@ function Library({
   rtl,
   title,
   onUpload,
-  onOpen,
   pilotBooks,
   booksLoading,
   booksError,
@@ -1195,7 +1167,6 @@ function Library({
   rtl: boolean;
   title: string;
   onUpload: () => void;
-  onOpen: () => void;
   pilotBooks: PilotBook[];
   booksLoading: boolean;
   booksError: string;
@@ -1208,7 +1179,6 @@ function Library({
   const filteredPilotBooks = query
     ? pilotBooks.filter((book) => book.title.toLowerCase().includes(query))
     : pilotBooks;
-  const filteredDemoBooks = pilotBooks.length === 0 && !query ? books : [];
   return (
     <div className="page">
       <PageTitle
@@ -1248,9 +1218,6 @@ function Library({
             : "You haven't saved a book yet. Add your first one to see it here after every refresh."}
         </section>
       )}
-      {!booksLoading && !booksError && (
-        <AccountUpgradePanel rtl={rtl} hasBooks={pilotBooks.length > 0} />
-      )}
       {!booksLoading && !booksError && filteredPilotBooks.length > 0 && (
         <section className="panel live-books">
           <span className="eyebrow">
@@ -1272,24 +1239,6 @@ function Library({
       {!booksLoading && !booksError && (
         <DuplicateReviewPanel rtl={rtl} groups={groupDuplicateBooks(pilotBooks)} onBooksChanged={onBooksChanged} />
       )}
-      {filteredDemoBooks.length > 0 ? (
-        <>
-          <p className="display-samples-note">{rtl ? "نماذج شكلية فقط — تختفي عند إضافة أول كتاب حقيقي." : "Visual samples only — hidden after your first real book is added."}</p>
-          <div className="filters">
-            <button className="active" disabled title={rtl ? "فلتر العرض التجريبي" : "Display-sample filter"}>
-              {rtl
-                ? `الكل ${filteredDemoBooks.length}`
-                : `All ${filteredDemoBooks.length}`}
-            </button>
-            <button disabled>{rtl ? "نماذج العرض" : "Display samples"}</button>
-          </div>
-          <div className="library-full">
-            {filteredDemoBooks.map((b) => (
-              <BookCard key={b.title} book={b} rtl={rtl} onOpen={onOpen} />
-            ))}
-          </div>
-        </>
-      ) : null}
     </div>
   );
 }

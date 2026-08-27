@@ -17,10 +17,20 @@ export const supabase = supabaseConfigured
 export async function ensurePilotSession() {
   if (!supabase) throw new Error("SUPABASE_NOT_CONFIGURED");
   const { data } = await supabase.auth.getSession();
-  if (data.session) return data.session;
-  const { data: created, error } = await supabase.auth.signInAnonymously();
-  if (error || !created.session) throw error ?? new Error("SESSION_NOT_CREATED");
-  return created.session;
+  if (!data.session || (data.session.user as { is_anonymous?: boolean }).is_anonymous) {
+    throw new Error("AUTH_REQUIRED");
+  }
+  return data.session;
+}
+
+export async function signInLibraryAccount(email: string, password: string) {
+  if (!supabase) throw new Error("SUPABASE_NOT_CONFIGURED");
+  const trimmed = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) throw new Error("INVALID_EMAIL");
+  if (password.length < 6) throw new Error("PASSWORD_TOO_SHORT");
+  const { data, error } = await supabase.auth.signInWithPassword({ email: trimmed, password });
+  if (error || !data.session) throw error ?? new Error("LOGIN_FAILED");
+  return data.session;
 }
 
 // ---------------------------------------------------------------------------
