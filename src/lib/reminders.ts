@@ -14,13 +14,15 @@ function missingV011(error: unknown) {
   return /spl_(book_reminders|push_subscriptions)/i.test(raw) || /relation .* does not exist/i.test(raw);
 }
 
+function requiresIosHomeScreen() {
+  const appleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const standalone = window.matchMedia?.("(display-mode: standalone)").matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+  return appleMobile && !standalone;
+}
+
 export async function listBookReminders(bookId?: string): Promise<BookReminder[]> {
   await ensurePilotSession();
-  let query = supabase!
-    .from("spl_book_reminders")
-    .select("id,book_id,remind_at,enabled,last_sent_at,created_at")
-    .eq("enabled", true)
-    .order("remind_at", { ascending: true });
+  let query = supabase!.from("spl_book_reminders").select("id,book_id,remind_at,enabled,last_sent_at,created_at").eq("enabled", true).order("remind_at", { ascending: true });
   if (bookId) query = query.eq("book_id", bookId);
   const { data, error } = await query;
   if (error) {
@@ -32,14 +34,10 @@ export async function listBookReminders(bookId?: string): Promise<BookReminder[]
 
 export async function saveBookReminder(bookId: string, remindAt: Date) {
   const session = await ensurePilotSession();
-  const { data, error } = await supabase!
-    .from("spl_book_reminders")
-    .upsert(
-      { user_id: session.user.id, book_id: bookId, remind_at: remindAt.toISOString(), enabled: true, last_sent_at: null },
-      { onConflict: "user_id,book_id" },
-    )
-    .select("id,book_id,remind_at,enabled,last_sent_at,created_at")
-    .single();
+  const { data, error } = await supabase!.from("spl_book_reminders").upsert(
+    { user_id: session.user.id, book_id: bookId, remind_at: remindAt.toISOString(), enabled: true, last_sent_at: null },
+    { onConflict: "user_id,book_id" },
+  ).select("id,book_id,remind_at,enabled,last_sent_at,created_at").single();
   if (error) {
     if (missingV011(error)) throw new Error("V011_MIGRATION_REQUIRED");
     throw error;
@@ -61,6 +59,7 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 export async function enablePushForThisDevice() {
+  if (requiresIosHomeScreen()) throw new Error("IOS_HOME_SCREEN_REQUIRED");
   if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) throw new Error("PUSH_UNSUPPORTED");
   const permission = await Notification.requestPermission();
   if (permission !== "granted") throw new Error("PUSH_PERMISSION_DENIED");
@@ -72,15 +71,7 @@ export async function enablePushForThisDevice() {
   const session = await ensurePilotSession();
   const json = subscription.toJSON();
   const { error } = await supabase!.from("spl_push_subscriptions").upsert(
-    {
-      user_id: session.user.id,
-      endpoint: json.endpoint,
-      p256dh: json.keys?.p256dh,
-      auth: json.keys?.auth,
-      user_agent: navigator.userAgent,
-      enabled: true,
-      updated_at: new Date().toISOString(),
-    },
+    { user_id: session.user.id, endpoint: json.endpoint, p256dh: json.keys?.p256dh, auth: json.keys?.auth, user_agent: navigator.userAgent, enabled: true, updated_at: new Date().toISOString() },
     { onConflict: "user_id,endpoint" },
   );
   if (error) {
@@ -91,15 +82,10 @@ export async function enablePushForThisDevice() {
 }
 
 export async function showLocalNotification(title: string, body: string, url: string) {
+  if (requiresIosHomeScreen()) throw new Error("IOS_HOME_SCREEN_REQUIRED");
   if (!("Notification" in window)) throw new Error("NOTIFICATIONS_UNSUPPORTED");
   const permission = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
   if (permission !== "granted") throw new Error("PUSH_PERMISSION_DENIED");
   const registration = await navigator.serviceWorker.ready;
-  await registration.showNotification(title, {
-    body,
-    icon: "./favicon.svg",
-    badge: "./favicon.svg",
-    data: { url },
-    tag: `spl-${url}`,
-  });
+  await registration.showNotification(title, { body, icon: "./favicon.svg", badge: "./favicon.svg", data: { url }, tag: `spl-${url}` });
 }
