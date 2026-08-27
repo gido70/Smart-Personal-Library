@@ -15,10 +15,10 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
     "@vitejs/plugin-react": "6.0.2",
-    "pdfjs-dist": "^5.4.149",
+    "pdfjs-dist": "^6.2.108",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "vite": "8.0.13"
+    "vite": "^8.2.2"
   },
   "devDependencies": {
     "@types/react": "^19.1.10",
