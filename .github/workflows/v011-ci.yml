@@ -24,3 +24,25 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm audit --audit-level=high
+      - name: Headless browser smoke — desktop and phone viewport
+        shell: bash
+        run: |
+          npm run preview -- --host 127.0.0.1 > /tmp/v011-preview.log 2>&1 &
+          PREVIEW_PID=$!
+          trap 'kill $PREVIEW_PID || true' EXIT
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then break; fi
+            sleep 1
+          done
+          BROWSER="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          if [ -z "$BROWSER" ]; then
+            echo "No Chrome/Chromium binary found on runner"
+            exit 1
+          fi
+          "$BROWSER" --headless --no-sandbox --disable-gpu --window-size=1440,1000 --dump-dom http://127.0.0.1:4173/ > /tmp/v011-desktop.html
+          grep -q "المكتبة الشخصية الذكية" /tmp/v011-desktop.html
+          grep -q "ادخل إلى مكتبتك" /tmp/v011-desktop.html
+          "$BROWSER" --headless --no-sandbox --disable-gpu --window-size=390,844 --dump-dom http://127.0.0.1:4173/ > /tmp/v011-phone.html
+          grep -q "المكتبة الشخصية الذكية" /tmp/v011-phone.html
+          "$BROWSER" --headless --no-sandbox --disable-gpu --window-size=390,844 --dump-dom 'http://127.0.0.1:4173/?legacy=1' > /tmp/v011-legacy.html
+          grep -q "المكتبة الشخصية الذكية" /tmp/v011-legacy.html
