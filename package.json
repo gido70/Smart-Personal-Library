@@ -1,6 +1,6 @@
 {
   "name": "smart-personal-library",
-  "version": "0.10.0-account-pilot",
+  "version": "0.10.1-account-signup",
   "private": true,
   "type": "module",
   "scripts": {
