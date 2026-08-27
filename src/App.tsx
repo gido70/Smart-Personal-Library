@@ -40,7 +40,7 @@ type View =
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "المختبر الشخصي المدفوع — V0.9.1",
+    version: "المختبر الشخصي المدفوع — V0.9.2",
     search: "ابحث في كتبك وأفكارك…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -71,7 +71,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Private paid pilot — V0.9.1",
+    version: "Private paid pilot — V0.9.2",
     search: "Search your books and ideas…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -171,6 +171,7 @@ export default function Home() {
   const [booksLoading, setBooksLoading] = useState(true);
   const [booksError, setBooksError] = useState("");
   const [booksLoadToken, setBooksLoadToken] = useState(0);
+  const [browserCacheReady, setBrowserCacheReady] = useState(false);
   const [activePilotBook, setActivePilotBook] = useState<PilotBook | null>(
     null,
   );
@@ -186,12 +187,37 @@ export default function Home() {
     if (saved === "ar" || saved === "en") setLang(saved);
   }, []);
   useEffect(() => {
-    if ("serviceWorker" in navigator)
-      navigator.serviceWorker
-        .register(`${import.meta.env.BASE_URL}sw.js`)
-        .catch(() => undefined);
+    let cancelled = false;
+    const removeLegacyLibraryCache = async () => {
+      if (!("serviceWorker" in navigator)) {
+        if (!cancelled) setBrowserCacheReady(true);
+        return;
+      }
+      const wasControlled = Boolean(navigator.serviceWorker.controller);
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      const cacheNames = "caches" in window ? await caches.keys() : [];
+      await Promise.all([
+        ...registrations.map((registration) => registration.unregister()),
+        ...cacheNames
+          .filter((name) => name.startsWith("smart-personal-library-"))
+          .map((name) => caches.delete(name)),
+      ]);
+      if (wasControlled && sessionStorage.getItem("spl-worker-cleared-v092") !== "1") {
+        sessionStorage.setItem("spl-worker-cleared-v092", "1");
+        window.location.reload();
+        return;
+      }
+      if (!cancelled) setBrowserCacheReady(true);
+    };
+    removeLegacyLibraryCache().catch(() => {
+      if (!cancelled) setBrowserCacheReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
   useEffect(() => {
+    if (!browserCacheReady) return;
     if (!supabaseConfigured) {
       setBooksLoading(false);
       return;
@@ -225,7 +251,7 @@ export default function Home() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booksLoadToken]);
+  }, [booksLoadToken, browserCacheReady]);
   useEffect(() => {
     const refreshFromSupabase = () => setBooksLoadToken((n) => n + 1);
     const refreshWhenVisible = () => {
@@ -367,7 +393,7 @@ export default function Home() {
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "المختبر الشخصي المدفوع الآمن V0.9.1" : "Safe private paid pilot V0.9"}
+            {rtl ? "المختبر الشخصي المدفوع الآمن V0.9.2" : "Safe private paid pilot V0.9.2"}
           </strong>
           <p>
             {rtl
