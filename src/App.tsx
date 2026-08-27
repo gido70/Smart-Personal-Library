@@ -21,7 +21,7 @@ import {
   type StoredAnalysis,
   type LibraryStats,
 } from "./lib/library";
-import { signInLibraryAccount, signOutLibraryAccount, supabase, supabaseConfigured } from "./lib/supabase";
+import { signInLibraryAccount, signOutLibraryAccount, signUpLibraryAccount, supabase, supabaseConfigured } from "./lib/supabase";
 import { PAID_PILOT_MAX_BOOKS, ZERO_COST_MODE } from "./lib/config";
 import { runLocalStructuralAnalysis, type LocalAnalysisProgress } from "./lib/localAnalysis";
 import { searchInsideBook, validateManualImport, type BookSearchMatch, type LocalStructuralAnalysis, type ManualImportPayload } from "./lib/textAnalysis";
@@ -40,7 +40,7 @@ type View =
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "حساب المكتبة الموحد — V0.10",
+    version: "حساب المكتبة الموحد — V0.10.1",
     search: "ابحث في كتبك وأفكارك…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -71,7 +71,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Unified library account — V0.10",
+    version: "Unified library account — V0.10.1",
     search: "Search your books and ideas…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -391,7 +391,7 @@ export default function Home() {
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "حساب موحد وآمن V0.10" : "Secure unified account V0.10"}
+            {rtl ? "حساب موحد وآمن V0.10.1" : "Secure unified account V0.10.1"}
           </strong>
           <p>
             {rtl
@@ -548,15 +548,29 @@ function LibraryLogin({
 }) {
   const [email, setEmail] = useState("aarahman70@gmail.com");
   const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setError("");
+    setSuccess("");
     try {
-      await signInLibraryAccount(email, password);
-      onSignedIn();
+      if (mode === "signup") {
+        const data = await signUpLibraryAccount(email, password);
+        if (data.session) {
+          onSignedIn();
+        } else {
+          setSuccess(rtl ? "تم إنشاء الحساب. افتح رسالة التأكيد في بريدك مرة واحدة، ثم ارجع وسجّل الدخول." : "Account created. Confirm the email once, then return and sign in.");
+          setMode("signin");
+          setPassword("");
+        }
+      } else {
+        await signInLibraryAccount(email, password);
+        onSignedIn();
+      }
     } catch (loginError) {
       const raw = loginError instanceof Error ? loginError.message : "LOGIN_FAILED";
       setError(
@@ -566,8 +580,8 @@ function LibraryLogin({
             : "Incorrect email or password."
           : raw === "PASSWORD_TOO_SHORT"
             ? rtl
-              ? "كلمة المرور يجب ألا تقل عن 6 أحرف."
-              : "Password must be at least 6 characters."
+              ? `كلمة المرور يجب ألا تقل عن ${mode === "signup" ? "8" : "6"} أحرف.`
+              : `Password must be at least ${mode === "signup" ? "8" : "6"} characters.`
             : raw,
       );
     } finally {
@@ -580,7 +594,7 @@ function LibraryLogin({
       <section className="login-card">
         <div className="brand-mark">ك</div>
         <span className="eyebrow">{rtl ? "المكتبة الشخصية الذكية" : "Smart Personal Library"}</span>
-        <h1>{rtl ? "ادخل إلى مكتبتك" : "Sign in to your library"}</h1>
+        <h1>{mode === "signup" ? (rtl ? "أنشئ حساب مكتبتك" : "Create your library account") : (rtl ? "ادخل إلى مكتبتك" : "Sign in to your library")}</h1>
         <p>
           {rtl
             ? "حساب واحد ومكتبة واحدة على كروم وEdge والآيفون وسامسونج والتابلت. سجّل مرة واحدة في كل جهاز، ثم يبقى الدخول محفوظًا."
@@ -596,15 +610,25 @@ function LibraryLogin({
             </label>
             <label>
               {rtl ? "كلمة المرور" : "Password"}
-              <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" minLength={6} required />
+              <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} minLength={mode === "signup" ? 8 : 6} required />
             </label>
             <button className="primary" type="submit" disabled={busy}>
-              {busy ? (rtl ? "جارٍ الدخول…" : "Signing in…") : (rtl ? "دخول" : "Sign in")}
+              {busy
+                ? mode === "signup" ? (rtl ? "جارٍ إنشاء الحساب…" : "Creating account…") : (rtl ? "جارٍ الدخول…" : "Signing in…")
+                : mode === "signup" ? (rtl ? "إنشاء الحساب" : "Create account") : (rtl ? "دخول" : "Sign in")}
             </button>
           </form>
         )}
         {error && <div className="reader-error inline">{error}</div>}
-        <small>{rtl ? "لا توجد روابط بريد، ولا حسابات مجهولة، ولا نماذج كتب وهمية." : "No email links, anonymous accounts, or sample books."}</small>
+        {success && <div className="login-success">{success}</div>}
+        {!loading && (
+          <button className="login-mode" type="button" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); setSuccess(""); setPassword(""); }}>
+            {mode === "signin"
+              ? (rtl ? "ليس لديك حساب؟ أنشئ حسابًا" : "No account? Create one")
+              : (rtl ? "لديك حساب؟ سجّل الدخول" : "Already have an account? Sign in")}
+          </button>
+        )}
+        <small>{rtl ? "لا تُحفظ كلمة المرور داخل المنصة؛ يحميها Supabase بصورة مشفّرة." : "Your password is protected by Supabase and is never stored in the app."}</small>
       </section>
     </div>
   );

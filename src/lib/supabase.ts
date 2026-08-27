@@ -33,6 +33,20 @@ export async function signInLibraryAccount(email: string, password: string) {
   return data.session;
 }
 
+export async function signUpLibraryAccount(email: string, password: string) {
+  if (!supabase) throw new Error("SUPABASE_NOT_CONFIGURED");
+  const trimmed = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) throw new Error("INVALID_EMAIL");
+  if (password.length < 8) throw new Error("PASSWORD_TOO_SHORT");
+  const { data, error } = await supabase.auth.signUp({
+    email: trimmed,
+    password,
+    options: { emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}` },
+  });
+  if (error) throw error;
+  return data;
+}
+
 // ---------------------------------------------------------------------------
 // Permanent-account upgrade (CLAUDE-REVIEW-PROMPT.md §و): anonymous Auth is
 // browser/device-bound, so the library is lost if the user clears site data
