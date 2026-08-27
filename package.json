@@ -1,6 +1,6 @@
 {
   "name": "smart-personal-library",
-  "version": "0.10.1-account-signup",
+  "version": "0.10.2-cost-ledger",
   "private": true,
   "type": "module",
   "scripts": {
