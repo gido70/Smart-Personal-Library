@@ -1,0 +1,41 @@
+name: V0.11 Security Dependency Upgrade
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - docs/wajeez-reference-and-v011-prep
+    paths:
+      - .github/workflows/v011-security-deps-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: docs/wajeez-reference-and-v011-prep
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Upgrade vulnerable build/PDF dependencies
+        run: npm install pdfjs-dist@^6.2.108 vite@^8.2.2
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --audit-level=high
+      - name: Commit verified lockfile upgrade
+        run: |
+          if git diff --quiet -- package.json package-lock.json; then
+            echo "No dependency changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "V0.11: patch high-severity npm advisories"
+          git push origin HEAD:docs/wajeez-reference-and-v011-prep
