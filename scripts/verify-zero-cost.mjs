@@ -1,3 +1,6 @@
+// Legacy V0.7 guard rail for the retired `?legacy=1` interface. V0.11 is a
+// private paid pilot protected by explicit confirmation plus fail-closed server
+// gates, so this script is intentionally excluded from the V0.11 test suite.
 // Static, dependency-free guard-rail check for "no OpenAI call is reachable in this build".
 // This is NOT a substitute for opening DevTools → Network and watching a real session
 // (see TEST-RESULTS.md, test #12, for the honest limits of what a static check can prove).

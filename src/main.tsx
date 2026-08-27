@@ -7,6 +7,7 @@ import "./globals.css";
 import "./reader.css";
 import "./pilot.css";
 import "./v011.css";
+import "./v011-review-fixes.css";
 
 const legacy = new URLSearchParams(window.location.search).get("legacy") === "1";
 

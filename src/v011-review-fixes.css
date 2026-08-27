@@ -1,0 +1,48 @@
+/* V0.11.1 review fixes: logical placement follows RTL/LTR automatically. */
+.v11-toast {
+  inset: auto;
+  inset-block-end: 25px;
+  inset-inline-end: 25px;
+}
+
+.v11-close {
+  inset: auto;
+  inset-block-start: 15px;
+  inset-inline-end: 15px;
+}
+
+.v11-lang {
+  top: auto;
+  right: auto;
+  inset-block-start: 18px;
+  inset-inline-end: 18px;
+}
+
+.v11-cost-confirm {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid #d7bc7f;
+  border-radius: 14px;
+  background: #fff9eb;
+}
+
+.v11-cost-confirm p { margin: 7px 0 12px; }
+.v11-cost-confirm > div { display: flex; gap: 8px; flex-wrap: wrap; }
+
+@media (max-width: 1000px) {
+  .v11-mobile-nav {
+    bottom: auto;
+    left: auto;
+    right: auto;
+    inset-block-end: 0;
+    inset-inline: 0;
+  }
+
+  .v11-toast {
+    left: auto;
+    right: auto;
+    bottom: auto;
+    inset-inline: 12px;
+    inset-block-end: 82px;
+  }
+}

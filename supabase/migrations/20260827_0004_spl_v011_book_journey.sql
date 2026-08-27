@@ -66,4 +66,77 @@ drop policy if exists "spl_push_subscriptions_delete_own" on public.spl_push_sub
 create policy "spl_push_subscriptions_delete_own" on public.spl_push_subscriptions
   for delete using (auth.uid() = user_id);
 
+-- Claim due reminders atomically before dispatch. Concurrent cron invocations
+-- cannot receive the same row because the selection is locked with SKIP LOCKED
+-- and the reminder is marked consumed in the same transaction.
+create or replace function public.spl_claim_due_book_reminders(
+  p_claimed_at timestamptz default now(),
+  p_limit integer default 100
+)
+returns table (
+  id uuid,
+  user_id uuid,
+  book_id uuid,
+  remind_at timestamptz,
+  book_title text
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return query
+  with due as (
+    select reminder.id
+    from public.spl_book_reminders as reminder
+    where reminder.enabled = true
+      and reminder.last_sent_at is null
+      and reminder.remind_at <= p_claimed_at
+    order by reminder.remind_at
+    for update skip locked
+    limit greatest(1, least(coalesce(p_limit, 100), 100))
+  ), claimed as (
+    update public.spl_book_reminders as reminder
+    set last_sent_at = p_claimed_at,
+        enabled = false,
+        updated_at = p_claimed_at
+    from due
+    where reminder.id = due.id
+    returning reminder.id, reminder.user_id, reminder.book_id, reminder.remind_at
+  )
+  select claimed.id, claimed.user_id, claimed.book_id, claimed.remind_at, book.title
+  from claimed
+  join public.spl_books as book on book.id = claimed.book_id;
+end;
+$$;
+
+revoke all on function public.spl_claim_due_book_reminders(timestamptz, integer) from public;
+revoke all on function public.spl_claim_due_book_reminders(timestamptz, integer) from anon;
+revoke all on function public.spl_claim_due_book_reminders(timestamptz, integer) from authenticated;
+grant execute on function public.spl_claim_due_book_reminders(timestamptz, integer) to service_role;
+
+-- Abort before commit if the additive objects, RLS, or atomic claim function
+-- are missing. This block performs no user-data mutation.
+do $$
+begin
+  if to_regclass('public.spl_book_reminders') is null
+     or to_regclass('public.spl_push_subscriptions') is null then
+    raise exception 'V0.11 verification failed: reminder tables are missing';
+  end if;
+
+  if not exists (
+    select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relname = 'spl_book_reminders' and c.relrowsecurity
+  ) or not exists (
+    select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relname = 'spl_push_subscriptions' and c.relrowsecurity
+  ) then
+    raise exception 'V0.11 verification failed: RLS is not enabled';
+  end if;
+
+  if to_regprocedure('public.spl_claim_due_book_reminders(timestamptz,integer)') is null then
+    raise exception 'V0.11 verification failed: atomic reminder claim function is missing';
+  end if;
+end $$;
+
 commit;

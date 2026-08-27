@@ -1,4 +1,8 @@
-# الملفات المتغيّرة — V0.7.2 → V0.7.3-candidate
+# الملفات المتغيّرة — V0.11.0 → V0.11.1-review-fixes
+
+إصلاحات مراجعة Claude المستقلة على الفرع الآمن فقط: `src/AppV11.tsx`، `src/lib/supabase.ts`، `src/v011-review-fixes.css`، `src/main.tsx`، اختبارات `scripts/verify-*`، وظيفة `spl-reminders`، Migration V0.11 غير المنفذة، Workflow النشر، ووثائق الحالة والإصدار. لا دمج ولا نشر ولا SQL حي ولا تشغيل OpenAI.
+
+## السجل الأقدم: V0.7.2 → V0.7.3-candidate
 
 كل تغيير هنا يعالج سببًا جذريًا موثقًا في `CLAUDE-AUDIT-REPORT.md`. لا تغيير بصري عام، ولا Migration مُنفَّذة، ولا نشر.
 

@@ -30,13 +30,10 @@ Deno.serve(async (request) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
     const now = new Date().toISOString();
-    const { data: reminders, error: reminderError } = await supabase
-      .from("spl_book_reminders")
-      .select("id,user_id,book_id,remind_at,spl_books(title)")
-      .eq("enabled", true)
-      .lte("remind_at", now)
-      .is("last_sent_at", null)
-      .limit(100);
+    const { data: reminders, error: reminderError } = await supabase.rpc(
+      "spl_claim_due_book_reminders",
+      { p_claimed_at: now, p_limit: 100 },
+    );
     if (reminderError) throw reminderError;
 
     let sent = 0;
@@ -48,7 +45,7 @@ Deno.serve(async (request) => {
         .eq("user_id", reminder.user_id)
         .eq("enabled", true);
       if (subError) throw subError;
-      const title = String((reminder.spl_books as { title?: string } | null)?.title ?? "كتابك");
+      const title = String(reminder.book_title ?? "كتابك");
       const payload = JSON.stringify({
         title: "حان وقت العودة إلى كتابك",
         body: `تابع «${title}» من حيث توقفت.`,
@@ -73,7 +70,6 @@ Deno.serve(async (request) => {
           }
         }
       }
-      await supabase.from("spl_book_reminders").update({ last_sent_at: now, enabled: false, updated_at: now }).eq("id", reminder.id);
     }
     return json({ ok: true, reminders: reminders?.length ?? 0, sent, disabledSubscriptions });
   } catch (error) {

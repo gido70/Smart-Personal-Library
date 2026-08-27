@@ -1,9 +1,13 @@
 import { readFileSync } from "node:fs";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-const app = read("src/App.tsx");
+const legacyApp = read("src/App.tsx");
+const app = read("src/AppV11.tsx");
+const main = read("src/main.tsx");
 const reader = read("src/Reader.tsx");
 const library = read("src/lib/library.ts");
+const supabaseClient = read("src/lib/supabase.ts");
+const v011ReviewCss = read("src/v011-review-fixes.css");
 const edge = read("supabase/functions/spl-ai/index.ts");
 const migration = read("supabase/migrations/20260826_0002_spl_v07_zero_cost.sql");
 const speakPage = reader.slice(reader.indexOf("const speakPage"), reader.indexOf("const close"));
@@ -14,9 +18,12 @@ function check(name, condition) {
   if (!condition) failed += 1;
 }
 
-check("saved-reader exit returns to pilot/library", /onExitSavedBook[\s\S]{0,180}setView\(activePilotBook \? "pilot" : "library"\)/.test(app));
+check("V0.11 is selected by default", /legacy \? <App \/> : <AppV11 \/>/.test(main));
+check("legacy saved-reader exit remains intact", /onExitSavedBook[\s\S]{0,180}setView\(activePilotBook \? "pilot" : "library"\)/.test(legacyApp));
 check("upload UI accepts PDF only", /accept="application\/pdf,\.pdf"/.test(app) && !/accept="[^"]*epub/.test(app));
-check("deduped consent failures are not swallowed", !/could not verify consent on a deduped book/.test(app));
+check("V0.11 paid actions require confirmation", /PaidConfirmation/.test(app) && (app.match(/onConfirm=\{\(\) => runPaid\(/g) ?? []).length === 3);
+check("review builds never fall back to a live Supabase project", !/fallbackUrl|fallbackPublishableKey|nmbbahzzogspuuvpsxud/.test(supabaseClient));
+check("V0.11 overlays use logical RTL/LTR positioning", /inset-inline-end/.test(v011ReviewCss) && /inset-block-end/.test(v011ReviewCss));
 check("analysis reload selects provenance fields", /select\("kind,language,source,content,template_version,created_at"\)/.test(library));
 check("speech request is claimed before PDF awaits", speakPage.indexOf("const myGeneration = speechGenerationRef.current") < speakPage.indexOf("await document.getPage(page)"));
 check("saved progress waits for hydration", /!savedProgressReady/.test(reader));
