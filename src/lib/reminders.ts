@@ -35,13 +35,7 @@ export async function saveBookReminder(bookId: string, remindAt: Date) {
   const { data, error } = await supabase!
     .from("spl_book_reminders")
     .upsert(
-      {
-        user_id: session.user.id,
-        book_id: bookId,
-        remind_at: remindAt.toISOString(),
-        enabled: true,
-        last_sent_at: null,
-      },
+      { user_id: session.user.id, book_id: bookId, remind_at: remindAt.toISOString(), enabled: true, last_sent_at: null },
       { onConflict: "user_id,book_id" },
     )
     .select("id,book_id,remind_at,enabled,last_sent_at,created_at")
@@ -67,21 +61,14 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 export async function enablePushForThisDevice() {
-  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
-    throw new Error("PUSH_UNSUPPORTED");
-  }
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) throw new Error("PUSH_UNSUPPORTED");
   const permission = await Notification.requestPermission();
   if (permission !== "granted") throw new Error("PUSH_PERMISSION_DENIED");
   const vapid = String(import.meta.env.VITE_VAPID_PUBLIC_KEY ?? "").trim();
   if (!vapid) throw new Error("VAPID_NOT_CONFIGURED");
   const registration = await navigator.serviceWorker.ready;
   let subscription = await registration.pushManager.getSubscription();
-  if (!subscription) {
-    subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapid),
-    });
-  }
+  if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(vapid) });
   const session = await ensurePilotSession();
   const json = subscription.toJSON();
   const { error } = await supabase!.from("spl_push_subscriptions").upsert(
@@ -114,6 +101,5 @@ export async function showLocalNotification(title: string, body: string, url: st
     badge: "./favicon.svg",
     data: { url },
     tag: `spl-${url}`,
-    renotify: true,
   });
 }
