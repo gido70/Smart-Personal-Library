@@ -41,6 +41,7 @@ function errorText(error: unknown, rtl: boolean) {
     PRIVATE_PILOT_EMAIL_REQUIRED: ["هذا الحساب غير مصرح له بالتجربة المدفوعة الخاصة.", "This account is not authorized for the private paid pilot."],
     V011_MIGRATION_REQUIRED: ["التذكيرات تحتاج تطبيق Migration V0.11 بعد المراجعة.", "Reminders need the reviewed V0.11 migration."],
     VAPID_NOT_CONFIGURED: ["Web Push جاهز في الكود لكن مفاتيحه لم تُضف بعد.", "Web Push is coded, but its keys are not configured yet."],
+    IOS_HOME_SCREEN_REQUIRED: ["على iPhone/iPad: أضف المكتبة إلى الشاشة الرئيسية وافتحها كتطبيق، ثم اضغط الجرس لتفعيل الإشعارات.", "On iPhone/iPad: add the library to the Home Screen, open it as a web app, then tap the bell to enable notifications."],
     PUSH_PERMISSION_DENIED: ["لم يسمح الجهاز بالإشعارات.", "Notification permission was not granted."],
     PUSH_UNSUPPORTED: ["هذا المتصفح لا يدعم Web Push بهذه الطريقة.", "This browser does not support Web Push in this mode."],
     FILE_TOO_LARGE_20MB: ["الحد الحالي للملف 20MB.", "The current file limit is 20MB."],
@@ -66,6 +67,8 @@ export default function AppV11() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+  const [readingIds, setReadingIds] = useState<Set<string>>(new Set());
+  const [recentBookId, setRecentBookId] = useState<string | null>(null);
 
   const switchLang = () => {
     const next = lang === "ar" ? "en" : "ar";
@@ -76,9 +79,16 @@ export default function AppV11() {
   const refresh = async () => {
     setLoading(true);
     try {
-      const [nextBooks, nextStats] = await Promise.all([listPilotBooks(), getLibraryStats()]);
+      const [nextBooks, nextStats, progressResult] = await Promise.all([
+        listPilotBooks(),
+        getLibraryStats(),
+        supabase!.from("spl_reading_progress").select("book_id,updated_at").order("updated_at", { ascending: false }),
+      ]);
       setBooks(nextBooks);
       setStats(nextStats);
+      const progressRows = progressResult.data ?? [];
+      setReadingIds(new Set(progressRows.map((row) => String(row.book_id))));
+      setRecentBookId(progressRows.length ? String(progressRows[0].book_id) : null);
       setActive((current) => current ? nextBooks.find((book) => book.id === current.id) ?? current : current);
     } catch (error) {
       setNotice(errorText(error, rtl));
@@ -117,7 +127,7 @@ export default function AppV11() {
 
   const filtered = books.filter((book) => {
     const queryOk = !search.trim() || book.title.toLowerCase().includes(search.trim().toLowerCase());
-    const filterOk = filter === "all" || (filter === "new" && book.status === "uploaded") || (filter === "ready" && book.status === "ready") || (filter === "reading" && book.status !== "failed");
+    const filterOk = filter === "all" || (filter === "new" && book.status === "uploaded" && !readingIds.has(book.id)) || (filter === "ready" && book.status === "ready") || (filter === "reading" && readingIds.has(book.id));
     return queryOk && filterOk;
   });
   const openBook = (book: PilotBook) => { setActive(book); setView("book"); };
@@ -131,7 +141,7 @@ export default function AppV11() {
     </aside>
     <main className="v11-main">
       <header className="v11-topbar"><form onSubmit={(event) => { event.preventDefault(); setView("library"); }}><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t.search} /><button>⌕</button></form><button onClick={switchLang}>{rtl ? "EN" : "ع"}</button><button className="v11-bell" title={rtl ? "تفعيل التنبيهات" : "Enable notifications"} onClick={async () => { try { await enablePushForThisDevice(); setNotice(rtl ? "تم تفعيل إشعارات هذا الجهاز." : "Notifications enabled for this device."); } catch (error) { setNotice(errorText(error, rtl)); } }}>🔔</button></header>
-      {view === "home" && <Home rtl={rtl} books={books} stats={stats} onAdd={() => setUploadOpen(true)} onLibrary={() => setView("library")} onOpen={openBook} onRead={readBook} />}
+      {view === "home" && <Home rtl={rtl} books={books} stats={stats} recentBookId={recentBookId} onAdd={() => setUploadOpen(true)} onLibrary={() => setView("library")} onOpen={openBook} onRead={readBook} />}
       {view === "library" && <Library rtl={rtl} books={filtered} total={books.length} filter={filter} setFilter={setFilter} loading={loading} onAdd={() => setUploadOpen(true)} onOpen={openBook} onRead={readBook} />}
       {view === "book" && active && <BookWorkspace rtl={rtl} book={active} onBack={() => setView("library")} onRead={(page) => readBook(active, page)} onChanged={refresh} />}
       {view === "reader" && <Reader rtl={rtl} savedBook={readerBook} onExitSavedBook={() => setView(active ? "book" : "library")} />}
@@ -161,8 +171,8 @@ function Login({ rtl, loading, onLang, onDone }: { rtl: boolean; loading: boolea
   return <div className="v11-login" dir={rtl ? "rtl" : "ltr"}><button className="v11-lang" onClick={onLang}>{rtl ? "EN" : "ع"}</button><form onSubmit={submit}><b className="v11-login-mark">ك</b><small>{rtl ? "المكتبة الشخصية الذكية — V0.11" : "Smart Personal Library — V0.11"}</small><h1>{mode === "in" ? (rtl ? "ادخل إلى مكتبتك" : "Enter your library") : (rtl ? "أنشئ حساب مكتبتك" : "Create your library account")}</h1><p>{rtl ? "حساب واحد على الهاتف والكمبيوتر؛ تقدم القراءة والملخصات والصوت تبقى في مكتبتك." : "One account across phone and desktop; reading progress, summaries and audio stay in your library."}</p><label>{rtl ? "البريد" : "Email"}<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label>{rtl ? "كلمة المرور" : "Password"}<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>{message && <div className="v11-message">{message}</div>}<button className="primary" disabled={loading || busy}>{busy ? (rtl ? "جارٍ التنفيذ…" : "Working…") : mode === "in" ? (rtl ? "دخول" : "Sign in") : (rtl ? "إنشاء الحساب" : "Create account")}</button><button type="button" className="text-button" onClick={() => setMode(mode === "in" ? "up" : "in")}>{mode === "in" ? (rtl ? "إنشاء حساب جديد" : "Create a new account") : (rtl ? "لدي حساب بالفعل" : "I already have an account")}</button></form></div>;
 }
 
-function Home({ rtl, books, stats, onAdd, onLibrary, onOpen, onRead }: { rtl: boolean; books: PilotBook[]; stats: LibraryStats; onAdd: () => void; onLibrary: () => void; onOpen: (book: PilotBook) => void; onRead: (book: PilotBook) => void }) {
-  const latest = books[0];
+function Home({ rtl, books, stats, recentBookId, onAdd, onLibrary, onOpen, onRead }: { rtl: boolean; books: PilotBook[]; stats: LibraryStats; recentBookId: string | null; onAdd: () => void; onLibrary: () => void; onOpen: (book: PilotBook) => void; onRead: (book: PilotBook) => void }) {
+  const latest = books.find((book) => book.id === recentBookId) ?? books[0];
   return <div className="v11-page"><section className="v11-hero"><div><span>{rtl ? "مكتبتك تنمو معك" : "Your library grows with you"}</span><h1>{rtl ? "كل كتاب له رحلة واضحة" : "Every book has a clear journey"}</h1><p>{rtl ? "رفع، قراءة، تحليل، ملخص، صوت، أسئلة وتذكير — وكل مرحلة تظهر حالتها بوضوح." : "Upload, read, analyze, summarize, listen, ask and return — with a clear status for every stage."}</p><div><button className="primary" onClick={onAdd}>＋ {rtl ? "أضف كتابًا" : "Add a book"}</button><button className="secondary" onClick={onLibrary}>{rtl ? "افتح مكتبتي" : "Open my library"}</button></div></div><div className="v11-hero-stats"><b>{books.length}<small>{rtl ? "كتاب" : "books"}</small></b><b>{stats.analysedBooks}<small>{rtl ? "محلل" : "analyzed"}</small></b><b>{stats.audioParts}<small>{rtl ? "مقطع صوت" : "audio parts"}</small></b></div></section>{latest && <section className="v11-panel"><div className="v11-section-head"><div><small>{rtl ? "آخر كتاب" : "Latest book"}</small><h2>{rtl ? "تابع من حيث توقفت" : "Continue where you stopped"}</h2></div></div><div className="v11-book-row"><div className="v11-mini-cover">ك</div><div><small>{rtl ? "كتابك" : "Your book"}</small><h3>{latest.title}</h3><p>{rtl ? "افتح مسار الكتاب لتعرف ما اكتمل وما تبقى." : "Open the journey to see what is complete and what comes next."}</p></div><button className="primary" onClick={() => onRead(latest)}>{rtl ? "واصل القراءة" : "Continue reading"}</button><button className="secondary" onClick={() => onOpen(latest)}>{rtl ? "المسار" : "Journey"}</button></div></section>}<JourneyInfo rtl={rtl} /></div>;
 }
 
