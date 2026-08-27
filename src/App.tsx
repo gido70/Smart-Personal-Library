@@ -16,6 +16,7 @@ import {
   saveManualImport,
   uploadPilotBook,
   type DuplicateGroup,
+  type AiUsageEvent,
   type OutputLanguage,
   type PilotBook,
   type StoredAnalysis,
@@ -25,6 +26,7 @@ import { signInLibraryAccount, signOutLibraryAccount, signUpLibraryAccount, supa
 import { PAID_PILOT_MAX_BOOKS, ZERO_COST_MODE } from "./lib/config";
 import { runLocalStructuralAnalysis, type LocalAnalysisProgress } from "./lib/localAnalysis";
 import { searchInsideBook, validateManualImport, type BookSearchMatch, type LocalStructuralAnalysis, type ManualImportPayload } from "./lib/textAnalysis";
+import { calculateLoggedTextCost } from "./lib/openAiCost";
 
 type Lang = "ar" | "en";
 type View =
@@ -40,7 +42,7 @@ type View =
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "حساب المكتبة الموحد — V0.10.1",
+    version: "حساب المكتبة الموحد — V0.10.2",
     search: "ابحث في كتبك وأفكارك…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -71,7 +73,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Unified library account — V0.10.1",
+    version: "Unified library account — V0.10.2",
     search: "Search your books and ideas…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -391,7 +393,7 @@ export default function Home() {
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "حساب موحد وآمن V0.10.1" : "Secure unified account V0.10.1"}
+            {rtl ? "حساب موحد وآمن V0.10.2" : "Secure unified account V0.10.2"}
           </strong>
           <p>
             {rtl
@@ -1293,7 +1295,7 @@ function PilotWorkspace({
   );
   const [professionalVoice, setProfessionalVoice] = useState<"marin" | "cedar">("marin");
   const [questionHistory, setQuestionHistory] = useState<Array<{ id: string; question: string; answer: Record<string, unknown>; language: "ar" | "en"; created_at: string }>>([]);
-  const [usageTotals, setUsageTotals] = useState({ calls: 0, input: 0, output: 0 });
+  const [usageTotals, setUsageTotals] = useState({ calls: 0, input: 0, output: 0, textCostUsd: 0, audioCharacters: 0, unpricedCalls: 0 });
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState<
@@ -1332,10 +1334,14 @@ function PilotWorkspace({
     const manual = data.analyses.find((a) => a.kind === "manual_import");
     setManualImportSaved(manual ?? null);
     setQuestionHistory(data.questions.filter((item) => item.language === resultLanguage));
+    const cost = calculateLoggedTextCost(data.usage as AiUsageEvent[]);
     setUsageTotals({
       calls: data.usage.length,
       input: data.usage.reduce((sum, item) => sum + (item.input_tokens ?? 0), 0),
       output: data.usage.reduce((sum, item) => sum + (item.output_tokens ?? 0), 0),
+      textCostUsd: cost.usd,
+      audioCharacters: cost.audioCharacters,
+      unpricedCalls: cost.unpricedCalls,
     });
     const languageAudio = data.audio.filter((item) => item.language === resultLanguage);
     if (languageAudio.length)
@@ -1828,11 +1834,15 @@ function PilotWorkspace({
             {usageTotals.calls}
             <small>{rtl ? "استدعاءات مسجلة لهذا الكتاب" : "logged calls for this book"}</small>
           </b>
+          <b>
+            ${usageTotals.textCostUsd.toFixed(4)}
+            <small>{rtl ? "تكلفة النص المحسوبة لهذا الكتاب" : "calculated text cost for this book"}</small>
+          </b>
         </div>
         <small>
           {rtl
-            ? `حجم الملف: ${sizeMb.toFixed(1)} MB · رموز النص المسجلة: إدخال ${usageTotals.input.toLocaleString()} / إخراج ${usageTotals.output.toLocaleString()} · الشحن التلقائي مغلق.`
-            : `File size: ${sizeMb.toFixed(1)} MB · logged text tokens: ${usageTotals.input.toLocaleString()} in / ${usageTotals.output.toLocaleString()} out · auto-reload is off.`}
+            ? `حجم الملف: ${sizeMb.toFixed(1)} MB · رموز النص: إدخال ${usageTotals.input.toLocaleString()} / إخراج ${usageTotals.output.toLocaleString()} · أحرف الصوت المرسلة: ${usageTotals.audioCharacters.toLocaleString()} · الشحن التلقائي مغلق. تكلفة النص محسوبة وفق سعر النموذج؛ الصوت يبقى تقديرًا لأن واجهة الصوت لا تعيد رموز الفوترة في الاستجابة.`
+            : `File size: ${sizeMb.toFixed(1)} MB · text tokens: ${usageTotals.input.toLocaleString()} in / ${usageTotals.output.toLocaleString()} out · audio characters sent: ${usageTotals.audioCharacters.toLocaleString()} · auto-reload is off. Text cost uses the model rate; audio remains an estimate because the speech response does not return billing-token usage.`}
         </small>
       </section>
       {loading ? (

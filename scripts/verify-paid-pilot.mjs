@@ -5,6 +5,7 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf
 const app = read("src/App.tsx");
 const edge = read("supabase/functions/spl-ai/index.ts");
 const migration = read("supabase/migrations/20260826_0003_spl_v09_paid_pilot.sql");
+const cost = read("src/lib/openAiCost.ts");
 let failed = 0;
 function check(name, condition) {
   console.log(`${condition ? "PASS" : "FAIL"}  ${name}`);
@@ -23,6 +24,8 @@ check("only approved professional voices are accepted", /body\.voice === "cedar"
 check("every paid browser action has an explicit confirmation state", /confirming !== "process"/.test(app) && /confirming !== "ask"/.test(app) && /confirming !== "audio"/.test(app));
 check("no OpenAI secret is embedded in tracked source", !/sk-[A-Za-z0-9_-]{20,}/.test(`${app}\n${edge}`));
 check("usage migration is additive and protected by RLS", /^begin;/m.test(migration) && /^commit;/m.test(migration) && /enable row level security/.test(migration));
+check("per-book text cost uses logged tokens and documented Terra rates", /"gpt-5\.6-terra"/.test(cost) && /input: 2, output: 12/.test(cost) && /272_000/.test(cost));
+check("audio is not mislabeled as an exact billed cost", /Audio is deliberately excluded/.test(cost) && /audioCharacters/.test(cost));
 
 console.log(`\n${failed === 0 ? "ALL PAID PILOT CHECKS PASSED" : `${failed} PAID PILOT CHECK(S) FAILED`}`);
 if (failed) process.exit(1);
