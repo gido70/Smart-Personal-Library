@@ -1,4 +1,4 @@
-const CACHE_NAME = "smart-personal-library-v0.9.2";
+const CACHE_NAME = "smart-personal-library-v0.10.3";
 const APP_SHELL = ["./", "./manifest.webmanifest", "./favicon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -31,5 +31,29 @@ self.addEventListener("fetch", (event) => {
       caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
       return response;
     }).catch(() => caches.match("./"));
+  }));
+});
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; } catch { payload = { body: event.data?.text() ?? "" }; }
+  const title = payload.title || "المكتبة الشخصية الذكية";
+  event.waitUntil(self.registration.showNotification(title, {
+    body: payload.body || "حان وقت العودة إلى كتابك.",
+    icon: "./favicon.svg",
+    badge: "./favicon.svg",
+    tag: payload.tag || "spl-book-reminder",
+    renotify: false,
+    data: { url: payload.url || "./" },
+  }));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = new URL(event.notification.data?.url || "./", self.location.origin).href;
+  event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+    const current = clients.find((client) => client.url.startsWith(self.location.origin));
+    if (current) return current.focus().then(() => current.navigate(target));
+    return self.clients.openWindow(target);
   }));
 });
