@@ -164,6 +164,7 @@ Deno.serve(async (request) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model,
+          max_output_tokens: 12_000,
           input: [{ role: "user", content: [{ type: "input_file", file_id: openaiFileId, detail: "low" }, { type: "input_text", text: prompt }] }],
           text: { format: bookAnalysisFormat },
         }),
@@ -205,7 +206,7 @@ Deno.serve(async (request) => {
       const generated = await openAI("responses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model, input: [{ role: "user", content: [{ type: "input_file", file_id: book.openai_file_id, detail: "low" }, { type: "input_text", text: prompt }] }], text: { format: bookAnswerFormat } }),
+        body: JSON.stringify({ model, max_output_tokens: 2_500, input: [{ role: "user", content: [{ type: "input_file", file_id: book.openai_file_id, detail: "low" }, { type: "input_text", text: prompt }] }], text: { format: bookAnswerFormat } }),
       });
       const response = await generated.json();
       const outputText = response.output?.flatMap((item: { content?: Array<{ text?: string }> }) => item.content ?? []).map((item: { text?: string }) => item.text ?? "").join("") ?? "";
@@ -215,18 +216,41 @@ Deno.serve(async (request) => {
       return json({ ok: true, answer, usage: response.usage ?? null });
     }
 
+    if (action === "audio_preview") {
+      const language = body.language === "en" ? "en" : "ar";
+      const voice = body.voice === "cedar" ? "cedar" : "marin";
+      const sample = language === "ar"
+        ? "في هذه المكتبة نقرأ بهدوء، ونمنح كل فكرة وقتها. هذا نموذج قصير لتختار الصوت الأقرب إليك قبل إنشاء الخلاصة الصوتية الكاملة."
+        : "In this library, we read calmly and give every idea the time it deserves. This short sample helps you choose a voice before creating the full audio summary.";
+      const path = `${userData.user.id}/${bookId}/voice-previews/${language}-${voice}.mp3`;
+      const { data: cached } = await supabase.storage.from("spl-audio").download(path);
+      if (cached) return json({ ok: true, reused: true, storage_path: path, voice, language });
+      const instructions = language === "ar"
+        ? "اقرأ كراوٍ لكتاب صوتي: هادئ، دافئ، متزن، بسرعة أبطأ قليلًا، دون مبالغة مسرحية، مع وقفات طبيعية ونطق عربي فصيح واضح."
+        : "Read like a calm, warm audiobook narrator at a slightly slower pace, without theatrical exaggeration, using natural pauses and clear pronunciation.";
+      const audioResponse = await openAI("audio/speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "gpt-4o-mini-tts", voice, input: sample, instructions, speed: 0.92, response_format: "mp3" }),
+      });
+      const { error: uploadError } = await supabase.storage.from("spl-audio").upload(path, await audioResponse.blob(), { contentType: "audio/mpeg", upsert: true });
+      if (uploadError) throw uploadError;
+      await recordUsage(supabase, userData.user.id, bookId, "audio_preview", "gpt-4o-mini-tts", null, { language, voice, characters: sample.length });
+      return json({ ok: true, reused: false, storage_path: path, voice, language });
+    }
+
     if (action === "audio") {
       const language = body.language === "en" ? "en" : "ar";
-      const { data: existingAudio } = await supabase.from("spl_audio_outputs").select("id,language,voice,storage_path,part_no,created_at").eq("book_id", bookId).eq("language", language).order("part_no");
+      const voice = body.voice === "cedar" ? "cedar" : "marin";
+      const { data: existingAudio } = await supabase.from("spl_audio_outputs").select("id,language,voice,storage_path,part_no,created_at").eq("book_id", bookId).eq("language", language).eq("voice", voice).order("part_no");
       if (existingAudio?.length) return json({ ok: true, reused: true, audio: existingAudio, disclosure: language === "ar" ? "هذا الصوت مولد بالذكاء الاصطناعي." : "This voice is AI-generated." });
       const { data: analysis } = await supabase.from("spl_analyses").select("id,content").eq("book_id", bookId).eq("kind", "overview").eq("language", language).maybeSingle();
       if (!analysis) return json({ error: "ANALYSIS_NOT_READY" }, 409);
       const spoken = String(analysis.content?.overview?.summary ?? analysis.content?.summary ?? "").slice(0, 24000);
       if (!spoken) return json({ error: "SUMMARY_EMPTY" }, 409);
-      const voice = body.voice === "cedar" ? "cedar" : "marin";
       const instructions = language === "ar"
-        ? "اقرأ العربية بصوت هادئ رقيق وواضح، مع نطق الكلمات الإنجليزية داخل النص بإنجليزية طبيعية صحيحة. هذه خلاصة كتاب وليست قراءة حرفية للكتاب."
-        : "Read in a calm, gentle, clear English voice. Pronounce any Arabic words carefully. This is a book summary, not a verbatim audiobook.";
+        ? "اقرأ كراوٍ لكتاب صوتي: هادئ، دافئ، متزن، بسرعة أبطأ قليلًا، دون مبالغة مسرحية، مع وقفات طبيعية ونطق عربي فصيح واضح، ونطق الكلمات الإنجليزية داخل النص بإنجليزية طبيعية. هذه خلاصة كتاب وليست قراءة حرفية للكتاب."
+        : "Read like a calm, warm audiobook narrator at a slightly slower pace, without theatrical exaggeration, using natural pauses and clear English pronunciation. Pronounce any Arabic words carefully. This is a book summary, not a verbatim audiobook.";
       const sentences = spoken.split(/(?<=[.!؟?])\s+/u);const chunks:string[]=[];let current="";
       for(const sentence of sentences){if(current&&current.length+sentence.length>3400){chunks.push(current);current=""}current+=`${current?" ":""}${sentence}`}if(current)chunks.push(current);
       const rows=[];
@@ -234,7 +258,7 @@ Deno.serve(async (request) => {
         const audioResponse = await openAI("audio/speech", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model: "gpt-4o-mini-tts", voice, input: chunks[index], instructions, response_format: "mp3" }),
+          body: JSON.stringify({ model: "gpt-4o-mini-tts", voice, input: chunks[index], instructions, speed: 0.92, response_format: "mp3" }),
         });
         const path = `${userData.user.id}/${bookId}/${language}-${index+1}-${crypto.randomUUID()}.mp3`;
         const { error: uploadError } = await supabase.storage.from("spl-audio").upload(path, await audioResponse.blob(), { contentType: "audio/mpeg" });

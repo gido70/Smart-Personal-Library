@@ -219,7 +219,7 @@ export async function createBookSignedUrl(storagePath: string, expiresIn = 3600)
 // V0.9 exposes these actions in the UI, but the Edge Function remains the
 // authoritative financial boundary (enabled secret, exact pilot email, book
 // and question caps, ownership, and legal-consent checks).
-export async function invokeBookAI(bookId: string, action: "process" | "ask" | "audio", payload: Record<string, unknown> = {}) {
+export async function invokeBookAI(bookId: string, action: "process" | "ask" | "audio" | "audio_preview", payload: Record<string, unknown> = {}) {
   await ensurePilotSession();
   const { data, error } = await supabase!.functions.invoke("spl-ai", {
     body: { action, bookId, ...payload },
@@ -257,7 +257,7 @@ export type StoredQuestion = {
 };
 
 export type AiUsageEvent = {
-  action: "process" | "ask" | "audio";
+  action: "process" | "ask" | "audio" | "audio_preview";
   model: string;
   input_tokens: number | null;
   output_tokens: number | null;

@@ -27,6 +27,14 @@ import { PAID_PILOT_MAX_BOOKS, ZERO_COST_MODE } from "./lib/config";
 import { runLocalStructuralAnalysis, type LocalAnalysisProgress } from "./lib/localAnalysis";
 import { searchInsideBook, validateManualImport, type BookSearchMatch, type LocalStructuralAnalysis, type ManualImportPayload } from "./lib/textAnalysis";
 import { calculateLoggedTextCost } from "./lib/openAiCost";
+import {
+  disableBookReminder,
+  enablePushForThisDevice,
+  listBookReminders,
+  saveBookReminder,
+  showReminderTest,
+  type BookReminder,
+} from "./lib/reminders";
 
 type Lang = "ar" | "en";
 type View =
@@ -37,12 +45,13 @@ type View =
   | "reader"
   | "progress"
   | "librarian"
-  | "feedback";
+  | "feedback"
+  | "guide";
 
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "حساب المكتبة الموحد — V0.10.2",
+    version: "حساب المكتبة الموحد — V0.10.3",
     search: "ابحث في كتبك وأفكارك…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -73,7 +82,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Unified library account — V0.10.2",
+    version: "Unified library account — V0.10.3",
     search: "Search your books and ideas…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -126,6 +135,21 @@ const navigation = {
   ],
 } as const;
 
+function describeReminderError(error: unknown, rtl: boolean) {
+  const value = error as { message?: string } | null;
+  const raw = value?.message ?? String(error ?? "");
+  const messages: Record<string, [string, string]> = {
+    V0103_REMINDER_MIGRATION_REQUIRED: ["التنبيهات جاهزة في V0.10.3 لكنها تحتاج تطبيق Migration المراجع أولًا.", "V0.10.3 reminders need the reviewed migration first."],
+    VAPID_NOT_CONFIGURED: ["مفاتيح التنبيهات لم تُجهّز بعد.", "Push notification keys are not configured yet."],
+    IOS_HOME_SCREEN_REQUIRED: ["على iPhone: أضف المكتبة إلى الشاشة الرئيسية وافتحها كتطبيق، ثم فعّل التنبيهات.", "On iPhone, add the library to the Home Screen, open it as an app, then enable notifications."],
+    PUSH_PERMISSION_DENIED: ["لم يسمح الجهاز بالتنبيهات.", "This device did not allow notifications."],
+    PUSH_UNSUPPORTED: ["هذا المتصفح لا يدعم التنبيهات المطلوبة.", "This browser does not support the required notifications."],
+    REMINDER_TIME_INVALID: ["اختر وقتًا مستقبليًا صحيحًا.", "Choose a valid future time."],
+  };
+  const found = Object.entries(messages).find(([key]) => raw.includes(key));
+  return found ? found[1][rtl ? 0 : 1] : raw || (rtl ? "تعذر تنفيذ التنبيه." : "The reminder could not be completed.");
+}
+
 export default function Home() {
   const [lang, setLang] = useState<Lang>("ar");
   const [dark, setDark] = useState(false);
@@ -148,6 +172,7 @@ export default function Home() {
   const [processing, setProcessing] = useState(false);
   const [percent, setPercent] = useState(0);
   const [notice, setNotice] = useState("");
+  const [activating, setActivating] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [authState, setAuthState] = useState<"loading" | "signed_out" | "authenticated">("loading");
   const [accountEmail, setAccountEmail] = useState("");
@@ -178,34 +203,41 @@ export default function Home() {
   }, []);
   useEffect(() => {
     let cancelled = false;
-    const removeLegacyLibraryCache = async () => {
+    const prepareCurrentWorker = async () => {
       if (!("serviceWorker" in navigator)) {
         if (!cancelled) setBrowserCacheReady(true);
         return;
       }
-      const wasControlled = Boolean(navigator.serviceWorker.controller);
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      const cacheNames = "caches" in window ? await caches.keys() : [];
-      await Promise.all([
-        ...registrations.map((registration) => registration.unregister()),
-        ...cacheNames
-          .filter((name) => name.startsWith("smart-personal-library-"))
-          .map((name) => caches.delete(name)),
-      ]);
-      if (wasControlled && sessionStorage.getItem("spl-worker-cleared-v092") !== "1") {
-        sessionStorage.setItem("spl-worker-cleared-v092", "1");
-        window.location.reload();
-        return;
+      if (sessionStorage.getItem("spl-worker-prepared-v0103-3") !== "1") {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        const cacheNames = "caches" in window ? await caches.keys() : [];
+        await Promise.all([
+          ...registrations.map((registration) => registration.unregister()),
+          ...cacheNames
+            .filter((name) => name.startsWith("smart-personal-library-"))
+            .map((name) => caches.delete(name)),
+        ]);
+        sessionStorage.setItem("spl-worker-prepared-v0103-3", "1");
       }
+      await navigator.serviceWorker.register("./sw.js");
       if (!cancelled) setBrowserCacheReady(true);
     };
-    removeLegacyLibraryCache().catch(() => {
+    prepareCurrentWorker().catch(() => {
       if (!cancelled) setBrowserCacheReady(true);
     });
     return () => {
       cancelled = true;
     };
   }, []);
+  useEffect(() => {
+    const requestedBook = new URLSearchParams(window.location.search).get("book");
+    if (!requestedBook || pilotBooks.length === 0) return;
+    const book = pilotBooks.find((item) => item.id === requestedBook);
+    if (book) {
+      setActivePilotBook(book);
+      setView("pilot");
+    }
+  }, [pilotBooks]);
   useEffect(() => {
     if (!browserCacheReady || authState !== "authenticated") return;
     if (!supabaseConfigured) {
@@ -220,11 +252,14 @@ export default function Home() {
     setPilotBooks([]);
     setLibraryStats({ analysedBooks: 0, questions: 0, audioParts: 0 });
     setBooksError("");
-    Promise.all([listPilotBooks(), getLibraryStats()])
-      .then(([books, stats]) => {
+    listPilotBooks()
+      .then(async (books) => {
         if (cancelled) return;
         setPilotBooks(books);
-        setLibraryStats(stats);
+        // Statistics are secondary. A missing optional table must never hide
+        // the user's books or make the library appear empty.
+        const stats = await getLibraryStats().catch(() => null);
+        if (!cancelled && stats) setLibraryStats(stats);
       })
       .catch((loadError) => {
         if (cancelled) return;
@@ -268,6 +303,26 @@ export default function Home() {
     const next = lang === "ar" ? "en" : "ar";
     setLang(next);
     localStorage.setItem("spl-lang", next);
+  };
+  const activateLatestVersion = async () => {
+    setActivating(true);
+    setNotice(rtl ? "جارٍ تنشيط أحدث نسخة…" : "Activating the latest version…");
+    try {
+      if ("serviceWorker" in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+      }
+      if ("caches" in window) {
+        const names = await caches.keys();
+        await Promise.all(names.filter((name) => name.startsWith("smart-personal-library-")).map((name) => caches.delete(name)));
+      }
+      sessionStorage.removeItem("spl-worker-prepared-v0103-3");
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.set("refresh", Date.now().toString());
+      window.location.replace(cleanUrl.toString());
+    } catch {
+      window.location.reload();
+    }
   };
   const pageTitle = useMemo(
     () => navigation[lang].find((x) => x[0] === view)?.[1] || t.name,
@@ -382,8 +437,8 @@ export default function Home() {
             <button
               key={id}
               className={view === id ? "active" : ""}
-              disabled={id === "librarian" || id === "progress"}
-              title={(id === "librarian" || id === "progress") ? (rtl ? "غير معتمد بعد في نسخة القبول" : "Not yet accepted in this build") : undefined}
+              disabled={id === "librarian"}
+              title={id === "librarian" ? (rtl ? "غير معتمد بعد في نسخة القبول" : "Not yet accepted in this build") : undefined}
               onClick={() => go(id)}
             >
               <i>{icon}</i>
@@ -393,7 +448,7 @@ export default function Home() {
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "حساب موحد وآمن V0.10.2" : "Secure unified account V0.10.2"}
+            {rtl ? "حساب موحد وآمن V0.10.3" : "Secure unified account V0.10.3"}
           </strong>
           <p>
             {rtl
@@ -430,16 +485,24 @@ export default function Home() {
             <button type="submit" aria-label={rtl ? "تنفيذ البحث" : "Run search"} title={rtl ? "بحث" : "Search"}>⌕</button>
           </form>
           <div className="top-actions">
+            <button onClick={() => setView("guide")} title={rtl ? "دليل الاستخدام" : "User guide"}>؟</button>
+            <button onClick={activateLatestVersion} disabled={activating} title={rtl ? "تنشيط أحدث نسخة" : "Activate latest version"}>↻</button>
             <button onClick={switchLang} className="lang-switch">
               {rtl ? "EN" : "ع"}
             </button>
             <button onClick={() => setDark(!dark)}>{dark ? "☀" : "◐"}</button>
             <button
-              className="bell disabled-soon"
-              disabled
-              title={
-                rtl ? "الإشعارات — قريبًا" : "Notifications — coming soon"
-              }
+              className="bell"
+              title={rtl ? "تفعيل تنبيهات هذا الجهاز" : "Enable notifications on this device"}
+              onClick={async () => {
+                try {
+                  await enablePushForThisDevice();
+                  setNotice(rtl ? "تم تفعيل تنبيهات هذا الجهاز." : "Notifications are enabled on this device.");
+                } catch (error) {
+                  setNotice(describeReminderError(error, rtl));
+                }
+                setTimeout(() => setNotice(""), 7000);
+              }}
             >
               ♧
             </button>
@@ -496,9 +559,10 @@ export default function Home() {
             }}
           />
         )}
-        {view === "progress" && <Progress rtl={rtl} title={pageTitle} />}
+        {view === "progress" && <Progress rtl={rtl} title={pageTitle} books={pilotBooks} />}
         {view === "librarian" && <Librarian rtl={rtl} title={pageTitle} />}
         {view === "feedback" && <Feedback rtl={rtl} t={t} />}
+        {view === "guide" && <UserGuide rtl={rtl} onUpload={() => setUpload(true)} onLibrary={() => setView("library")} onActivate={activateLatestVersion} activating={activating} />}
       </main>
       <nav className="mobile-nav">
         {navigation[lang].slice(0, 5).map(([id, label, icon]) => (
@@ -969,13 +1033,15 @@ function OriginalPdfCover({ book }: { book: PilotBook }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let cancelled = false;
+    setFailed(false);
     const render = async () => {
       const signed = await createBookSignedUrl(book.storage_path, 900);
       const pdfjs = await import("pdfjs-dist");
       pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
       const pdf = await pdfjs.getDocument({ url: signed.url, disableFontFace: true }).promise;
       const first = await pdf.getPage(1);
-      const viewport = first.getViewport({ scale: 0.34 });
+      const base = first.getViewport({ scale: 1 });
+      const viewport = first.getViewport({ scale: Math.max(0.34, Math.min(1.2, 420 / base.width)) });
       if (cancelled || !canvasRef.current) return;
       const canvas = canvasRef.current;
       const context = canvas.getContext("2d", { alpha: false });
@@ -983,6 +1049,7 @@ function OriginalPdfCover({ book }: { book: PilotBook }) {
       canvas.width = Math.floor(viewport.width);
       canvas.height = Math.floor(viewport.height);
       await first.render({ canvasContext: context, viewport, canvas }).promise;
+      canvas.dataset.ready = "true";
     };
     render().catch(() => !cancelled && setFailed(true));
     return () => { cancelled = true; };
@@ -1293,7 +1360,8 @@ function PilotWorkspace({
   const [resultLanguage, setResultLanguage] = useState<"ar" | "en">(
     book.output_language === "en" ? "en" : rtl ? "ar" : "en",
   );
-  const [professionalVoice, setProfessionalVoice] = useState<"marin" | "cedar">("marin");
+  const [professionalVoice, setProfessionalVoice] = useState<"marin" | "cedar">(() => localStorage.getItem(`spl-professional-voice-${book.id}`) === "cedar" ? "cedar" : "marin");
+  const [voicePreviewUrls, setVoicePreviewUrls] = useState<Partial<Record<"marin" | "cedar", string>>>({});
   const [questionHistory, setQuestionHistory] = useState<Array<{ id: string; question: string; answer: Record<string, unknown>; language: "ar" | "en"; created_at: string }>>([]);
   const [usageTotals, setUsageTotals] = useState({ calls: 0, input: 0, output: 0, textCostUsd: 0, audioCharacters: 0, unpricedCalls: 0 });
   const [busy, setBusy] = useState("");
@@ -1307,8 +1375,16 @@ function PilotWorkspace({
   const [manualText, setManualText] = useState("");
   const [manualErrors, setManualErrors] = useState<string[]>([]);
   const [manualBusy, setManualBusy] = useState(false);
+  const [questionCostOpen, setQuestionCostOpen] = useState(false);
   const [bookSearchTerm, setBookSearchTerm] = useState("");
   const [bookSearchResults, setBookSearchResults] = useState<BookSearchMatch[] | null>(null);
+  const selectProfessionalVoice = (voice: "marin" | "cedar") => {
+    setProfessionalVoice(voice);
+    localStorage.setItem(`spl-professional-voice-${book.id}`, voice);
+  };
+  useEffect(() => {
+    setProfessionalVoice(localStorage.getItem(`spl-professional-voice-${book.id}`) === "cedar" ? "cedar" : "marin");
+  }, [book.id]);
   const sizeMb = Math.max(0.1, (book.file_size || 0) / 1048576);
   const band = sizeMb < 5 ? "small" : sizeMb < 20 ? "medium" : "large";
   const estimates = {
@@ -1343,7 +1419,9 @@ function PilotWorkspace({
       audioCharacters: cost.audioCharacters,
       unpricedCalls: cost.unpricedCalls,
     });
-    const languageAudio = data.audio.filter((item) => item.language === resultLanguage);
+    const languageAudio = data.audio.filter(
+      (item) => item.language === resultLanguage && item.voice === professionalVoice,
+    );
     if (languageAudio.length)
       setAudioUrls(
         await Promise.all(
@@ -1359,7 +1437,7 @@ function PilotWorkspace({
     getLegalConsentStatus(book.id)
       .then(setConsent)
       .catch(() => setConsent(null));
-  }, [book.id, resultLanguage]);
+  }, [book.id, resultLanguage, professionalVoice]);
   const process = async () => {
     if (ZERO_COST_MODE) return;
     setBusy("process");
@@ -1408,7 +1486,27 @@ function PilotWorkspace({
           ),
         ),
       );
+      await reload();
       setConfirming("");
+    } catch (e) {
+      setError(describeAiError(e, rtl));
+    } finally {
+      setBusy("");
+    }
+  };
+  const previewVoice = async (voice: "marin" | "cedar") => {
+    if (ZERO_COST_MODE) return;
+    selectProfessionalVoice(voice);
+    setBusy(`preview-${voice}`);
+    setError("");
+    try {
+      const data = await invokeBookAI(book.id, "audio_preview", {
+        language: resultLanguage,
+        voice,
+      });
+      const url = await getPrivateAudioUrl(data.storage_path);
+      setVoicePreviewUrls((current) => ({ ...current, [voice]: url }));
+      await reload();
     } catch (e) {
       setError(describeAiError(e, rtl));
     } finally {
@@ -1526,6 +1624,10 @@ function PilotWorkspace({
             : "Saved in your private space. Storage alone does not use OpenAI credit."
         }
       />
+      <div className="mobile-book-tools" aria-label={rtl ? "اختصارات وظائف الكتاب" : "Book feature shortcuts"}>
+        <button className="secondary" onClick={() => document.getElementById("ask-book-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{rtl ? "اسأل الكتاب" : "Ask"}</button>
+        <button className="secondary" onClick={() => document.getElementById("professional-voice-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{rtl ? "اختيار الصوت" : "Choose voice"}</button>
+      </div>
       <section className="panel book-info-card">
         <span className="eyebrow">
           {rtl ? "بيانات الكتاب المحفوظ" : "Saved book details"}
@@ -1929,7 +2031,7 @@ function PilotWorkspace({
             {results && <PaidResultView result={results} rtl={rtl} />}
           </article>
           <aside className="detail-aside">
-            <section className="panel">
+            <section className="panel" id="ask-book-panel">
               <h3>{rtl ? "اسأل الكتاب — مدفوع" : "Ask the book — paid"}</h3>
               {ZERO_COST_MODE ? (
                 <p className="locked-note">
@@ -1940,6 +2042,20 @@ function PilotWorkspace({
                 </p>
               ) : (
                 <>
+                  <button className="secondary question-cost-button" onClick={() => setQuestionCostOpen((open) => !open)}>{rtl ? "اعرف فائدة السؤال وتكلفته أولًا" : "See question purpose and cost first"}</button>
+                  {questionCostOpen && <div className="question-cost-info"><strong>{rtl ? "قبل أن تكتب السؤال" : "Before you ask"}</strong><p>{rtl ? "الفائدة: إجابة مرتبطة بتحليل هذا الكتاب مع مراجع عند توفرها. كل سؤال خدمة مستقلة مدفوعة؛ التقدير التخطيطي للسؤال القصير $0.01–$0.15، وقد يزيد مع طول السؤال والإجابة. لا يبدأ الخصم إلا بعد زر التأكيد." : "Purpose: a book-grounded answer with references when available. Each question is a separate paid action; a short-question planning estimate is $0.01–$0.15 and may increase with length. Billing starts only after confirmation."}</p></div>}
+                  <p className="question-purpose-note">
+                    {results
+                      ? (rtl ? "اكتب سؤالًا محددًا؛ ستأتي الإجابة من تحليل هذا الكتاب مع مراجع عند توفرها." : "Ask a specific question; the answer uses this book's analysis and includes references when available.")
+                      : (rtl ? "تُفعّل الأسئلة بعد اكتمال تحليل هذا الكتاب." : "Questions become available after this book is analyzed.")}
+                  </p>
+                  <button
+                    className="secondary sample-question-button"
+                    disabled={!results}
+                    onClick={() => setQ(rtl ? "ما الأفكار المحورية في هذا الكتاب، وما الأدلة التي اعتمد عليها المؤلف؟" : "What are the book's central ideas, and what evidence does the author use?")}
+                  >
+                    {rtl ? "استخدم سؤالًا نموذجيًا" : "Use a sample question"}
+                  </button>
                   <textarea
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
@@ -1978,7 +2094,7 @@ function PilotWorkspace({
                 </>
               )}
             </section>
-            <section className="panel">
+            <section className="panel" id="professional-voice-panel">
               <h3>
                 {rtl ? "الصوت الاحترافي — مدفوع" : "Professional voice — paid"}
               </h3>
@@ -1996,13 +2112,35 @@ function PilotWorkspace({
                       ? `تقدير الخلاصة الصوتية: ${money(estimates.audio)}. صوت الجهاز المجاني موجود في القارئ.`
                       : `Estimated audio summary: ${money(estimates.audio)}. Free device voice is available in the reader.`}
                   </p>
-                  <label className="select-label paid-language-select">
-                    {rtl ? "الصوت" : "Voice"}
-                    <select value={professionalVoice} onChange={(event) => setProfessionalVoice(event.target.value as "marin" | "cedar")}>
-                      <option value="marin">Marin — {rtl ? "هادئ ومتوازن" : "calm and balanced"}</option>
-                      <option value="cedar">Cedar — {rtl ? "واضح ودافئ" : "clear and warm"}</option>
-                    </select>
-                  </label>
+                  <p className="voice-preview-note">
+                    {rtl
+                      ? "استمع إلى عينة قصيرة أولًا. تُنشأ العينة مرة واحدة بتكلفة ضئيلة جدًا، ثم يعاد تشغيلها دون تكلفة."
+                      : "Listen to a short sample first. It has a tiny one-time generation cost, then replays at no cost."}
+                  </p>
+                  <div className="voice-choice-grid">
+                    {(["marin", "cedar"] as const).map((voice) => (
+                      <div className={`voice-choice ${professionalVoice === voice ? "selected" : ""}`} key={voice}>
+                        <button
+                          className="voice-select"
+                          aria-pressed={professionalVoice === voice}
+                          onClick={() => selectProfessionalVoice(voice)}
+                        >
+                          <span className="voice-radio" aria-hidden="true">{professionalVoice === voice ? "●" : "○"}</span>
+                          <strong>{voice === "marin" ? (rtl ? "صوت أنثوي — Marin" : "Female voice — Marin") : (rtl ? "صوت رجالي — Cedar" : "Male voice — Cedar")}</strong>
+                          <span>{rtl ? "هادئ، دافئ، وقراءة متزنة" : "Calm, warm, balanced narration"}</span>
+                          {professionalVoice === voice && <b className="voice-selected-label">{rtl ? "مختار لإنشاء الصوت الكامل" : "Selected for full audio"}</b>}
+                        </button>
+                        <button className="secondary voice-preview-button" disabled={busy === `preview-${voice}`} onClick={() => previewVoice(voice)}>
+                          {busy === `preview-${voice}` ? "…" : rtl ? "أنشئ/شغّل العينة" : "Create/play sample"}
+                        </button>
+                        {voicePreviewUrls[voice] && <audio controls preload="metadata" src={voicePreviewUrls[voice]} />}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="selected-voice-summary">
+                    {rtl ? "الصوت المختار للشراء: " : "Voice selected for purchase: "}
+                    <strong>{professionalVoice === "marin" ? (rtl ? "الأنثوي — Marin" : "Female — Marin") : (rtl ? "الرجالي — Cedar" : "Male — Cedar")}</strong>
+                  </p>
                   {confirming !== "audio" ? (
                     <button
                       className="secondary"
@@ -2013,6 +2151,10 @@ function PilotWorkspace({
                     </button>
                   ) : (
                     <div className="cost-confirm">
+                      <strong className="confirm-voice-name">
+                        {rtl ? "سيُنشأ الصوت الكامل باستخدام: " : "Full audio will use: "}
+                        {professionalVoice === "marin" ? (rtl ? "الصوت الأنثوي — Marin" : "Female — Marin") : (rtl ? "الصوت الرجالي — Cedar" : "Male — Cedar")}
+                      </strong>
                       <button
                         className="primary"
                         disabled={busy === "audio"}
@@ -2464,7 +2606,63 @@ function Idea({ n, title, text }: { n: string; title: string; text: string }) {
   );
 }
 
-function Progress({ rtl, title }: { rtl: boolean; title: string }) {
+function UserGuide({ rtl, onUpload, onLibrary, onActivate, activating }: { rtl: boolean; onUpload: () => void; onLibrary: () => void; onActivate: () => void; activating: boolean }) {
+  const topics = rtl ? [
+    ["1. إضافة الكتاب", "اختر PDF وحدد لغة المخرجات وأقر بحق الاستخدام. الرفع وحده لا يشغّل خدمة مدفوعة."],
+    ["2. صفحة الكتاب", "صفحة الكتاب الحالية هي القاعدة الثابتة لكل كتاب جديد، وبها القراءة والتحليل والنتائج والصوت والأسئلة."],
+    ["3. الغلاف الأصلي", "تأخذ المكتبة الغلاف من الصفحة الأولى للكتاب نفسه، مع بديل آمن فقط إذا تعذر فتح الملف."],
+    ["4. القراءة وموضع التوقف", "تُحفظ الصفحة والعلامات لتعود إلى الموضع نفسه من الكمبيوتر أو الهاتف."],
+    ["5. التحليل المجاني", "يفحص بنية الكتاب داخل المتصفح دون تكلفة AI ودون إرسال الملف إلى OpenAI."],
+    ["6. التحليل المدفوع", "يحافظ على الخلاصة والأفكار المحورية والفصول ونقاط القوة والحدود والاستنتاجات ومواضع العودة، ولا يبدأ قبل تأكيد التكلفة."],
+    ["7. تجربة الصوت", "استمع إلى صوت المرأة وصوت الرجل؛ تُنشأ العينة مرة واحدة ثم يعاد تشغيلها دون تكلفة جديدة."],
+    ["8. اختيار الصوت", "اضغط على الصوت الذي تريده؛ يظهر الاختيار بوضوح ويُحفظ لهذا الكتاب قبل تأكيد شراء الصوت الكامل."],
+    ["9. أسئلة الكتاب", "بعد اكتمال التحليل، اكتب سؤالًا أو استخدم السؤال النموذجي، ثم راجع التكلفة قبل الإرسال."],
+    ["10. التنبيهات", "اختر الكتاب والموعد، فعّل إشعارات الجهاز، ثم استخدم اختبار الآن للتأكد من ظهور التنبيه."],
+    ["11. الهاتف", "على iPhone افتح المنصة من الشاشة الرئيسية. وعلى Samsung استخدم Chrome واسمح بالإشعارات ثم حدّث الصفحة عند ظهور نسخة قديمة."],
+    ["12. الوضع الليلي", "يغيّر ألوان الواجهة المحيطة لتصبح الحروف واضحة، بينما تبقى صفحة PDF وخطها وألوانها الأصلية دون تغيير."],
+    ["13. تنشيط أحدث نسخة", "إذا بقي الهاتف أو الكمبيوتر على نسخة قديمة، اضغط تنشيط النسخة؛ تُمسح ذاكرة المنصة القديمة وتُفتح أحدث معاينة تلقائيًا."],
+  ] : [
+    ["1. Add a book", "Choose a PDF, output language, and lawful-use confirmation. Uploading does not start paid AI."],
+    ["2. Book page", "The current book page remains the fixed template for every new book."],
+    ["3. Original cover", "The cover comes from the PDF's first page, with a safe fallback only if the file cannot be opened."],
+    ["4. Reading position", "Page and bookmarks are saved across computer and phone."],
+    ["5. Free analysis", "Examines structure locally without AI cost or sending the file to OpenAI."],
+    ["6. Paid analysis", "Preserves all current summary, ideas, chapters, critical reading and return points after cost confirmation."],
+    ["7. Voice preview", "Preview female and male samples; generated samples are reused."],
+    ["8. Voice selection", "Select and save one voice per book before buying full audio."],
+    ["9. Ask the book", "After analysis, enter a question or use the sample, then review cost."],
+    ["10. Notifications", "Choose the book and time, enable device notifications, then run the test."],
+    ["11. Phones", "Use Home Screen mode on iPhone and Chrome with notification permission on Samsung."],
+    ["12. Night mode", "Improves interface contrast while preserving the original PDF page."],
+    ["13. Activate latest version", "Clears the platform's old cache and reloads the latest build on phone or computer."],
+  ];
+  return <div className="page user-guide-page"><PageTitle title={rtl ? "دليل استخدام المكتبة" : "Library user guide"} description={rtl ? "خطوات عملية تشرح الموجود وتفعّله دون تغيير صفحة الكتاب الناجحة." : "Practical steps that activate the current experience without changing the successful book page."} /><div className="guide-actions"><button className="primary" onClick={onUpload}>＋ {rtl ? "أضف كتابًا" : "Add a book"}</button><button className="secondary" onClick={onLibrary}>▥ {rtl ? "افتح مكتبتي" : "Open my library"}</button><button className="secondary activate-version-button" disabled={activating} onClick={onActivate}>↻ {activating ? (rtl ? "جارٍ التنشيط…" : "Activating…") : (rtl ? "تنشيط أحدث نسخة" : "Activate latest version")}</button></div><section className="panel guide-topics">{topics.map(([title, body]) => <details key={title}><summary>{title}</summary><p>{body}</p></details>)}</section></div>;
+}
+
+function Progress({ rtl, title, books }: { rtl: boolean; title: string; books: PilotBook[] }) {
+  const [reminders, setReminders] = useState<BookReminder[]>([]);
+  const [bookId, setBookId] = useState(books[0]?.id ?? "");
+  const [when, setWhen] = useState(() => {
+    const value = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    value.setSeconds(0, 0);
+    return new Date(value.getTime() - value.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  });
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [pushReady, setPushReady] = useState(false);
+  const reload = () => listBookReminders().then(setReminders).catch((error) => setMessage(describeReminderError(error, rtl)));
+  useEffect(() => { reload(); }, []);
+  useEffect(() => { if (!bookId && books[0]) setBookId(books[0].id); }, [books, bookId]);
+  const save = async () => {
+    setBusy(true); setMessage("");
+    try {
+      await enablePushForThisDevice();
+      await saveBookReminder(bookId, new Date(when));
+      await reload();
+      setMessage(rtl ? "حُفظ التنبيه وسيصل إلى أجهزتك المفعّلة." : "The reminder was saved for your enabled devices.");
+    } catch (error) { setMessage(describeReminderError(error, rtl)); }
+    finally { setBusy(false); }
+  };
   return (
     <div className="page">
       <PageTitle
@@ -2496,32 +2694,36 @@ function Progress({ rtl, title }: { rtl: boolean; title: string }) {
         </article>
         <article className="panel reminders">
           <h3>{rtl ? "تنبيهات قادمة" : "Upcoming reminders"}</h3>
-          <Reminder
-            time={rtl ? "اليوم، 8:00 م" : "Today, 8:00 PM"}
-            value={
-              rtl
-                ? "أكمل الفصل الرابع — إدارة المعرفة"
-                : "Continue chapter four — Knowledge Management"
-            }
-          />
-          <Reminder
-            time={rtl ? "الخميس، 7:30 م" : "Thursday, 7:30 PM"}
-            value={
-              rtl
-                ? "راجع خلاصة مستقبل المكتبات"
-                : "Review The Future of Libraries summary"
-            }
-          />
-          <Reminder
-            time={rtl ? "الأحد" : "Sunday"}
-            value={rtl ? "موجز أسبوعي لمكتبتك" : "Your weekly library digest"}
-          />
+          <div className="v0103-reminder-form">
+            <div className={`notification-activation ${pushReady ? "ready" : ""}`}>
+              <div><strong>{rtl ? "تفعيل تنبيهات هذا الجهاز" : "Enable notifications on this device"}</strong><small>{pushReady ? (rtl ? "✓ تم تفعيل الجهاز" : "✓ Device enabled") : (rtl ? "خطوة مطلوبة مرة واحدة على كل هاتف أو كمبيوتر." : "Required once on each phone or computer.")}</small></div>
+              <button className="secondary" disabled={busy || pushReady} onClick={async () => { setBusy(true); setMessage(""); try { await enablePushForThisDevice(); setPushReady(true); setMessage(rtl ? "تم تفعيل تنبيهات هذا الجهاز. اختبرها الآن." : "Notifications enabled on this device. Test them now."); } catch (error) { setMessage(describeReminderError(error, rtl)); } finally { setBusy(false); } }}>{pushReady ? (rtl ? "مفعّل" : "Enabled") : (rtl ? "تفعيل الجهاز" : "Enable device")}</button>
+            </div>
+            <select value={bookId} onChange={(event) => setBookId(event.target.value)} disabled={!books.length}>
+              {!books.length && <option value="">{rtl ? "أضف كتابًا أولًا" : "Add a book first"}</option>}
+              {books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}
+            </select>
+            <input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} />
+            <button className="primary" disabled={busy || !bookId} onClick={save}>{busy ? (rtl ? "جارٍ الحفظ…" : "Saving…") : (rtl ? "حفظ التنبيه" : "Save reminder")}</button>
+            <button className="secondary" disabled={busy} onClick={async () => {
+              try { await showReminderTest(rtl ? "اختبار تنبيه المكتبة" : "Library reminder test", rtl ? "التنبيهات تعمل على هذا الجهاز." : "Notifications work on this device."); }
+              catch (error) { setMessage(describeReminderError(error, rtl)); }
+            }}>{rtl ? "اختبار الآن" : "Test now"}</button>
+          </div>
+          {message && <p className="v0103-reminder-message">{message}</p>}
+          {reminders.length === 0 && <p>{rtl ? "لا توجد تنبيهات محفوظة." : "No saved reminders."}</p>}
+          {reminders.map((reminder) => <Reminder
+            key={reminder.id}
+            time={new Date(reminder.remind_at).toLocaleString(rtl ? "ar" : "en")}
+            value={books.find((book) => book.id === reminder.book_id)?.title ?? (rtl ? "كتابك" : "Your book")}
+            onCancel={async () => { await disableBookReminder(reminder.id); await reload(); }}
+          />)}
         </article>
       </div>
     </div>
   );
 }
-function Reminder({ time, value }: { time: string; value: string }) {
+function Reminder({ time, value, onCancel }: { time: string; value: string; onCancel: () => void }) {
   return (
     <div className="reminder">
       <i>◴</i>
@@ -2529,7 +2731,7 @@ function Reminder({ time, value }: { time: string; value: string }) {
         <strong>{value}</strong>
         <span>{time}</span>
       </div>
-      <button className="disabled-soon" disabled title="قريبًا / Coming soon">⋮</button>
+      <button onClick={onCancel} title="إلغاء / Cancel">×</button>
     </div>
   );
 }
