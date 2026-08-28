@@ -386,8 +386,8 @@ export default function Home() {
       const raw = error instanceof Error ? error.message : "Unknown error";
       const friendly = raw === "FILE_TOO_LARGE_20MB"
         ? (rtl ? "الحد الأقصى 20 ميجابايت لهذه التجربة." : "The acceptance pilot limit is 20 MB.")
-        : raw === "TOO_MANY_PAGES_250"
-          ? (rtl ? "الحد الأقصى 250 صفحة في نسخة القبول الحالية." : "The current acceptance build supports up to 250 pages.")
+        : raw === "TOO_MANY_PAGES_500"
+          ? (rtl ? "الحد الأقصى 500 صفحة في نسخة القبول الحالية." : "The current acceptance build supports up to 500 pages.")
         : raw === "PDF_ONLY"
           ? (rtl ? "هذه التجربة تقبل ملف PDF فقط." : "This pilot accepts PDF files only.")
           : raw;
@@ -2987,8 +2987,8 @@ function Upload({
               <strong>{file?.name || t.choose}</strong>
               <span>
                 {rtl
-                  ? "حد أقصى 20 ميجابايت؛ يُوصى بكتاب نصي من 50 إلى 250 صفحة"
-                  : "20 MB maximum; a text-based PDF of 50–250 pages is recommended"}
+                  ? "حد أقصى 20 ميجابايت؛ يُوصى بكتاب نصي من 50 إلى 500 صفحة"
+                  : "20 MB maximum; a text-based PDF of 50–500 pages is recommended"}
               </span>
             </label>
             <label className="select-label output-language">
