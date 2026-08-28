@@ -164,6 +164,7 @@ Deno.serve(async (request) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model,
+          max_output_tokens: 12_000,
           input: [{ role: "user", content: [{ type: "input_file", file_id: openaiFileId, detail: "low" }, { type: "input_text", text: prompt }] }],
           text: { format: bookAnalysisFormat },
         }),
@@ -205,7 +206,7 @@ Deno.serve(async (request) => {
       const generated = await openAI("responses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model, input: [{ role: "user", content: [{ type: "input_file", file_id: book.openai_file_id, detail: "low" }, { type: "input_text", text: prompt }] }], text: { format: bookAnswerFormat } }),
+        body: JSON.stringify({ model, max_output_tokens: 2_500, input: [{ role: "user", content: [{ type: "input_file", file_id: book.openai_file_id, detail: "low" }, { type: "input_text", text: prompt }] }], text: { format: bookAnswerFormat } }),
       });
       const response = await generated.json();
       const outputText = response.output?.flatMap((item: { content?: Array<{ text?: string }> }) => item.content ?? []).map((item: { text?: string }) => item.text ?? "").join("") ?? "";
