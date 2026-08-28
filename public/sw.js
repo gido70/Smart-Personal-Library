@@ -1,4 +1,4 @@
-const CACHE_NAME = "smart-personal-library-v0.10.3";
+const CACHE_NAME = "smart-personal-library-v0.10.3-1";
 const APP_SHELL = ["./", "./manifest.webmanifest", "./favicon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -23,15 +23,14 @@ self.addEventListener("fetch", (event) => {
     }).catch(() => caches.match("./")));
     return;
   }
-  event.respondWith(caches.match(event.request).then((cached) => {
-    if (cached) return cached;
-    return fetch(event.request).then((response) => {
+  // Network-first prevents phones and installed PWAs from remaining on an old
+  // JavaScript/CSS build after a deployment. The cache is only an offline fallback.
+  event.respondWith(fetch(event.request, { cache: "no-store" }).then((response) => {
       if (!response || (response.status !== 200 && response.type !== "opaque")) return response;
       const copy = response.clone();
       caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
       return response;
-    }).catch(() => caches.match("./"));
-  }));
+    }).catch(() => caches.match(event.request).then((cached) => cached || caches.match("./"))));
 });
 
 self.addEventListener("push", (event) => {
