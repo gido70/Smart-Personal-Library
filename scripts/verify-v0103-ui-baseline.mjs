@@ -16,8 +16,25 @@ for (const [file, digest] of expected) {
 }
 
 const entry = readFileSync("src/main.tsx", "utf8");
+const app = readFileSync("src/App.tsx", "utf8");
 const legacyEntry = /import App from "\.\/App"/.test(entry) && /<App\s*\/>/.test(entry) && !/AppV11/.test(entry);
 console.log(`${legacyEntry ? "PASS" : "FAIL"}  V0.10.3 still renders the accepted V0.10.2 application`);
 if (!legacyEntry) failed = true;
+
+const preservedBookOutputs = [
+  "paid-summary",
+  "الأفكار المحورية",
+  "chapters",
+  "نقاط القوة",
+  "الحدود",
+  "inference",
+  "return-list",
+].every((marker) => app.includes(marker));
+console.log(`${preservedBookOutputs ? "PASS" : "FAIL"}  accepted summary, ideas, chapters, critical reading, inference and return points remain present`);
+if (!preservedBookOutputs) failed = true;
+
+const additiveMobileFixes = /spl-professional-voice-/.test(app) && /UserGuide/.test(app) && /sample-question-button/.test(app) && /OriginalPdfCover/.test(app);
+console.log(`${additiveMobileFixes ? "PASS" : "FAIL"}  guide, saved voice choice, sample question and original cover are additive`);
+if (!additiveMobileFixes) failed = true;
 
 if (failed) process.exit(1);

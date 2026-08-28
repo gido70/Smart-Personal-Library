@@ -1,5 +1,5 @@
 // Mobile cache revision 1: force iPhone and Samsung to adopt this build.
-const CACHE_NAME = "smart-personal-library-v0.10.3-1";
+const CACHE_NAME = "smart-personal-library-v0.10.3-2";
 const APP_SHELL = ["./", "./manifest.webmanifest", "./favicon.svg"];
 
 self.addEventListener("install", (event) => {

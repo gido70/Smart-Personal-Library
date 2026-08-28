@@ -45,7 +45,8 @@ type View =
   | "reader"
   | "progress"
   | "librarian"
-  | "feedback";
+  | "feedback"
+  | "guide";
 
 const text = {
   ar: {
@@ -206,7 +207,7 @@ export default function Home() {
         if (!cancelled) setBrowserCacheReady(true);
         return;
       }
-      if (sessionStorage.getItem("spl-worker-prepared-v0103-1") !== "1") {
+      if (sessionStorage.getItem("spl-worker-prepared-v0103-2") !== "1") {
         const registrations = await navigator.serviceWorker.getRegistrations();
         const cacheNames = "caches" in window ? await caches.keys() : [];
         await Promise.all([
@@ -215,7 +216,7 @@ export default function Home() {
             .filter((name) => name.startsWith("smart-personal-library-"))
             .map((name) => caches.delete(name)),
         ]);
-        sessionStorage.setItem("spl-worker-prepared-v0103-1", "1");
+        sessionStorage.setItem("spl-worker-prepared-v0103-2", "1");
       }
       await navigator.serviceWorker.register("./sw.js");
       if (!cancelled) setBrowserCacheReady(true);
@@ -463,6 +464,7 @@ export default function Home() {
             <button type="submit" aria-label={rtl ? "تنفيذ البحث" : "Run search"} title={rtl ? "بحث" : "Search"}>⌕</button>
           </form>
           <div className="top-actions">
+            <button onClick={() => setView("guide")} title={rtl ? "دليل الاستخدام" : "User guide"}>؟</button>
             <button onClick={switchLang} className="lang-switch">
               {rtl ? "EN" : "ع"}
             </button>
@@ -538,6 +540,7 @@ export default function Home() {
         {view === "progress" && <Progress rtl={rtl} title={pageTitle} books={pilotBooks} />}
         {view === "librarian" && <Librarian rtl={rtl} title={pageTitle} />}
         {view === "feedback" && <Feedback rtl={rtl} t={t} />}
+        {view === "guide" && <UserGuide rtl={rtl} onUpload={() => setUpload(true)} onLibrary={() => setView("library")} />}
       </main>
       <nav className="mobile-nav">
         {navigation[lang].slice(0, 5).map(([id, label, icon]) => (
@@ -1008,13 +1011,15 @@ function OriginalPdfCover({ book }: { book: PilotBook }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let cancelled = false;
+    setFailed(false);
     const render = async () => {
       const signed = await createBookSignedUrl(book.storage_path, 900);
       const pdfjs = await import("pdfjs-dist");
       pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
       const pdf = await pdfjs.getDocument({ url: signed.url, disableFontFace: true }).promise;
       const first = await pdf.getPage(1);
-      const viewport = first.getViewport({ scale: 0.34 });
+      const base = first.getViewport({ scale: 1 });
+      const viewport = first.getViewport({ scale: Math.max(0.34, Math.min(1.2, 420 / base.width)) });
       if (cancelled || !canvasRef.current) return;
       const canvas = canvasRef.current;
       const context = canvas.getContext("2d", { alpha: false });
@@ -1022,6 +1027,7 @@ function OriginalPdfCover({ book }: { book: PilotBook }) {
       canvas.width = Math.floor(viewport.width);
       canvas.height = Math.floor(viewport.height);
       await first.render({ canvasContext: context, viewport, canvas }).promise;
+      canvas.dataset.ready = "true";
     };
     render().catch(() => !cancelled && setFailed(true));
     return () => { cancelled = true; };
@@ -1332,7 +1338,7 @@ function PilotWorkspace({
   const [resultLanguage, setResultLanguage] = useState<"ar" | "en">(
     book.output_language === "en" ? "en" : rtl ? "ar" : "en",
   );
-  const [professionalVoice, setProfessionalVoice] = useState<"marin" | "cedar">("marin");
+  const [professionalVoice, setProfessionalVoice] = useState<"marin" | "cedar">(() => localStorage.getItem(`spl-professional-voice-${book.id}`) === "cedar" ? "cedar" : "marin");
   const [voicePreviewUrls, setVoicePreviewUrls] = useState<Partial<Record<"marin" | "cedar", string>>>({});
   const [questionHistory, setQuestionHistory] = useState<Array<{ id: string; question: string; answer: Record<string, unknown>; language: "ar" | "en"; created_at: string }>>([]);
   const [usageTotals, setUsageTotals] = useState({ calls: 0, input: 0, output: 0, textCostUsd: 0, audioCharacters: 0, unpricedCalls: 0 });
@@ -1349,6 +1355,13 @@ function PilotWorkspace({
   const [manualBusy, setManualBusy] = useState(false);
   const [bookSearchTerm, setBookSearchTerm] = useState("");
   const [bookSearchResults, setBookSearchResults] = useState<BookSearchMatch[] | null>(null);
+  const selectProfessionalVoice = (voice: "marin" | "cedar") => {
+    setProfessionalVoice(voice);
+    localStorage.setItem(`spl-professional-voice-${book.id}`, voice);
+  };
+  useEffect(() => {
+    setProfessionalVoice(localStorage.getItem(`spl-professional-voice-${book.id}`) === "cedar" ? "cedar" : "marin");
+  }, [book.id]);
   const sizeMb = Math.max(0.1, (book.file_size || 0) / 1048576);
   const band = sizeMb < 5 ? "small" : sizeMb < 20 ? "medium" : "large";
   const estimates = {
@@ -1460,7 +1473,7 @@ function PilotWorkspace({
   };
   const previewVoice = async (voice: "marin" | "cedar") => {
     if (ZERO_COST_MODE) return;
-    setProfessionalVoice(voice);
+    selectProfessionalVoice(voice);
     setBusy(`preview-${voice}`);
     setError("");
     try {
@@ -2002,6 +2015,18 @@ function PilotWorkspace({
                 </p>
               ) : (
                 <>
+                  <p className="question-purpose-note">
+                    {results
+                      ? (rtl ? "اكتب سؤالًا محددًا؛ ستأتي الإجابة من تحليل هذا الكتاب مع مراجع عند توفرها." : "Ask a specific question; the answer uses this book's analysis and includes references when available.")
+                      : (rtl ? "تُفعّل الأسئلة بعد اكتمال تحليل هذا الكتاب." : "Questions become available after this book is analyzed.")}
+                  </p>
+                  <button
+                    className="secondary sample-question-button"
+                    disabled={!results}
+                    onClick={() => setQ(rtl ? "ما الأفكار المحورية في هذا الكتاب، وما الأدلة التي اعتمد عليها المؤلف؟" : "What are the book's central ideas, and what evidence does the author use?")}
+                  >
+                    {rtl ? "استخدم سؤالًا نموذجيًا" : "Use a sample question"}
+                  </button>
                   <textarea
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
@@ -2069,7 +2094,7 @@ function PilotWorkspace({
                         <button
                           className="voice-select"
                           aria-pressed={professionalVoice === voice}
-                          onClick={() => setProfessionalVoice(voice)}
+                          onClick={() => selectProfessionalVoice(voice)}
                         >
                           <span className="voice-radio" aria-hidden="true">{professionalVoice === voice ? "●" : "○"}</span>
                           <strong>{voice === "marin" ? (rtl ? "صوت أنثوي — Marin" : "Female voice — Marin") : (rtl ? "صوت رجالي — Cedar" : "Male voice — Cedar")}</strong>
@@ -2550,6 +2575,37 @@ function Idea({ n, title, text }: { n: string; title: string; text: string }) {
       </div>
     </div>
   );
+}
+
+function UserGuide({ rtl, onUpload, onLibrary }: { rtl: boolean; onUpload: () => void; onLibrary: () => void }) {
+  const topics = rtl ? [
+    ["1. إضافة الكتاب", "اختر PDF وحدد لغة المخرجات وأقر بحق الاستخدام. الرفع وحده لا يشغّل خدمة مدفوعة."],
+    ["2. صفحة الكتاب", "صفحة الكتاب الحالية هي القاعدة الثابتة لكل كتاب جديد، وبها القراءة والتحليل والنتائج والصوت والأسئلة."],
+    ["3. الغلاف الأصلي", "تأخذ المكتبة الغلاف من الصفحة الأولى للكتاب نفسه، مع بديل آمن فقط إذا تعذر فتح الملف."],
+    ["4. القراءة وموضع التوقف", "تُحفظ الصفحة والعلامات لتعود إلى الموضع نفسه من الكمبيوتر أو الهاتف."],
+    ["5. التحليل المجاني", "يفحص بنية الكتاب داخل المتصفح دون تكلفة AI ودون إرسال الملف إلى OpenAI."],
+    ["6. التحليل المدفوع", "يحافظ على الخلاصة والأفكار المحورية والفصول ونقاط القوة والحدود والاستنتاجات ومواضع العودة، ولا يبدأ قبل تأكيد التكلفة."],
+    ["7. تجربة الصوت", "استمع إلى صوت المرأة وصوت الرجل؛ تُنشأ العينة مرة واحدة ثم يعاد تشغيلها دون تكلفة جديدة."],
+    ["8. اختيار الصوت", "اضغط على الصوت الذي تريده؛ يظهر الاختيار بوضوح ويُحفظ لهذا الكتاب قبل تأكيد شراء الصوت الكامل."],
+    ["9. أسئلة الكتاب", "بعد اكتمال التحليل، اكتب سؤالًا أو استخدم السؤال النموذجي، ثم راجع التكلفة قبل الإرسال."],
+    ["10. التنبيهات", "اختر الكتاب والموعد، فعّل إشعارات الجهاز، ثم استخدم اختبار الآن للتأكد من ظهور التنبيه."],
+    ["11. الهاتف", "على iPhone افتح المنصة من الشاشة الرئيسية. وعلى Samsung استخدم Chrome واسمح بالإشعارات ثم حدّث الصفحة عند ظهور نسخة قديمة."],
+    ["12. الوضع الليلي", "يغيّر ألوان الواجهة المحيطة لتصبح الحروف واضحة، بينما تبقى صفحة PDF وخطها وألوانها الأصلية دون تغيير."],
+  ] : [
+    ["1. Add a book", "Choose a PDF, output language, and lawful-use confirmation. Uploading does not start paid AI."],
+    ["2. Book page", "The current book page remains the fixed template for every new book."],
+    ["3. Original cover", "The cover comes from the PDF's first page, with a safe fallback only if the file cannot be opened."],
+    ["4. Reading position", "Page and bookmarks are saved across computer and phone."],
+    ["5. Free analysis", "Examines structure locally without AI cost or sending the file to OpenAI."],
+    ["6. Paid analysis", "Preserves all current summary, ideas, chapters, critical reading and return points after cost confirmation."],
+    ["7. Voice preview", "Preview female and male samples; generated samples are reused."],
+    ["8. Voice selection", "Select and save one voice per book before buying full audio."],
+    ["9. Ask the book", "After analysis, enter a question or use the sample, then review cost."],
+    ["10. Notifications", "Choose the book and time, enable device notifications, then run the test."],
+    ["11. Phones", "Use Home Screen mode on iPhone and Chrome with notification permission on Samsung."],
+    ["12. Night mode", "Improves interface contrast while preserving the original PDF page."],
+  ];
+  return <div className="page user-guide-page"><PageTitle title={rtl ? "دليل استخدام المكتبة" : "Library user guide"} description={rtl ? "اثنتا عشرة خطوة تشرح الموجود وتفعّله دون تغيير صفحة الكتاب الناجحة." : "Twelve steps that explain and activate the current experience without changing the successful book page."} /><div className="guide-actions"><button className="primary" onClick={onUpload}>＋ {rtl ? "أضف كتابًا" : "Add a book"}</button><button className="secondary" onClick={onLibrary}>▥ {rtl ? "افتح مكتبتي" : "Open my library"}</button></div><section className="panel guide-topics">{topics.map(([title, body]) => <details key={title}><summary>{title}</summary><p>{body}</p></details>)}</section></div>;
 }
 
 function Progress({ rtl, title, books }: { rtl: boolean; title: string; books: PilotBook[] }) {
