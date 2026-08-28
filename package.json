@@ -1,6 +1,6 @@
 {
   "name": "smart-personal-library",
-  "version": "0.10.2-cost-ledger",
+  "version": "0.10.3-book-pilot",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,15 +10,17 @@
     "test:unit": "node --experimental-strip-types scripts/test-text-analysis.mjs",
     "test:paid-pilot": "node --experimental-strip-types scripts/verify-paid-pilot.mjs",
     "test:release": "node scripts/verify-v071-release.mjs",
-    "test": "npm run test:unit && npm run test:paid-pilot && npm run test:release"
+    "test:ui-baseline": "node scripts/verify-v0103-ui-baseline.mjs",
+    "test:reminders": "node scripts/verify-v0103-reminders.mjs",
+    "test": "npm run test:unit && npm run test:paid-pilot && npm run test:release && npm run test:ui-baseline && npm run test:reminders"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
     "@vitejs/plugin-react": "6.0.2",
-    "pdfjs-dist": "^5.4.149",
+    "pdfjs-dist": "6.2.108",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "vite": "8.0.13"
+    "vite": "8.2.2"
   },
   "devDependencies": {
     "@types/react": "^19.1.10",
