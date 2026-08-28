@@ -206,7 +206,7 @@ export default function Home() {
         if (!cancelled) setBrowserCacheReady(true);
         return;
       }
-      if (sessionStorage.getItem("spl-worker-prepared-v0103") !== "1") {
+      if (sessionStorage.getItem("spl-worker-prepared-v0103-1") !== "1") {
         const registrations = await navigator.serviceWorker.getRegistrations();
         const cacheNames = "caches" in window ? await caches.keys() : [];
         await Promise.all([
@@ -215,7 +215,7 @@ export default function Home() {
             .filter((name) => name.startsWith("smart-personal-library-"))
             .map((name) => caches.delete(name)),
         ]);
-        sessionStorage.setItem("spl-worker-prepared-v0103", "1");
+        sessionStorage.setItem("spl-worker-prepared-v0103-1", "1");
       }
       await navigator.serviceWorker.register("./sw.js");
       if (!cancelled) setBrowserCacheReady(true);
@@ -2066,9 +2066,15 @@ function PilotWorkspace({
                   <div className="voice-choice-grid">
                     {(["marin", "cedar"] as const).map((voice) => (
                       <div className={`voice-choice ${professionalVoice === voice ? "selected" : ""}`} key={voice}>
-                        <button className="voice-select" onClick={() => setProfessionalVoice(voice)}>
+                        <button
+                          className="voice-select"
+                          aria-pressed={professionalVoice === voice}
+                          onClick={() => setProfessionalVoice(voice)}
+                        >
+                          <span className="voice-radio" aria-hidden="true">{professionalVoice === voice ? "●" : "○"}</span>
                           <strong>{voice === "marin" ? (rtl ? "صوت أنثوي — Marin" : "Female voice — Marin") : (rtl ? "صوت رجالي — Cedar" : "Male voice — Cedar")}</strong>
                           <span>{rtl ? "هادئ، دافئ، وقراءة متزنة" : "Calm, warm, balanced narration"}</span>
+                          {professionalVoice === voice && <b className="voice-selected-label">{rtl ? "مختار لإنشاء الصوت الكامل" : "Selected for full audio"}</b>}
                         </button>
                         <button className="secondary voice-preview-button" disabled={busy === `preview-${voice}`} onClick={() => previewVoice(voice)}>
                           {busy === `preview-${voice}` ? "…" : rtl ? "أنشئ/شغّل العينة" : "Create/play sample"}
@@ -2077,6 +2083,10 @@ function PilotWorkspace({
                       </div>
                     ))}
                   </div>
+                  <p className="selected-voice-summary">
+                    {rtl ? "الصوت المختار للشراء: " : "Voice selected for purchase: "}
+                    <strong>{professionalVoice === "marin" ? (rtl ? "الأنثوي — Marin" : "Female — Marin") : (rtl ? "الرجالي — Cedar" : "Male — Cedar")}</strong>
+                  </p>
                   {confirming !== "audio" ? (
                     <button
                       className="secondary"
@@ -2087,6 +2097,10 @@ function PilotWorkspace({
                     </button>
                   ) : (
                     <div className="cost-confirm">
+                      <strong className="confirm-voice-name">
+                        {rtl ? "سيُنشأ الصوت الكامل باستخدام: " : "Full audio will use: "}
+                        {professionalVoice === "marin" ? (rtl ? "الصوت الأنثوي — Marin" : "Female — Marin") : (rtl ? "الصوت الرجالي — Cedar" : "Male — Cedar")}
+                      </strong>
                       <button
                         className="primary"
                         disabled={busy === "audio"}
