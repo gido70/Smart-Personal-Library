@@ -172,6 +172,7 @@ export default function Home() {
   const [processing, setProcessing] = useState(false);
   const [percent, setPercent] = useState(0);
   const [notice, setNotice] = useState("");
+  const [activating, setActivating] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [authState, setAuthState] = useState<"loading" | "signed_out" | "authenticated">("loading");
   const [accountEmail, setAccountEmail] = useState("");
@@ -207,7 +208,7 @@ export default function Home() {
         if (!cancelled) setBrowserCacheReady(true);
         return;
       }
-      if (sessionStorage.getItem("spl-worker-prepared-v0103-2") !== "1") {
+      if (sessionStorage.getItem("spl-worker-prepared-v0103-3") !== "1") {
         const registrations = await navigator.serviceWorker.getRegistrations();
         const cacheNames = "caches" in window ? await caches.keys() : [];
         await Promise.all([
@@ -216,7 +217,7 @@ export default function Home() {
             .filter((name) => name.startsWith("smart-personal-library-"))
             .map((name) => caches.delete(name)),
         ]);
-        sessionStorage.setItem("spl-worker-prepared-v0103-2", "1");
+        sessionStorage.setItem("spl-worker-prepared-v0103-3", "1");
       }
       await navigator.serviceWorker.register("./sw.js");
       if (!cancelled) setBrowserCacheReady(true);
@@ -302,6 +303,26 @@ export default function Home() {
     const next = lang === "ar" ? "en" : "ar";
     setLang(next);
     localStorage.setItem("spl-lang", next);
+  };
+  const activateLatestVersion = async () => {
+    setActivating(true);
+    setNotice(rtl ? "جارٍ تنشيط أحدث نسخة…" : "Activating the latest version…");
+    try {
+      if ("serviceWorker" in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+      }
+      if ("caches" in window) {
+        const names = await caches.keys();
+        await Promise.all(names.filter((name) => name.startsWith("smart-personal-library-")).map((name) => caches.delete(name)));
+      }
+      sessionStorage.removeItem("spl-worker-prepared-v0103-3");
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.set("refresh", Date.now().toString());
+      window.location.replace(cleanUrl.toString());
+    } catch {
+      window.location.reload();
+    }
   };
   const pageTitle = useMemo(
     () => navigation[lang].find((x) => x[0] === view)?.[1] || t.name,
@@ -465,6 +486,7 @@ export default function Home() {
           </form>
           <div className="top-actions">
             <button onClick={() => setView("guide")} title={rtl ? "دليل الاستخدام" : "User guide"}>؟</button>
+            <button onClick={activateLatestVersion} disabled={activating} title={rtl ? "تنشيط أحدث نسخة" : "Activate latest version"}>↻</button>
             <button onClick={switchLang} className="lang-switch">
               {rtl ? "EN" : "ع"}
             </button>
@@ -540,7 +562,7 @@ export default function Home() {
         {view === "progress" && <Progress rtl={rtl} title={pageTitle} books={pilotBooks} />}
         {view === "librarian" && <Librarian rtl={rtl} title={pageTitle} />}
         {view === "feedback" && <Feedback rtl={rtl} t={t} />}
-        {view === "guide" && <UserGuide rtl={rtl} onUpload={() => setUpload(true)} onLibrary={() => setView("library")} />}
+        {view === "guide" && <UserGuide rtl={rtl} onUpload={() => setUpload(true)} onLibrary={() => setView("library")} onActivate={activateLatestVersion} activating={activating} />}
       </main>
       <nav className="mobile-nav">
         {navigation[lang].slice(0, 5).map(([id, label, icon]) => (
@@ -1353,6 +1375,7 @@ function PilotWorkspace({
   const [manualText, setManualText] = useState("");
   const [manualErrors, setManualErrors] = useState<string[]>([]);
   const [manualBusy, setManualBusy] = useState(false);
+  const [questionCostOpen, setQuestionCostOpen] = useState(false);
   const [bookSearchTerm, setBookSearchTerm] = useState("");
   const [bookSearchResults, setBookSearchResults] = useState<BookSearchMatch[] | null>(null);
   const selectProfessionalVoice = (voice: "marin" | "cedar") => {
@@ -1601,6 +1624,10 @@ function PilotWorkspace({
             : "Saved in your private space. Storage alone does not use OpenAI credit."
         }
       />
+      <div className="mobile-book-tools" aria-label={rtl ? "اختصارات وظائف الكتاب" : "Book feature shortcuts"}>
+        <button className="secondary" onClick={() => document.getElementById("ask-book-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{rtl ? "اسأل الكتاب" : "Ask"}</button>
+        <button className="secondary" onClick={() => document.getElementById("professional-voice-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{rtl ? "اختيار الصوت" : "Choose voice"}</button>
+      </div>
       <section className="panel book-info-card">
         <span className="eyebrow">
           {rtl ? "بيانات الكتاب المحفوظ" : "Saved book details"}
@@ -2004,7 +2031,7 @@ function PilotWorkspace({
             {results && <PaidResultView result={results} rtl={rtl} />}
           </article>
           <aside className="detail-aside">
-            <section className="panel">
+            <section className="panel" id="ask-book-panel">
               <h3>{rtl ? "اسأل الكتاب — مدفوع" : "Ask the book — paid"}</h3>
               {ZERO_COST_MODE ? (
                 <p className="locked-note">
@@ -2015,6 +2042,8 @@ function PilotWorkspace({
                 </p>
               ) : (
                 <>
+                  <button className="secondary question-cost-button" onClick={() => setQuestionCostOpen((open) => !open)}>{rtl ? "اعرف فائدة السؤال وتكلفته أولًا" : "See question purpose and cost first"}</button>
+                  {questionCostOpen && <div className="question-cost-info"><strong>{rtl ? "قبل أن تكتب السؤال" : "Before you ask"}</strong><p>{rtl ? "الفائدة: إجابة مرتبطة بتحليل هذا الكتاب مع مراجع عند توفرها. كل سؤال خدمة مستقلة مدفوعة؛ التقدير التخطيطي للسؤال القصير $0.01–$0.15، وقد يزيد مع طول السؤال والإجابة. لا يبدأ الخصم إلا بعد زر التأكيد." : "Purpose: a book-grounded answer with references when available. Each question is a separate paid action; a short-question planning estimate is $0.01–$0.15 and may increase with length. Billing starts only after confirmation."}</p></div>}
                   <p className="question-purpose-note">
                     {results
                       ? (rtl ? "اكتب سؤالًا محددًا؛ ستأتي الإجابة من تحليل هذا الكتاب مع مراجع عند توفرها." : "Ask a specific question; the answer uses this book's analysis and includes references when available.")
@@ -2065,7 +2094,7 @@ function PilotWorkspace({
                 </>
               )}
             </section>
-            <section className="panel">
+            <section className="panel" id="professional-voice-panel">
               <h3>
                 {rtl ? "الصوت الاحترافي — مدفوع" : "Professional voice — paid"}
               </h3>
@@ -2577,7 +2606,7 @@ function Idea({ n, title, text }: { n: string; title: string; text: string }) {
   );
 }
 
-function UserGuide({ rtl, onUpload, onLibrary }: { rtl: boolean; onUpload: () => void; onLibrary: () => void }) {
+function UserGuide({ rtl, onUpload, onLibrary, onActivate, activating }: { rtl: boolean; onUpload: () => void; onLibrary: () => void; onActivate: () => void; activating: boolean }) {
   const topics = rtl ? [
     ["1. إضافة الكتاب", "اختر PDF وحدد لغة المخرجات وأقر بحق الاستخدام. الرفع وحده لا يشغّل خدمة مدفوعة."],
     ["2. صفحة الكتاب", "صفحة الكتاب الحالية هي القاعدة الثابتة لكل كتاب جديد، وبها القراءة والتحليل والنتائج والصوت والأسئلة."],
@@ -2591,6 +2620,7 @@ function UserGuide({ rtl, onUpload, onLibrary }: { rtl: boolean; onUpload: () =>
     ["10. التنبيهات", "اختر الكتاب والموعد، فعّل إشعارات الجهاز، ثم استخدم اختبار الآن للتأكد من ظهور التنبيه."],
     ["11. الهاتف", "على iPhone افتح المنصة من الشاشة الرئيسية. وعلى Samsung استخدم Chrome واسمح بالإشعارات ثم حدّث الصفحة عند ظهور نسخة قديمة."],
     ["12. الوضع الليلي", "يغيّر ألوان الواجهة المحيطة لتصبح الحروف واضحة، بينما تبقى صفحة PDF وخطها وألوانها الأصلية دون تغيير."],
+    ["13. تنشيط أحدث نسخة", "إذا بقي الهاتف أو الكمبيوتر على نسخة قديمة، اضغط تنشيط النسخة؛ تُمسح ذاكرة المنصة القديمة وتُفتح أحدث معاينة تلقائيًا."],
   ] : [
     ["1. Add a book", "Choose a PDF, output language, and lawful-use confirmation. Uploading does not start paid AI."],
     ["2. Book page", "The current book page remains the fixed template for every new book."],
@@ -2604,8 +2634,9 @@ function UserGuide({ rtl, onUpload, onLibrary }: { rtl: boolean; onUpload: () =>
     ["10. Notifications", "Choose the book and time, enable device notifications, then run the test."],
     ["11. Phones", "Use Home Screen mode on iPhone and Chrome with notification permission on Samsung."],
     ["12. Night mode", "Improves interface contrast while preserving the original PDF page."],
+    ["13. Activate latest version", "Clears the platform's old cache and reloads the latest build on phone or computer."],
   ];
-  return <div className="page user-guide-page"><PageTitle title={rtl ? "دليل استخدام المكتبة" : "Library user guide"} description={rtl ? "اثنتا عشرة خطوة تشرح الموجود وتفعّله دون تغيير صفحة الكتاب الناجحة." : "Twelve steps that explain and activate the current experience without changing the successful book page."} /><div className="guide-actions"><button className="primary" onClick={onUpload}>＋ {rtl ? "أضف كتابًا" : "Add a book"}</button><button className="secondary" onClick={onLibrary}>▥ {rtl ? "افتح مكتبتي" : "Open my library"}</button></div><section className="panel guide-topics">{topics.map(([title, body]) => <details key={title}><summary>{title}</summary><p>{body}</p></details>)}</section></div>;
+  return <div className="page user-guide-page"><PageTitle title={rtl ? "دليل استخدام المكتبة" : "Library user guide"} description={rtl ? "خطوات عملية تشرح الموجود وتفعّله دون تغيير صفحة الكتاب الناجحة." : "Practical steps that activate the current experience without changing the successful book page."} /><div className="guide-actions"><button className="primary" onClick={onUpload}>＋ {rtl ? "أضف كتابًا" : "Add a book"}</button><button className="secondary" onClick={onLibrary}>▥ {rtl ? "افتح مكتبتي" : "Open my library"}</button><button className="secondary activate-version-button" disabled={activating} onClick={onActivate}>↻ {activating ? (rtl ? "جارٍ التنشيط…" : "Activating…") : (rtl ? "تنشيط أحدث نسخة" : "Activate latest version")}</button></div><section className="panel guide-topics">{topics.map(([title, body]) => <details key={title}><summary>{title}</summary><p>{body}</p></details>)}</section></div>;
 }
 
 function Progress({ rtl, title, books }: { rtl: boolean; title: string; books: PilotBook[] }) {
@@ -2618,6 +2649,7 @@ function Progress({ rtl, title, books }: { rtl: boolean; title: string; books: P
   });
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pushReady, setPushReady] = useState(false);
   const reload = () => listBookReminders().then(setReminders).catch((error) => setMessage(describeReminderError(error, rtl)));
   useEffect(() => { reload(); }, []);
   useEffect(() => { if (!bookId && books[0]) setBookId(books[0].id); }, [books, bookId]);
@@ -2663,6 +2695,10 @@ function Progress({ rtl, title, books }: { rtl: boolean; title: string; books: P
         <article className="panel reminders">
           <h3>{rtl ? "تنبيهات قادمة" : "Upcoming reminders"}</h3>
           <div className="v0103-reminder-form">
+            <div className={`notification-activation ${pushReady ? "ready" : ""}`}>
+              <div><strong>{rtl ? "تفعيل تنبيهات هذا الجهاز" : "Enable notifications on this device"}</strong><small>{pushReady ? (rtl ? "✓ تم تفعيل الجهاز" : "✓ Device enabled") : (rtl ? "خطوة مطلوبة مرة واحدة على كل هاتف أو كمبيوتر." : "Required once on each phone or computer.")}</small></div>
+              <button className="secondary" disabled={busy || pushReady} onClick={async () => { setBusy(true); setMessage(""); try { await enablePushForThisDevice(); setPushReady(true); setMessage(rtl ? "تم تفعيل تنبيهات هذا الجهاز. اختبرها الآن." : "Notifications enabled on this device. Test them now."); } catch (error) { setMessage(describeReminderError(error, rtl)); } finally { setBusy(false); } }}>{pushReady ? (rtl ? "مفعّل" : "Enabled") : (rtl ? "تفعيل الجهاز" : "Enable device")}</button>
+            </div>
             <select value={bookId} onChange={(event) => setBookId(event.target.value)} disabled={!books.length}>
               {!books.length && <option value="">{rtl ? "أضف كتابًا أولًا" : "Add a book first"}</option>}
               {books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}

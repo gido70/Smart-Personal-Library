@@ -37,4 +37,8 @@ const additiveMobileFixes = /spl-professional-voice-/.test(app) && /UserGuide/.t
 console.log(`${additiveMobileFixes ? "PASS" : "FAIL"}  guide, saved voice choice, sample question and original cover are additive`);
 if (!additiveMobileFixes) failed = true;
 
+const practicalActivation = /activateLatestVersion/.test(app) && /mobile-book-tools/.test(app) && /question-cost-info/.test(app) && /notification-activation/.test(app);
+console.log(`${practicalActivation ? "PASS" : "FAIL"}  refresh activation, mobile voice/question access, cost disclosure and device notification activation are implemented`);
+if (!practicalActivation) failed = true;
+
 if (failed) process.exit(1);
