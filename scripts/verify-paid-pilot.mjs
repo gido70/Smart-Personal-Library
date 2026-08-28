@@ -23,7 +23,9 @@ check("question spending has daily and total limits", /DAILY_QUESTION_LIMIT_REAC
 check("analysis and question output are capped server-side", /max_output_tokens: 12_000/.test(edge) && /max_output_tokens: 2_500/.test(edge));
 check("PDF token cost uses low detail", /type: "input_file"[\s\S]{0,100}detail: "low"/.test(edge));
 check("professional audio is reused instead of charged twice", /existingAudio\?\.length/.test(edge) && /reused: true/.test(edge));
+check("professional audio reuse is isolated by voice", /eq\("voice", voice\)/.test(edge));
 check("only approved professional voices are accepted", /body\.voice === "cedar" \? "cedar" : "marin"/.test(edge));
+check("voice samples are short, cached, and never generated automatically", /action === "audio_preview"/.test(edge) && /voice-previews/.test(edge) && /onClick=\{\(\) => previewVoice\(voice\)\}/.test(app));
 check("every paid browser action has an explicit confirmation state", /confirming !== "process"/.test(app) && /confirming !== "ask"/.test(app) && /confirming !== "audio"/.test(app));
 check("no OpenAI secret is embedded in tracked source", !/sk-[A-Za-z0-9_-]{20,}/.test(`${app}\n${edge}`));
 check("client has no live Supabase fallback", !/supabase\.co|eyJhbGci/i.test(supabaseClient));

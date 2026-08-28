@@ -16,7 +16,7 @@ export function calculateLoggedTextCost(events: AiUsageEvent[]) {
   let audioCharacters = 0;
 
   for (const event of events) {
-    if (event.action === "audio") {
+    if (event.action === "audio" || event.action === "audio_preview") {
       const characters = Number(event.metadata?.characters ?? 0);
       if (Number.isFinite(characters) && characters > 0) audioCharacters += characters;
       continue;

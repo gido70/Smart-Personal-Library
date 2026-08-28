@@ -1333,6 +1333,7 @@ function PilotWorkspace({
     book.output_language === "en" ? "en" : rtl ? "ar" : "en",
   );
   const [professionalVoice, setProfessionalVoice] = useState<"marin" | "cedar">("marin");
+  const [voicePreviewUrls, setVoicePreviewUrls] = useState<Partial<Record<"marin" | "cedar", string>>>({});
   const [questionHistory, setQuestionHistory] = useState<Array<{ id: string; question: string; answer: Record<string, unknown>; language: "ar" | "en"; created_at: string }>>([]);
   const [usageTotals, setUsageTotals] = useState({ calls: 0, input: 0, output: 0, textCostUsd: 0, audioCharacters: 0, unpricedCalls: 0 });
   const [busy, setBusy] = useState("");
@@ -1382,7 +1383,9 @@ function PilotWorkspace({
       audioCharacters: cost.audioCharacters,
       unpricedCalls: cost.unpricedCalls,
     });
-    const languageAudio = data.audio.filter((item) => item.language === resultLanguage);
+    const languageAudio = data.audio.filter(
+      (item) => item.language === resultLanguage && item.voice === professionalVoice,
+    );
     if (languageAudio.length)
       setAudioUrls(
         await Promise.all(
@@ -1398,7 +1401,7 @@ function PilotWorkspace({
     getLegalConsentStatus(book.id)
       .then(setConsent)
       .catch(() => setConsent(null));
-  }, [book.id, resultLanguage]);
+  }, [book.id, resultLanguage, professionalVoice]);
   const process = async () => {
     if (ZERO_COST_MODE) return;
     setBusy("process");
@@ -1447,7 +1450,27 @@ function PilotWorkspace({
           ),
         ),
       );
+      await reload();
       setConfirming("");
+    } catch (e) {
+      setError(describeAiError(e, rtl));
+    } finally {
+      setBusy("");
+    }
+  };
+  const previewVoice = async (voice: "marin" | "cedar") => {
+    if (ZERO_COST_MODE) return;
+    setProfessionalVoice(voice);
+    setBusy(`preview-${voice}`);
+    setError("");
+    try {
+      const data = await invokeBookAI(book.id, "audio_preview", {
+        language: resultLanguage,
+        voice,
+      });
+      const url = await getPrivateAudioUrl(data.storage_path);
+      setVoicePreviewUrls((current) => ({ ...current, [voice]: url }));
+      await reload();
     } catch (e) {
       setError(describeAiError(e, rtl));
     } finally {
@@ -2035,13 +2058,25 @@ function PilotWorkspace({
                       ? `تقدير الخلاصة الصوتية: ${money(estimates.audio)}. صوت الجهاز المجاني موجود في القارئ.`
                       : `Estimated audio summary: ${money(estimates.audio)}. Free device voice is available in the reader.`}
                   </p>
-                  <label className="select-label paid-language-select">
-                    {rtl ? "الصوت" : "Voice"}
-                    <select value={professionalVoice} onChange={(event) => setProfessionalVoice(event.target.value as "marin" | "cedar")}>
-                      <option value="marin">Marin — {rtl ? "هادئ ومتوازن" : "calm and balanced"}</option>
-                      <option value="cedar">Cedar — {rtl ? "واضح ودافئ" : "clear and warm"}</option>
-                    </select>
-                  </label>
+                  <p className="voice-preview-note">
+                    {rtl
+                      ? "استمع إلى عينة قصيرة أولًا. تُنشأ العينة مرة واحدة بتكلفة ضئيلة جدًا، ثم يعاد تشغيلها دون تكلفة."
+                      : "Listen to a short sample first. It has a tiny one-time generation cost, then replays at no cost."}
+                  </p>
+                  <div className="voice-choice-grid">
+                    {(["marin", "cedar"] as const).map((voice) => (
+                      <div className={`voice-choice ${professionalVoice === voice ? "selected" : ""}`} key={voice}>
+                        <button className="voice-select" onClick={() => setProfessionalVoice(voice)}>
+                          <strong>{voice === "marin" ? (rtl ? "صوت أنثوي — Marin" : "Female voice — Marin") : (rtl ? "صوت رجالي — Cedar" : "Male voice — Cedar")}</strong>
+                          <span>{rtl ? "هادئ، دافئ، وقراءة متزنة" : "Calm, warm, balanced narration"}</span>
+                        </button>
+                        <button className="secondary voice-preview-button" disabled={busy === `preview-${voice}`} onClick={() => previewVoice(voice)}>
+                          {busy === `preview-${voice}` ? "…" : rtl ? "أنشئ/شغّل العينة" : "Create/play sample"}
+                        </button>
+                        {voicePreviewUrls[voice] && <audio controls preload="metadata" src={voicePreviewUrls[voice]} />}
+                      </div>
+                    ))}
+                  </div>
                   {confirming !== "audio" ? (
                     <button
                       className="secondary"
