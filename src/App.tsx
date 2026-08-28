@@ -27,6 +27,14 @@ import { PAID_PILOT_MAX_BOOKS, ZERO_COST_MODE } from "./lib/config";
 import { runLocalStructuralAnalysis, type LocalAnalysisProgress } from "./lib/localAnalysis";
 import { searchInsideBook, validateManualImport, type BookSearchMatch, type LocalStructuralAnalysis, type ManualImportPayload } from "./lib/textAnalysis";
 import { calculateLoggedTextCost } from "./lib/openAiCost";
+import {
+  disableBookReminder,
+  enablePushForThisDevice,
+  listBookReminders,
+  saveBookReminder,
+  showReminderTest,
+  type BookReminder,
+} from "./lib/reminders";
 
 type Lang = "ar" | "en";
 type View =
@@ -42,7 +50,7 @@ type View =
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "حساب المكتبة الموحد — V0.10.2",
+    version: "حساب المكتبة الموحد — V0.10.3",
     search: "ابحث في كتبك وأفكارك…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -73,7 +81,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Unified library account — V0.10.2",
+    version: "Unified library account — V0.10.3",
     search: "Search your books and ideas…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -125,6 +133,21 @@ const navigation = {
     ["feedback", "Research journal", "✎"],
   ],
 } as const;
+
+function describeReminderError(error: unknown, rtl: boolean) {
+  const value = error as { message?: string } | null;
+  const raw = value?.message ?? String(error ?? "");
+  const messages: Record<string, [string, string]> = {
+    V0103_REMINDER_MIGRATION_REQUIRED: ["التنبيهات جاهزة في V0.10.3 لكنها تحتاج تطبيق Migration المراجع أولًا.", "V0.10.3 reminders need the reviewed migration first."],
+    VAPID_NOT_CONFIGURED: ["مفاتيح التنبيهات لم تُجهّز بعد.", "Push notification keys are not configured yet."],
+    IOS_HOME_SCREEN_REQUIRED: ["على iPhone: أضف المكتبة إلى الشاشة الرئيسية وافتحها كتطبيق، ثم فعّل التنبيهات.", "On iPhone, add the library to the Home Screen, open it as an app, then enable notifications."],
+    PUSH_PERMISSION_DENIED: ["لم يسمح الجهاز بالتنبيهات.", "This device did not allow notifications."],
+    PUSH_UNSUPPORTED: ["هذا المتصفح لا يدعم التنبيهات المطلوبة.", "This browser does not support the required notifications."],
+    REMINDER_TIME_INVALID: ["اختر وقتًا مستقبليًا صحيحًا.", "Choose a valid future time."],
+  };
+  const found = Object.entries(messages).find(([key]) => raw.includes(key));
+  return found ? found[1][rtl ? 0 : 1] : raw || (rtl ? "تعذر تنفيذ التنبيه." : "The reminder could not be completed.");
+}
 
 export default function Home() {
   const [lang, setLang] = useState<Lang>("ar");
@@ -178,34 +201,41 @@ export default function Home() {
   }, []);
   useEffect(() => {
     let cancelled = false;
-    const removeLegacyLibraryCache = async () => {
+    const prepareCurrentWorker = async () => {
       if (!("serviceWorker" in navigator)) {
         if (!cancelled) setBrowserCacheReady(true);
         return;
       }
-      const wasControlled = Boolean(navigator.serviceWorker.controller);
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      const cacheNames = "caches" in window ? await caches.keys() : [];
-      await Promise.all([
-        ...registrations.map((registration) => registration.unregister()),
-        ...cacheNames
-          .filter((name) => name.startsWith("smart-personal-library-"))
-          .map((name) => caches.delete(name)),
-      ]);
-      if (wasControlled && sessionStorage.getItem("spl-worker-cleared-v092") !== "1") {
-        sessionStorage.setItem("spl-worker-cleared-v092", "1");
-        window.location.reload();
-        return;
+      if (sessionStorage.getItem("spl-worker-prepared-v0103") !== "1") {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        const cacheNames = "caches" in window ? await caches.keys() : [];
+        await Promise.all([
+          ...registrations.map((registration) => registration.unregister()),
+          ...cacheNames
+            .filter((name) => name.startsWith("smart-personal-library-"))
+            .map((name) => caches.delete(name)),
+        ]);
+        sessionStorage.setItem("spl-worker-prepared-v0103", "1");
       }
+      await navigator.serviceWorker.register("./sw.js");
       if (!cancelled) setBrowserCacheReady(true);
     };
-    removeLegacyLibraryCache().catch(() => {
+    prepareCurrentWorker().catch(() => {
       if (!cancelled) setBrowserCacheReady(true);
     });
     return () => {
       cancelled = true;
     };
   }, []);
+  useEffect(() => {
+    const requestedBook = new URLSearchParams(window.location.search).get("book");
+    if (!requestedBook || pilotBooks.length === 0) return;
+    const book = pilotBooks.find((item) => item.id === requestedBook);
+    if (book) {
+      setActivePilotBook(book);
+      setView("pilot");
+    }
+  }, [pilotBooks]);
   useEffect(() => {
     if (!browserCacheReady || authState !== "authenticated") return;
     if (!supabaseConfigured) {
@@ -220,11 +250,14 @@ export default function Home() {
     setPilotBooks([]);
     setLibraryStats({ analysedBooks: 0, questions: 0, audioParts: 0 });
     setBooksError("");
-    Promise.all([listPilotBooks(), getLibraryStats()])
-      .then(([books, stats]) => {
+    listPilotBooks()
+      .then(async (books) => {
         if (cancelled) return;
         setPilotBooks(books);
-        setLibraryStats(stats);
+        // Statistics are secondary. A missing optional table must never hide
+        // the user's books or make the library appear empty.
+        const stats = await getLibraryStats().catch(() => null);
+        if (!cancelled && stats) setLibraryStats(stats);
       })
       .catch((loadError) => {
         if (cancelled) return;
@@ -382,8 +415,8 @@ export default function Home() {
             <button
               key={id}
               className={view === id ? "active" : ""}
-              disabled={id === "librarian" || id === "progress"}
-              title={(id === "librarian" || id === "progress") ? (rtl ? "غير معتمد بعد في نسخة القبول" : "Not yet accepted in this build") : undefined}
+              disabled={id === "librarian"}
+              title={id === "librarian" ? (rtl ? "غير معتمد بعد في نسخة القبول" : "Not yet accepted in this build") : undefined}
               onClick={() => go(id)}
             >
               <i>{icon}</i>
@@ -393,7 +426,7 @@ export default function Home() {
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "حساب موحد وآمن V0.10.2" : "Secure unified account V0.10.2"}
+            {rtl ? "حساب موحد وآمن V0.10.3" : "Secure unified account V0.10.3"}
           </strong>
           <p>
             {rtl
@@ -435,11 +468,17 @@ export default function Home() {
             </button>
             <button onClick={() => setDark(!dark)}>{dark ? "☀" : "◐"}</button>
             <button
-              className="bell disabled-soon"
-              disabled
-              title={
-                rtl ? "الإشعارات — قريبًا" : "Notifications — coming soon"
-              }
+              className="bell"
+              title={rtl ? "تفعيل تنبيهات هذا الجهاز" : "Enable notifications on this device"}
+              onClick={async () => {
+                try {
+                  await enablePushForThisDevice();
+                  setNotice(rtl ? "تم تفعيل تنبيهات هذا الجهاز." : "Notifications are enabled on this device.");
+                } catch (error) {
+                  setNotice(describeReminderError(error, rtl));
+                }
+                setTimeout(() => setNotice(""), 7000);
+              }}
             >
               ♧
             </button>
@@ -496,7 +535,7 @@ export default function Home() {
             }}
           />
         )}
-        {view === "progress" && <Progress rtl={rtl} title={pageTitle} />}
+        {view === "progress" && <Progress rtl={rtl} title={pageTitle} books={pilotBooks} />}
         {view === "librarian" && <Librarian rtl={rtl} title={pageTitle} />}
         {view === "feedback" && <Feedback rtl={rtl} t={t} />}
       </main>
@@ -2464,7 +2503,29 @@ function Idea({ n, title, text }: { n: string; title: string; text: string }) {
   );
 }
 
-function Progress({ rtl, title }: { rtl: boolean; title: string }) {
+function Progress({ rtl, title, books }: { rtl: boolean; title: string; books: PilotBook[] }) {
+  const [reminders, setReminders] = useState<BookReminder[]>([]);
+  const [bookId, setBookId] = useState(books[0]?.id ?? "");
+  const [when, setWhen] = useState(() => {
+    const value = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    value.setSeconds(0, 0);
+    return new Date(value.getTime() - value.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  });
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const reload = () => listBookReminders().then(setReminders).catch((error) => setMessage(describeReminderError(error, rtl)));
+  useEffect(() => { reload(); }, []);
+  useEffect(() => { if (!bookId && books[0]) setBookId(books[0].id); }, [books, bookId]);
+  const save = async () => {
+    setBusy(true); setMessage("");
+    try {
+      await enablePushForThisDevice();
+      await saveBookReminder(bookId, new Date(when));
+      await reload();
+      setMessage(rtl ? "حُفظ التنبيه وسيصل إلى أجهزتك المفعّلة." : "The reminder was saved for your enabled devices.");
+    } catch (error) { setMessage(describeReminderError(error, rtl)); }
+    finally { setBusy(false); }
+  };
   return (
     <div className="page">
       <PageTitle
@@ -2496,32 +2557,32 @@ function Progress({ rtl, title }: { rtl: boolean; title: string }) {
         </article>
         <article className="panel reminders">
           <h3>{rtl ? "تنبيهات قادمة" : "Upcoming reminders"}</h3>
-          <Reminder
-            time={rtl ? "اليوم، 8:00 م" : "Today, 8:00 PM"}
-            value={
-              rtl
-                ? "أكمل الفصل الرابع — إدارة المعرفة"
-                : "Continue chapter four — Knowledge Management"
-            }
-          />
-          <Reminder
-            time={rtl ? "الخميس، 7:30 م" : "Thursday, 7:30 PM"}
-            value={
-              rtl
-                ? "راجع خلاصة مستقبل المكتبات"
-                : "Review The Future of Libraries summary"
-            }
-          />
-          <Reminder
-            time={rtl ? "الأحد" : "Sunday"}
-            value={rtl ? "موجز أسبوعي لمكتبتك" : "Your weekly library digest"}
-          />
+          <div className="v0103-reminder-form">
+            <select value={bookId} onChange={(event) => setBookId(event.target.value)} disabled={!books.length}>
+              {!books.length && <option value="">{rtl ? "أضف كتابًا أولًا" : "Add a book first"}</option>}
+              {books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}
+            </select>
+            <input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} />
+            <button className="primary" disabled={busy || !bookId} onClick={save}>{busy ? (rtl ? "جارٍ الحفظ…" : "Saving…") : (rtl ? "حفظ التنبيه" : "Save reminder")}</button>
+            <button className="secondary" disabled={busy} onClick={async () => {
+              try { await showReminderTest(rtl ? "اختبار تنبيه المكتبة" : "Library reminder test", rtl ? "التنبيهات تعمل على هذا الجهاز." : "Notifications work on this device."); }
+              catch (error) { setMessage(describeReminderError(error, rtl)); }
+            }}>{rtl ? "اختبار الآن" : "Test now"}</button>
+          </div>
+          {message && <p className="v0103-reminder-message">{message}</p>}
+          {reminders.length === 0 && <p>{rtl ? "لا توجد تنبيهات محفوظة." : "No saved reminders."}</p>}
+          {reminders.map((reminder) => <Reminder
+            key={reminder.id}
+            time={new Date(reminder.remind_at).toLocaleString(rtl ? "ar" : "en")}
+            value={books.find((book) => book.id === reminder.book_id)?.title ?? (rtl ? "كتابك" : "Your book")}
+            onCancel={async () => { await disableBookReminder(reminder.id); await reload(); }}
+          />)}
         </article>
       </div>
     </div>
   );
 }
-function Reminder({ time, value }: { time: string; value: string }) {
+function Reminder({ time, value, onCancel }: { time: string; value: string; onCancel: () => void }) {
   return (
     <div className="reminder">
       <i>◴</i>
@@ -2529,7 +2590,7 @@ function Reminder({ time, value }: { time: string; value: string }) {
         <strong>{value}</strong>
         <span>{time}</span>
       </div>
-      <button className="disabled-soon" disabled title="قريبًا / Coming soon">⋮</button>
+      <button onClick={onCancel} title="إلغاء / Cancel">×</button>
     </div>
   );
 }
