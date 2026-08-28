@@ -1,1 +1,2 @@
+/* V0.10.3 adds reminder controls only; the accepted V0.10.2 visual baseline remains locked. */
 .v0103-reminder-form{display:grid;gap:8px;margin:14px 0}.v0103-reminder-form select,.v0103-reminder-form input{width:100%;border:1px solid var(--line);background:var(--card2);color:var(--ink);border-radius:10px;padding:10px}.v0103-reminder-message{padding:9px 11px;border-radius:10px;background:rgba(31,102,82,.1);color:var(--green2)!important}.reminders>.reminder button{width:30px;height:30px;border:1px solid var(--line);border-radius:50%;background:var(--card2);color:var(--soft)}
