@@ -80,3 +80,12 @@
 
 - اعتماد آلية الجسر نفسها: عند غياب صوت مطابق ظاهر، يختار المتصفح محرك النطق تلقائيًا بدل إيقاف القراءة.
 - لا يستخدم هذا المسار OpenAI ولا Supabase ولا يخصم من رصيد API.
+## V0.10.4 — Growing library and mobile reliability
+
+- Remove the retired one-analysed-book server gate while preserving explicit confirmations and daily limits.
+- Add growing library categories stored in existing book metadata without a database migration.
+- Show a four-book display-only sample shelf when a new user's library is empty.
+- Render Android/Samsung covers through authenticated file downloads instead of fragile signed-URL range requests.
+- Add a standard yellow notification bell and enable the mobile notifications destination.
+- Add permanent per-book deletion with explicit confirmation and cleanup of results, reminders, PDFs and generated audio.
+- Improve dark-mode contrast for gold panels and newly added controls.

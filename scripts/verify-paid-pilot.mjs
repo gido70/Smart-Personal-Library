@@ -18,7 +18,7 @@ check("paid controls are enabled in V0.9", ZERO_COST_MODE === false);
 check("browser communicates an absolute maximum of five books", PAID_PILOT_MAX_BOOKS === 5);
 check("server fails closed without explicit paid enablement", /SPL_PAID_AI_ENABLED/.test(edge) && /PAID_AI_DISABLED/.test(edge));
 check("server restricts spending to the approved pilot email", /SPL_PILOT_EMAIL/.test(edge) && /PRIVATE_PILOT_EMAIL_REQUIRED/.test(edge));
-check("initial server default is one analysed book and never over five", /SPL_PILOT_MAX_BOOKS/.test(edge) && /Math\.min\(5/.test(edge) && /\?\? "1"/.test(edge));
+check("new books are not blocked by the retired one-book pilot gate", !/PILOT_BOOK_LIMIT/.test(edge) && !/PAID_PILOT_BOOK_LIMIT_REACHED/.test(edge));
 check("question spending has daily and total limits", /DAILY_QUESTION_LIMIT_REACHED/.test(edge) && /PILOT_QUESTION_LIMIT_REACHED/.test(edge));
 check("analysis and question output are capped server-side", /max_output_tokens: 12_000/.test(edge) && /max_output_tokens: 2_500/.test(edge));
 check("PDF token cost uses low detail", /type: "input_file"[\s\S]{0,100}detail: "low"/.test(edge));

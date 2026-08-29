@@ -1,3082 +1,25 @@
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import Reader, { type SavedBookRef } from "./Reader";
-import {
-  getBookResults,
-  getLibraryStats,
-  getLegalConsentStatus,
-  getPrivateAudioUrl,
-  createBookSignedUrl,
-  groupDuplicateBooks,
-  invokeBookAI,
-  listPilotBooks,
-  rollbackPilotBook,
-  saveFeedback,
-  saveLegalConsent,
-  saveManualImport,
-  uploadPilotBook,
-  type DuplicateGroup,
-  type AiUsageEvent,
-  type OutputLanguage,
-  type PilotBook,
-  type StoredAnalysis,
-  type LibraryStats,
-} from "./lib/library";
-import { signInLibraryAccount, signOutLibraryAccount, signUpLibraryAccount, supabase, supabaseConfigured } from "./lib/supabase";
-import { PAID_PILOT_MAX_BOOKS, ZERO_COST_MODE } from "./lib/config";
-import { runLocalStructuralAnalysis, type LocalAnalysisProgress } from "./lib/localAnalysis";
-import { searchInsideBook, validateManualImport, type BookSearchMatch, type LocalStructuralAnalysis, type ManualImportPayload } from "./lib/textAnalysis";
-import { calculateLoggedTextCost } from "./lib/openAiCost";
-import {
-  disableBookReminder,
-  enablePushForThisDevice,
-  listBookReminders,
-  saveBookReminder,
-  showReminderTest,
-  type BookReminder,
-} from "./lib/reminders";
-
-type Lang = "ar" | "en";
-type View =
-  | "home"
-  | "library"
-  | "book"
-  | "pilot"
-  | "reader"
-  | "progress"
-  | "librarian"
-  | "feedback"
-  | "guide";
-
-const text = {
-  ar: {
-    name: "Ø§Ù„Ù…ÙƒØªØ¨Ø© Ø§Ù„Ø´Ø®ØµÙŠØ© Ø§Ù„Ø°ÙƒÙŠØ©",
-    version: "Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…ÙƒØªØ¨Ø© Ø§Ù„Ù…ÙˆØ­Ø¯ â€” V0.10.3",
-    search: "Ø§Ø¨Ø­Ø« ÙÙŠ ÙƒØªØ¨Ùƒ ÙˆØ£ÙÙƒØ§Ø±Ùƒâ€¦",
-    hello: "ØµØ¨Ø§Ø­ Ø§Ù„Ù…Ø¹Ø±ÙØ©ØŒ Ø¹Ø¨Ø¯Ø§Ù„Ø±Ø­Ù…Ù†",
-    intro:
-      "Ù…ÙƒØªØ¨ØªÙƒ Ù„Ø§ ØªØ®ØªØµØ± Ø§Ù„ÙƒØªØ§Ø¨ Ø¨Ø¯Ù„Ù‹Ø§ Ø¹Ù†ÙƒØ› Ø¨Ù„ ØªÙ…Ù†Ø­Ùƒ Ø®Ø±ÙŠØ·ØªÙ‡ ÙˆØªØ¹ÙŠØ¯Ùƒ Ø¥Ù„Ù‰ Ø§Ù„Ù…ÙˆØ§Ø¶Ø¹ Ø§Ù„ØªÙŠ ØªØ³ØªØ­Ù‚ Ø§Ù„Ù‚Ø±Ø§Ø¡Ø©.",
-    add: "Ø£Ø¶Ù ÙƒØªØ§Ø¨Ù‹Ø§",
-    continue: "ÙˆØ§ØµÙ„ Ø§Ù„Ù‚Ø±Ø§Ø¡Ø©",
-    books: "Ø§Ù„ÙƒØªØ¨",
-    ready: "Ø¬Ø§Ù‡Ø² Ù„Ù„ØªØ­Ù„ÙŠÙ„",
-    minutes: "Ø¯Ù‚ÙŠÙ‚Ø© Ø§Ø³ØªÙ…Ø§Ø¹",
-    streak: "Ø£ÙŠØ§Ù… Ù…ØªØªØ§Ù„ÙŠØ©",
-    current: "ØªØ§Ø¨Ø¹ Ù…Ù† Ø­ÙŠØ« ØªÙˆÙ‚ÙØª",
-    suggestion: "Ø£Ù…ÙŠÙ† Ù…ÙƒØªØ¨ØªÙƒ ÙŠÙ‚ØªØ±Ø­",
-    myLibrary: "Ù…ÙƒØªØ¨ØªÙŠ",
-    all: "Ø¹Ø±Ø¶ ÙƒÙ„ Ø§Ù„ÙƒØªØ¨",
-    journey: "Ø±Ø­Ù„Ø© ÙƒØªØ§Ø¨Ùƒ",
-    uploadTitle: "Ø£Ø¶Ù ÙƒØªØ§Ø¨Ù‹Ø§ Ø¥Ù„Ù‰ Ù…ÙƒØªØ¨ØªÙƒ",
-    uploadSub: "Ø§Ù„Ù…Ù„Ù ÙŠØ¨Ù‚Ù‰ Ø®Ø§ØµÙ‹Ø§ØŒ ÙˆÙ„Ù† ÙŠÙÙ†Ø´Ø± Ø£Ùˆ ÙŠÙØ´Ø§Ø±Ùƒ Ù…Ø¹ Ù…Ø³ØªØ®Ø¯Ù… Ø¢Ø®Ø±.",
-    choose: "Ø§Ø®ØªØ± PDF",
-    rights1:
-      "Ø£Ù‚Ø±Ù‘ Ø£Ù†Ù†ÙŠ Ø£Ù…Ù„Ùƒ Ø­Ù‚ Ø§Ø³ØªØ®Ø¯Ø§Ù… Ù‡Ø°Ø§ Ø§Ù„Ù…Ù„Ù Ø£Ùˆ Ù„Ø¯ÙŠ ØªØµØ±ÙŠØ­ Ø¨Ù…Ø¹Ø§Ù„Ø¬ØªÙ‡ Ù„Ù„Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø§Ù„Ø´Ø®ØµÙŠ.",
-    rights2:
-      "Ø£ÙÙ‡Ù… Ø£Ù† Ø§Ù„Ù…Ù†ØµØ© Ù„Ø§ ØªØ³Ù…Ø­ Ø¨Ù†Ø´Ø± Ø§Ù„ÙƒØªØ§Ø¨ Ø£Ùˆ Ø¥Ù†Ø´Ø§Ø¡ Ù‚Ø±Ø§Ø¡Ø© Ø­Ø±ÙÙŠØ© ÙƒØ§Ù…Ù„Ø© Ù„Ø¹Ù…Ù„ Ù…Ø­Ù…ÙŠ.",
-    start: "Ø§Ø­ÙØ¸ Ø§Ù„ÙƒØªØ§Ø¨ ÙÙŠ Ù…ÙƒØªØ¨ØªÙŠ",
-    cancel: "Ø¥Ù„ØºØ§Ø¡",
-    journal: "Ø³Ø¬Ù„ Ø§Ù„ØªØ¬Ø±Ø¨Ø©",
-    journalSub:
-      "Ù…Ù„Ø§Ø­Ø¸Ø§ØªÙƒ Ù‡Ù†Ø§ ØªØ³Ø§Ø¹Ø¯Ù†Ø§ ÙÙŠ ØªØ·ÙˆÙŠØ± Ø§Ù„Ù…Ù†ØªØ¬ ÙˆØµÙŠØ§ØºØ© Ø§Ù„Ø¯Ø±Ø§Ø³Ø© Ø§Ù„Ø¹Ù„Ù…ÙŠØ© Ù„Ø§Ø­Ù‚Ù‹Ø§.",
-  },
-  en: {
-    name: "Smart Personal Library",
-    version: "Unified library account â€” V0.10.3",
-    search: "Search your books and ideasâ€¦",
-    hello: "Good morning, Abdel Rahman",
-    intro:
-      "Your library does not replace the book. It maps it, then leads you back to the passages worth reading.",
-    add: "Add a book",
-    continue: "Continue reading",
-    books: "Books",
-    ready: "Ready to explore",
-    minutes: "Minutes listened",
-    streak: "Day streak",
-    current: "Continue where you stopped",
-    suggestion: "Your librarian suggests",
-    myLibrary: "My library",
-    all: "View all books",
-    journey: "Your book journey",
-    uploadTitle: "Add a book to your library",
-    uploadSub:
-      "Your file stays private and is never published or shared with another user.",
-    choose: "Choose PDF",
-    rights1:
-      "I confirm that I own this file or have permission to process it for personal use.",
-    rights2:
-      "I understand that the platform does not allow publishing the book or generating a full verbatim narration of a protected work.",
-    start: "Save book to my library",
-    cancel: "Cancel",
-    journal: "Experience journal",
-    journalSub:
-      "Your notes will guide product improvements and the future academic study.",
-  },
-};
-
-const navigation = {
-  ar: [
-    ["home", "Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ©", "âŒ‚"],
-    ["library", "Ù…ÙƒØªØ¨ØªÙŠ", "â–¥"],
-    ["reader", "Ø§Ù„Ù‚Ø§Ø±Ø¦ ÙˆØ§Ù„ØµÙˆØª Ø§Ù„Ù…Ø¬Ø§Ù†ÙŠ", "â—«"],
-    ["upload", "Ø£Ø¶Ù ÙƒØªØ§Ø¨Ù‹Ø§", "ï¼‹"],
-    ["progress", "Ø§Ù„ØªÙ‚Ø¯Ù… ÙˆØ§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø©", "â—´"],
-    ["librarian", "Ø£Ù…ÙŠÙ† Ø§Ù„Ù…ÙƒØªØ¨Ø©", "âœ¦"],
-    ["feedback", "Ø³Ø¬Ù„ Ø§Ù„ØªØ¬Ø±Ø¨Ø©", "âœ"],
-  ],
-  en: [
-    ["home", "Home", "âŒ‚"],
-    ["library", "My library", "â–¥"],
-    ["reader", "Free reader & voice", "â—«"],
-    ["upload", "Add a book", "ï¼‹"],
-    ["progress", "Progress & review", "â—´"],
-    ["librarian", "Library assistant", "âœ¦"],
-    ["feedback", "Research journal", "âœ"],
-  ],
-} as const;
-
-function describeReminderError(error: unknown, rtl: boolean) {
-  const value = error as { message?: string } | null;
-  const raw = value?.message ?? String(error ?? "");
-  const messages: Record<string, [string, string]> = {
-    V0103_REMINDER_MIGRATION_REQUIRED: ["Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡Ø§Øª Ø¬Ø§Ù‡Ø²Ø© ÙÙŠ V0.10.3 Ù„ÙƒÙ†Ù‡Ø§ ØªØ­ØªØ§Ø¬ ØªØ·Ø¨ÙŠÙ‚ Migration Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹ Ø£ÙˆÙ„Ù‹Ø§.", "V0.10.3 reminders need the reviewed migration first."],
-    VAPID_NOT_CONFIGURED: ["Ù…ÙØ§ØªÙŠØ­ Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡Ø§Øª Ù„Ù… ØªÙØ¬Ù‡Ù‘Ø² Ø¨Ø¹Ø¯.", "Push notification keys are not configured yet."],
-    IOS_HOME_SCREEN_REQUIRED: ["Ø¹Ù„Ù‰ iPhone: Ø£Ø¶Ù Ø§Ù„Ù…ÙƒØªØ¨Ø© Ø¥Ù„Ù‰ Ø§Ù„Ø´Ø§Ø´Ø© Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ© ÙˆØ§ÙØªØ­Ù‡Ø§ ÙƒØªØ·Ø¨ÙŠÙ‚ØŒ Ø«Ù… ÙØ¹Ù‘Ù„ Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡Ø§Øª.", "On iPhone, add the library to the Home Screen, open it as an app, then enable notifications."],
-    PUSH_PERMISSION_DENIED: ["Ù„Ù… ÙŠØ³Ù…Ø­ Ø§Ù„Ø¬Ù‡Ø§Ø² Ø¨Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡Ø§Øª.", "This device did not allow notifications."],
-    PUSH_UNSUPPORTED: ["Ù‡Ø°Ø§ Ø§Ù„Ù…ØªØµÙØ­ Ù„Ø§ ÙŠØ¯Ø¹Ù… Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡Ø§Øª Ø§Ù„Ù…Ø·Ù„ÙˆØ¨Ø©.", "This browser does not support the required notifications."],
-    REMINDER_TIME_INVALID: ["Ø§Ø®ØªØ± ÙˆÙ‚ØªÙ‹Ø§ Ù…Ø³ØªÙ‚Ø¨Ù„ÙŠÙ‹Ø§ ØµØ­ÙŠØ­Ù‹Ø§.", "Choose a valid future time."],
-  };
-  const found = Object.entries(messages).find(([key]) => raw.includes(key));
-  return found ? found[1][rtl ? 0 : 1] : raw || (rtl ? "ØªØ¹Ø°Ø± ØªÙ†ÙÙŠØ° Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡." : "The reminder could not be completed.");
-}
-
-export default function Home() {
-  const [lang, setLang] = useState<Lang>("ar");
-  const [dark, setDark] = useState(false);
-  const [view, setView] = useState<View>("home");
-  const [upload, setUpload] = useState(false);
-  const [rights1, setRights1] = useState(false);
-  const [rights2, setRights2] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
-  const [outputLanguage, setOutputLanguage] = useState<OutputLanguage>("ar");
-  const [pilotBooks, setPilotBooks] = useState<PilotBook[]>([]);
-  const [libraryStats, setLibraryStats] = useState<LibraryStats>({ analysedBooks: 0, questions: 0, audioParts: 0 });
-  const [booksLoading, setBooksLoading] = useState(true);
-  const [booksError, setBooksError] = useState("");
-  const [booksLoadToken, setBooksLoadToken] = useState(0);
-  const [browserCacheReady, setBrowserCacheReady] = useState(false);
-  const [activePilotBook, setActivePilotBook] = useState<PilotBook | null>(
-    null,
-  );
-  const [readerBook, setReaderBook] = useState<SavedBookRef | null>(null);
-  const [processing, setProcessing] = useState(false);
-  const [percent, setPercent] = useState(0);
-  const [notice, setNotice] = useState("");
-  const [activating, setActivating] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [authState, setAuthState] = useState<"loading" | "signed_out" | "authenticated">("loading");
-  const [accountEmail, setAccountEmail] = useState("");
-  const t = text[lang];
-  const rtl = lang === "ar";
-  useEffect(() => {
-    const saved = localStorage.getItem("spl-lang");
-    if (saved === "ar" || saved === "en") setLang(saved);
-  }, []);
-  useEffect(() => {
-    const client = supabase;
-    if (!client) {
-      setAuthState("signed_out");
-      return;
-    }
-    const applySession = (session: Awaited<ReturnType<typeof client.auth.getSession>>["data"]["session"]) => {
-      const permanent = Boolean(session && !(session.user as { is_anonymous?: boolean }).is_anonymous);
-      setAuthState(permanent ? "authenticated" : "signed_out");
-      setAccountEmail(permanent ? session?.user.email ?? "" : "");
-      if (!permanent) {
-        setPilotBooks([]);
-        setLibraryStats({ analysedBooks: 0, questions: 0, audioParts: 0 });
-      }
-    };
-    client.auth.getSession().then(({ data }) => applySession(data.session));
-    const { data } = client.auth.onAuthStateChange((_event, session) => applySession(session));
-    return () => data.subscription.unsubscribe();
-  }, []);
-  useEffect(() => {
-    let cancelled = false;
-    const prepareCurrentWorker = async () => {
-      if (!("serviceWorker" in navigator)) {
-        if (!cancelled) setBrowserCacheReady(true);
-        return;
-      }
-      if (sessionStorage.getItem("spl-worker-prepared-v0103-3") !== "1") {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        const cacheNames = "caches" in window ? await caches.keys() : [];
-        await Promise.all([
-          ...registrations.map((registration) => registration.unregister()),
-          ...cacheNames
-            .filter((name) => name.startsWith("smart-personal-library-"))
-            .map((name) => caches.delete(name)),
-        ]);
-        sessionStorage.setItem("spl-worker-prepared-v0103-3", "1");
-      }
-      await navigator.serviceWorker.register("./sw.js");
-      if (!cancelled) setBrowserCacheReady(true);
-    };
-    prepareCurrentWorker().catch(() => {
-      if (!cancelled) setBrowserCacheReady(true);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  useEffect(() => {
-    const requestedBook = new URLSearchParams(window.location.search).get("book");
-    if (!requestedBook || pilotBooks.length === 0) return;
-    const book = pilotBooks.find((item) => item.id === requestedBook);
-    if (book) {
-      setActivePilotBook(book);
-      setView("pilot");
-    }
-  }, [pilotBooks]);
-  useEffect(() => {
-    if (!browserCacheReady || authState !== "authenticated") return;
-    if (!supabaseConfigured) {
-      setBooksLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setBooksLoading(true);
-    // Never leave a restored/bfcached tab showing a library snapshot that may
-    // have been deleted or changed in another tab. Hide the old snapshot while
-    // Supabase is being read again.
-    setPilotBooks([]);
-    setLibraryStats({ analysedBooks: 0, questions: 0, audioParts: 0 });
-    setBooksError("");
-    listPilotBooks()
-      .then(async (books) => {
-        if (cancelled) return;
-        setPilotBooks(books);
-        // Statistics are secondary. A missing optional table must never hide
-        // the user's books or make the library appear empty.
-        const stats = await getLibraryStats().catch(() => null);
-        if (!cancelled && stats) setLibraryStats(stats);
-      })
-      .catch((loadError) => {
-        if (cancelled) return;
-        setBooksError(
-          rtl
-            ? `ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ù…ÙƒØªØ¨ØªÙƒ: ${loadError instanceof Error ? loadError.message : "Ø®Ø·Ø£ ØºÙŠØ± Ù…Ø¹Ø±ÙˆÙ"}`
-            : `Could not load your library: ${loadError instanceof Error ? loadError.message : "Unknown error"}`,
-        );
-      })
-      .finally(() => {
-        if (!cancelled) setBooksLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booksLoadToken, browserCacheReady, authState]);
-  useEffect(() => {
-    const refreshFromSupabase = () => setBooksLoadToken((n) => n + 1);
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") refreshFromSupabase();
-    };
-    // Mobile Chrome and Safari may restore a complete React page from the
-    // back-forward cache. Revalidate the library whenever that page becomes
-    // active instead of trusting the restored in-memory list.
-    window.addEventListener("pageshow", refreshFromSupabase);
-    window.addEventListener("focus", refreshFromSupabase);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    return () => {
-      window.removeEventListener("pageshow", refreshFromSupabase);
-      window.removeEventListener("focus", refreshFromSupabase);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-    };
-  }, []);
-  const reloadPilotBooks = () => setBooksLoadToken((n) => n + 1);
-  const patchPilotBook = (bookId: string, patch: Partial<PilotBook>) => {
-    setPilotBooks((prev) => prev.map((b) => (b.id === bookId ? { ...b, ...patch } : b)));
-    setActivePilotBook((prev) => (prev && prev.id === bookId ? { ...prev, ...patch } : prev));
-  };
-  const switchLang = () => {
-    const next = lang === "ar" ? "en" : "ar";
-    setLang(next);
-    localStorage.setItem("spl-lang", next);
-  };
-  const activateLatestVersion = async () => {
-    setActivating(true);
-    setNotice(rtl ? "Ø¬Ø§Ø±Ù ØªÙ†Ø´ÙŠØ· Ø£Ø­Ø¯Ø« Ù†Ø³Ø®Ø©â€¦" : "Activating the latest versionâ€¦");
-    try {
-      if ("serviceWorker" in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(registrations.map((registration) => registration.unregister()));
-      }
-      if ("caches" in window) {
-        const names = await caches.keys();
-        await Promise.all(names.filter((name) => name.startsWith("smart-personal-library-")).map((name) => caches.delete(name)));
-      }
-      sessionStorage.removeItem("spl-worker-prepared-v0103-3");
-      const cleanUrl = new URL(window.location.href);
-      cleanUrl.searchParams.set("refresh", Date.now().toString());
-      window.location.replace(cleanUrl.toString());
-    } catch {
-      window.location.reload();
-    }
-  };
-  const pageTitle = useMemo(
-    () => navigation[lang].find((x) => x[0] === view)?.[1] || t.name,
-    [lang, view, t.name],
-  );
-  const openReaderFor = (book: PilotBook, initialPage?: number) => {
-    setReaderBook({ id: book.id, title: book.title, storagePath: book.storage_path, initialPage });
-    setView("reader");
-  };
-  const openReaderStandalone = () => {
-    setReaderBook(null);
-    setView("reader");
-  };
-  const startProcessing = async () => {
-    if (!file || !rights1 || !rights2) return;
-    if (!supabaseConfigured) {
-      setNotice(
-        rtl
-          ? "Ù„Ù… ØªÙØ¶Ù Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Supabase Ø¥Ù„Ù‰ Ø¨ÙŠØ¦Ø© Ø§Ù„Ù†Ø´Ø± Ø¨Ø¹Ø¯."
-          : "Supabase deployment settings are missing.",
-      );
-      return;
-    }
-    setProcessing(true);
-    setPercent(12);
-    try {
-      setPercent(35);
-      const { book, deduped } = await uploadPilotBook(file, outputLanguage);
-      setPercent(75);
-      if (deduped) {
-        const consent = await getLegalConsentStatus(book.id);
-        if (!consent.recorded) await saveLegalConsent(book.id, rights1, rights2);
-      } else {
-        try {
-          await saveLegalConsent(book.id, rights1, rights2);
-        } catch (consentError) {
-          await rollbackPilotBook(book);
-          throw consentError;
-        }
-      }
-      setPercent(100);
-      const all = await listPilotBooks();
-      const refreshed = all.find((item) => item.id === book.id) ?? book;
-      setPilotBooks(all);
-      setActivePilotBook(refreshed);
-      setUpload(false);
-      setView("pilot");
-      setNotice(
-        deduped
-          ? rtl
-            ? "Ù‡Ø°Ø§ Ø§Ù„ÙƒØªØ§Ø¨ Ù…ÙˆØ¬ÙˆØ¯ Ø¨Ø§Ù„ÙØ¹Ù„ ÙÙŠ Ù…ÙƒØªØ¨ØªÙƒ â€” ÙØªØ­Ù†Ø§ Ù†Ø³Ø®ØªÙƒ Ø§Ù„Ù…Ø­ÙÙˆØ¸Ø© Ø¯ÙˆÙ† Ø±ÙØ¹ Ù†Ø³Ø®Ø© Ø«Ø§Ù†ÙŠØ©."
-            : "This book is already in your library â€” opened your saved copy instead of uploading a duplicate."
-          : rtl
-            ? "Ø­ÙÙØ¸ Ø§Ù„ÙƒØªØ§Ø¨ ÙÙ‚Ø·. Ù„Ù… ÙŠÙØ±Ø³Ù„ Ø¥Ù„Ù‰ OpenAI ÙˆÙ„Ù… ÙŠÙØ®ØµÙ… Ù…Ù† Ø±ØµÙŠØ¯Ùƒ."
-            : "Book saved only. Nothing was sent to OpenAI and no API credit was used.",
-      );
-      setFile(null);
-      setRights1(false);
-      setRights2(false);
-    } catch (error) {
-      const raw = error instanceof Error ? error.message : "Unknown error";
-      const friendly = raw === "FILE_TOO_LARGE_20MB"
-        ? (rtl ? "Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ 20 Ù…ÙŠØ¬Ø§Ø¨Ø§ÙŠØª Ù„Ù‡Ø°Ù‡ Ø§Ù„ØªØ¬Ø±Ø¨Ø©." : "The acceptance pilot limit is 20 MB.")
-        : raw === "TOO_MANY_PAGES_500"
-          ? (rtl ? "Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ 500 ØµÙØ­Ø© ÙÙŠ Ù†Ø³Ø®Ø© Ø§Ù„Ù‚Ø¨ÙˆÙ„ Ø§Ù„Ø­Ø§Ù„ÙŠØ©." : "The current acceptance build supports up to 500 pages.")
-        : raw === "PDF_ONLY"
-          ? (rtl ? "Ù‡Ø°Ù‡ Ø§Ù„ØªØ¬Ø±Ø¨Ø© ØªÙ‚Ø¨Ù„ Ù…Ù„Ù PDF ÙÙ‚Ø·." : "This pilot accepts PDF files only.")
-          : raw;
-      setNotice(
-        `${rtl ? "ØªØ¹Ø°Ø± Ø­ÙØ¸ Ø§Ù„ÙƒØªØ§Ø¨" : "Could not save the book"}: ${friendly}`,
-      );
-    } finally {
-      setProcessing(false);
-      setTimeout(() => setNotice(""), 7000);
-    }
-  };
-  const go = (id: string) => {
-    if (id === "upload") {
-      setUpload(true);
-    } else if (id === "reader") {
-      openReaderStandalone();
-    } else {
-      setView(id as View);
-    }
-  };
-  if (authState !== "authenticated") {
-    return (
-      <LibraryLogin
-        rtl={rtl}
-        loading={authState === "loading"}
-        onLanguage={switchLang}
-        onSignedIn={() => setAuthState("authenticated")}
-      />
-    );
-  }
-  return (
-    <div
-      className={dark ? "app dark" : "app"}
-      dir={rtl ? "rtl" : "ltr"}
-      lang={lang}
-    >
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">Ùƒ</div>
-          <div>
-            <h1>{t.name}</h1>
-            <span>{t.version}</span>
-          </div>
-        </div>
-        <nav className="main-nav">
-          {navigation[lang].map(([id, label, icon]) => (
-            <button
-              key={id}
-              className={view === id ? "active" : ""}
-              disabled={id === "librarian"}
-              title={id === "librarian" ? (rtl ? "ØºÙŠØ± Ù…Ø¹ØªÙ…Ø¯ Ø¨Ø¹Ø¯ ÙÙŠ Ù†Ø³Ø®Ø© Ø§Ù„Ù‚Ø¨ÙˆÙ„" : "Not yet accepted in this build") : undefined}
-              onClick={() => go(id)}
-            >
-              <i>{icon}</i>
-              <span>{label}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="prototype-note">
-          <strong>
-            {rtl ? "Ø­Ø³Ø§Ø¨ Ù…ÙˆØ­Ø¯ ÙˆØ¢Ù…Ù† V0.10.3" : "Secure unified account V0.10.3"}
-          </strong>
-          <p>
-            {rtl
-              ? "Ø­ØªÙ‰ Ø®Ù…Ø³Ø© ÙƒØªØ¨ ÙÙ‚Ø·. Ù„Ø§ ÙŠØ¨Ø¯Ø£ Ø§Ù„ØªØ­Ù„ÙŠÙ„ Ø£Ùˆ Ø§Ù„Ø³Ø¤Ø§Ù„ Ø£Ùˆ Ø§Ù„ØµÙˆØª Ø§Ù„Ø§Ø­ØªØ±Ø§ÙÙŠ Ø¥Ù„Ø§ Ø¨Ø¹Ø¯ ØªØ£ÙƒÙŠØ¯Ùƒ."
-              : "Limited to five books. Analysis, questions, and professional audio start only after your confirmation."}
-          </p>
-        </div>
-        <div className="profile">
-          <span>Ø¹</span>
-          <div>
-            <strong>{accountEmail || (rtl ? "Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…ÙƒØªØ¨Ø©" : "Library account")}</strong>
-            <small>{rtl ? "Ù…Ø­ÙÙˆØ¸ Ø¹Ù„Ù‰ Ø£Ø¬Ù‡Ø²ØªÙƒ" : "Synced across your devices"}</small>
-          </div>
-          <button onClick={() => signOutLibraryAccount()} title={rtl ? "ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø®Ø±ÙˆØ¬" : "Sign out"}>â†ª</button>
-        </div>
-      </aside>
-      <main>
-        <header className="topbar">
-          <button className="mobile-brand" onClick={() => setView("home")}>
-            Ùƒ
-          </button>
-          <form
-            className="search"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (searchQuery.trim()) setView("library");
-            }}
-          >
-            <input
-              placeholder={t.search}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            <button type="submit" aria-label={rtl ? "ØªÙ†ÙÙŠØ° Ø§Ù„Ø¨Ø­Ø«" : "Run search"} title={rtl ? "Ø¨Ø­Ø«" : "Search"}>âŒ•</button>
-          </form>
-          <div className="top-actions">
-            <button onClick={() => setView("guide")} title={rtl ? "Ø¯Ù„ÙŠÙ„ Ø§Ù„Ø§Ø³ØªØ®Ø¯Ø§Ù…" : "User guide"}>ØŸ</button>
-            <button onClick={activateLatestVersion} disabled={activating} title={rtl ? "ØªÙ†Ø´ÙŠØ· Ø£Ø­Ø¯Ø« Ù†Ø³Ø®Ø©" : "Activate latest version"}>â†»</button>
-            <button onClick={switchLang} className="lang-switch">
-              {rtl ? "EN" : "Ø¹"}
-            </button>
-            <button onClick={() => setDark(!dark)}>{dark ? "â˜€" : "â—"}</button>
-            <button
-              className="bell"
-              title={rtl ? "ØªÙØ¹ÙŠÙ„ ØªÙ†Ø¨ÙŠÙ‡Ø§Øª Ù‡Ø°Ø§ Ø§Ù„Ø¬Ù‡Ø§Ø²" : "Enable notifications on this device"}
-              onClick={async () => {
-                try {
-                  await enablePushForThisDevice();
-                  setNotice(rtl ? "ØªÙ… ØªÙØ¹ÙŠÙ„ ØªÙ†Ø¨ÙŠÙ‡Ø§Øª Ù‡Ø°Ø§ Ø§Ù„Ø¬Ù‡Ø§Ø²." : "Notifications are enabled on this device.");
-                } catch (error) {
-                  setNotice(describeReminderError(error, rtl));
-                }
-                setTimeout(() => setNotice(""), 7000);
-              }}
-            >
-              â™§
-            </button>
-          </div>
-        </header>
-        {view === "home" && (
-          <Dashboard
-            rtl={rtl}
-            t={t}
-            onUpload={() => setUpload(true)}
-            setView={setView}
-            onOpenReader={openReaderStandalone}
-            pilotBooks={pilotBooks}
-            libraryStats={libraryStats}
-            onOpenPilot={(book) => { setActivePilotBook(book); setView("pilot"); }}
-          />
-        )}
-        {view === "library" && (
-          <Library
-            rtl={rtl}
-            title={pageTitle}
-            onUpload={() => setUpload(true)}
-            pilotBooks={pilotBooks}
-            booksLoading={booksLoading}
-            booksError={booksError}
-            onRetry={reloadPilotBooks}
-            onBooksChanged={reloadPilotBooks}
-            searchQuery={searchQuery}
-            onOpenPilot={(book) => {
-              setActivePilotBook(book);
-              setView("pilot");
-            }}
-          />
-        )}
-        {view === "book" && (
-          <BookDetail rtl={rtl} onBack={() => setView("library")} />
-        )}
-        {view === "pilot" && activePilotBook && (
-          <PilotWorkspace
-            rtl={rtl}
-            book={activePilotBook}
-            onBack={() => setView("library")}
-            onOpenReader={(page) => openReaderFor(activePilotBook, page)}
-            onBookPatched={patchPilotBook}
-          />
-        )}
-        {view === "reader" && (
-          <Reader
-            rtl={rtl}
-            savedBook={readerBook}
-            onExitSavedBook={() => {
-              setReaderBook(null);
-              setView(activePilotBook ? "pilot" : "library");
-            }}
-          />
-        )}
-        {view === "progress" && <Progress rtl={rtl} title={pageTitle} books={pilotBooks} />}
-        {view === "librarian" && <Librarian rtl={rtl} title={pageTitle} />}
-        {view === "feedback" && <Feedback rtl={rtl} t={t} />}
-        {view === "guide" && <UserGuide rtl={rtl} onUpload={() => setUpload(true)} onLibrary={() => setView("library")} onActivate={activateLatestVersion} activating={activating} />}
-      </main>
-      <nav className="mobile-nav">
-        {navigation[lang].slice(0, 5).map(([id, label, icon]) => (
-          <button
-            key={id}
-            className={view === id ? "active" : ""}
-            disabled={id === "progress"}
-            title={id === "progress" ? (rtl ? "ØºÙŠØ± Ù…Ø¹ØªÙ…Ø¯ Ø¨Ø¹Ø¯" : "Not yet accepted") : undefined}
-            onClick={() => go(id)}
-          >
-            <i>{icon}</i>
-            <span>{label}</span>
-          </button>
-        ))}
-      </nav>
-      {upload && (
-        <Upload
-          rtl={rtl}
-          t={t}
-          file={file}
-          setFile={setFile}
-          outputLanguage={outputLanguage}
-          setOutputLanguage={setOutputLanguage}
-          rights1={rights1}
-          rights2={rights2}
-          setRights1={setRights1}
-          setRights2={setRights2}
-          processing={processing}
-          percent={percent}
-          close={() => !processing && setUpload(false)}
-          start={startProcessing}
-        />
-      )}
-      {notice && <div className="toast">âœ“ {notice}</div>}
-    </div>
-  );
-}
-
-function LibraryLogin({
-  rtl,
-  loading,
-  onLanguage,
-  onSignedIn,
-}: {
-  rtl: boolean;
-  loading: boolean;
-  onLanguage: () => void;
-  onSignedIn: () => void;
-}) {
-  const [email, setEmail] = useState("aarahman70@gmail.com");
-  const [password, setPassword] = useState("");
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    setSuccess("");
-    try {
-      if (mode === "signup") {
-        const data = await signUpLibraryAccount(email, password);
-        if (data.session) {
-          onSignedIn();
-        } else {
-          setSuccess(rtl ? "ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø­Ø³Ø§Ø¨. Ø§ÙØªØ­ Ø±Ø³Ø§Ù„Ø© Ø§Ù„ØªØ£ÙƒÙŠØ¯ ÙÙŠ Ø¨Ø±ÙŠØ¯Ùƒ Ù…Ø±Ø© ÙˆØ§Ø­Ø¯Ø©ØŒ Ø«Ù… Ø§Ø±Ø¬Ø¹ ÙˆØ³Ø¬Ù‘Ù„ Ø§Ù„Ø¯Ø®ÙˆÙ„." : "Account created. Confirm the email once, then return and sign in.");
-          setMode("signin");
-          setPassword("");
-        }
-      } else {
-        await signInLibraryAccount(email, password);
-        onSignedIn();
-      }
-    } catch (loginError) {
-      const raw = loginError instanceof Error ? loginError.message : "LOGIN_FAILED";
-      setError(
-        raw.toLowerCase().includes("invalid login credentials")
-          ? rtl
-            ? "Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø£Ùˆ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± ØºÙŠØ± ØµØ­ÙŠØ­Ø©."
-            : "Incorrect email or password."
-          : raw === "PASSWORD_TOO_SHORT"
-            ? rtl
-              ? `ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± ÙŠØ¬Ø¨ Ø£Ù„Ø§ ØªÙ‚Ù„ Ø¹Ù† ${mode === "signup" ? "8" : "6"} Ø£Ø­Ø±Ù.`
-              : `Password must be at least ${mode === "signup" ? "8" : "6"} characters.`
-            : raw,
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="login-page" dir={rtl ? "rtl" : "ltr"} lang={rtl ? "ar" : "en"}>
-      <button className="login-language" onClick={onLanguage}>{rtl ? "EN" : "Ø¹"}</button>
-      <section className="login-card">
-        <div className="brand-mark">Ùƒ</div>
-        <span className="eyebrow">{rtl ? "Ø§Ù„Ù…ÙƒØªØ¨Ø© Ø§Ù„Ø´Ø®ØµÙŠØ© Ø§Ù„Ø°ÙƒÙŠØ©" : "Smart Personal Library"}</span>
-        <h1>{mode === "signup" ? (rtl ? "Ø£Ù†Ø´Ø¦ Ø­Ø³Ø§Ø¨ Ù…ÙƒØªØ¨ØªÙƒ" : "Create your library account") : (rtl ? "Ø§Ø¯Ø®Ù„ Ø¥Ù„Ù‰ Ù…ÙƒØªØ¨ØªÙƒ" : "Sign in to your library")}</h1>
-        <p>
-          {rtl
-            ? "Ø­Ø³Ø§Ø¨ ÙˆØ§Ø­Ø¯ ÙˆÙ…ÙƒØªØ¨Ø© ÙˆØ§Ø­Ø¯Ø© Ø¹Ù„Ù‰ ÙƒØ±ÙˆÙ… ÙˆEdge ÙˆØ§Ù„Ø¢ÙŠÙÙˆÙ† ÙˆØ³Ø§Ù…Ø³ÙˆÙ†Ø¬ ÙˆØ§Ù„ØªØ§Ø¨Ù„Øª. Ø³Ø¬Ù‘Ù„ Ù…Ø±Ø© ÙˆØ§Ø­Ø¯Ø© ÙÙŠ ÙƒÙ„ Ø¬Ù‡Ø§Ø²ØŒ Ø«Ù… ÙŠØ¨Ù‚Ù‰ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù…Ø­ÙÙˆØ¸Ù‹Ø§."
-            : "One account and one library across Chrome, Edge, iPhone, Samsung and tablets. Sign in once per device and the session stays saved."}
-        </p>
-        {loading ? (
-          <div className="login-loading">{rtl ? "Ø¬Ø§Ø±Ù ÙØ­Øµ Ø§Ù„Ø­Ø³Ø§Ø¨â€¦" : "Checking accountâ€¦"}</div>
-        ) : (
-          <form onSubmit={submit}>
-            <label>
-              {rtl ? "Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ" : "Email"}
-              <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" required />
-            </label>
-            <label>
-              {rtl ? "ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±" : "Password"}
-              <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} minLength={mode === "signup" ? 8 : 6} required />
-            </label>
-            <button className="primary" type="submit" disabled={busy}>
-              {busy
-                ? mode === "signup" ? (rtl ? "Ø¬Ø§Ø±Ù Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø­Ø³Ø§Ø¨â€¦" : "Creating accountâ€¦") : (rtl ? "Ø¬Ø§Ø±Ù Ø§Ù„Ø¯Ø®ÙˆÙ„â€¦" : "Signing inâ€¦")
-                : mode === "signup" ? (rtl ? "Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø­Ø³Ø§Ø¨" : "Create account") : (rtl ? "Ø¯Ø®ÙˆÙ„" : "Sign in")}
-            </button>
-          </form>
-        )}
-        {error && <div className="reader-error inline">{error}</div>}
-        {success && <div className="login-success">{success}</div>}
-        {!loading && (
-          <button className="login-mode" type="button" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); setSuccess(""); setPassword(""); }}>
-            {mode === "signin"
-              ? (rtl ? "Ù„ÙŠØ³ Ù„Ø¯ÙŠÙƒ Ø­Ø³Ø§Ø¨ØŸ Ø£Ù†Ø´Ø¦ Ø­Ø³Ø§Ø¨Ù‹Ø§" : "No account? Create one")
-              : (rtl ? "Ù„Ø¯ÙŠÙƒ Ø­Ø³Ø§Ø¨ØŸ Ø³Ø¬Ù‘Ù„ Ø§Ù„Ø¯Ø®ÙˆÙ„" : "Already have an account? Sign in")}
-          </button>
-        )}
-        <small>{rtl ? "Ù„Ø§ ØªÙØ­ÙØ¸ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø¯Ø§Ø®Ù„ Ø§Ù„Ù…Ù†ØµØ©Ø› ÙŠØ­Ù…ÙŠÙ‡Ø§ Supabase Ø¨ØµÙˆØ±Ø© Ù…Ø´ÙÙ‘Ø±Ø©." : "Your password is protected by Supabase and is never stored in the app."}</small>
-      </section>
-    </div>
-  );
-}
-
-function Dashboard({
-  rtl,
-  t,
-  onUpload,
-  setView,
-  onOpenReader,
-  pilotBooks,
-  libraryStats,
-  onOpenPilot,
-}: {
-  rtl: boolean;
-  t: typeof text.ar;
-  onUpload: () => void;
-  setView: (v: View) => void;
-  onOpenReader: () => void;
-  pilotBooks: PilotBook[];
-  libraryStats: LibraryStats;
-  onOpenPilot: (book: PilotBook) => void;
-}) {
-  const current = pilotBooks[0];
-  return (
-    <div className="page">
-      <section className="welcome">
-        <div>
-          <span className="eyebrow">
-            {rtl
-              ? "Ù…ÙƒØªØ¨Ø© ØªÙ‚Ø±Ø£ Ù…Ø¹ÙƒØŒ Ù„Ø§ Ø¨Ø¯Ù„Ù‹Ø§ Ø¹Ù†Ùƒ"
-              : "A library that reads with you, not for you"}
-          </span>
-          <h2>{t.hello}</h2>
-          <p>{t.intro}</p>
-          <div className="welcome-actions">
-            <button className="primary" onClick={onOpenReader}>
-              â—« {rtl ? "Ø§ÙØªØ­ Ø§Ù„Ù‚Ø§Ø±Ø¦" : "Open reader"}
-            </button>
-            <button className="secondary" onClick={onUpload}>
-              ï¼‹ {rtl ? "Ø£Ø¶Ù ÙƒØªØ§Ø¨Ù‹Ø§" : "Add a book"}
-            </button>
-            <button className="secondary" onClick={() => setView("library")}>
-              â–¥ {rtl ? "Ø§ÙØªØ­ Ù…ÙƒØªØ¨ØªÙŠ" : "Open my library"}
-            </button>
-          </div>
-        </div>
-        <div className="quote-mark">
-          <span>Â«</span>
-          <p>
-            {rtl
-              ? "Ø§ÙÙ‡Ù… Ø®Ø±ÙŠØ·Ø© Ø§Ù„ÙƒØªØ§Ø¨ØŒ Ø«Ù… Ø¹ÙØ¯ Ø¥Ù„Ù‰ Ø§Ù„Ø£ØµÙ„ Ø¨ÙˆØ¹ÙŠ."
-              : "Understand the map, then return to the source."}
-          </p>
-        </div>
-      </section>
-      <section className="metrics">
-        <Metric
-          icon="â–¥"
-          value={String(pilotBooks.length)}
-          label={t.books}
-          note={rtl ? "ÙƒØªØ¨Ùƒ Ø§Ù„Ù…Ø­ÙÙˆØ¸Ø© ÙØ¹Ù„ÙŠÙ‹Ø§" : "Your actually saved books"}
-        />
-        <Metric
-          icon="âœ“"
-          value={String(libraryStats.analysedBooks)}
-          label={t.ready}
-          note={rtl ? "ÙƒØªØ¨ Ù„Ù‡Ø§ ØªØ­Ù„ÙŠÙ„ AI Ù…Ø­ÙÙˆØ¸" : "Books with saved AI analysis"}
-        />
-        <Metric
-          icon="â—–"
-          value={String(libraryStats.questions)}
-          label={rtl ? "Ø£Ø³Ø¦Ù„Ø© Ù…Ø­ÙÙˆØ¸Ø©" : "Saved questions"}
-          note={rtl ? "Ø¥Ø¬Ø§Ø¨Ø§Øª Ù…Ø±ØªØ¨Ø·Ø© Ø¨Ø§Ù„ÙƒØªØ¨" : "Book-grounded answers"}
-        />
-        <Metric
-          icon="â†—"
-          value={String(libraryStats.audioParts)}
-          label={rtl ? "Ù…Ù‚Ø§Ø·Ø¹ ØµÙˆØªÙŠØ©" : "Audio parts"}
-          note={rtl ? "Ø®Ù„Ø§ØµØ§Øª Ø§Ø­ØªØ±Ø§ÙÙŠØ© Ù…Ø­ÙÙˆØ¸Ø©" : "Saved professional summaries"}
-        />
-      </section>
-      <section className="split-grid">
-        <article className="panel continue-card">
-          <SectionHead
-            over={rtl ? "Ø§Ù„Ù‚Ø±Ø§Ø¡Ø© Ø§Ù„Ø­Ø§Ù„ÙŠØ©" : "Current reading"}
-            title={t.current}
-          />
-          {current ? <div className="current-book">
-            <OriginalPdfCover book={current} />
-            <div className="book-copy">
-              <span className="status">
-                {rtl ? "Ø£Ù‚Ø±Ø£ Ø§Ù„Ø¢Ù†" : "In progress"}
-              </span>
-              <h4>{current.title}</h4>
-              <p>{rtl ? "ÙƒØªØ§Ø¨ Ù…Ø­ÙÙˆØ¸ ÙÙŠ Ù…ÙƒØªØ¨ØªÙƒ Ø§Ù„Ø®Ø§ØµØ©" : "Saved in your private library"}</p>
-              <button
-                className="primary compact"
-                onClick={() => onOpenPilot(current)}
-              >
-                â–¶ {rtl ? "Ø§ÙØªØ­ Ø§Ù„ÙƒØªØ§Ø¨ ÙˆÙ†ØªØ§Ø¦Ø¬Ù‡" : "Open book & results"}
-              </button>
-            </div>
-          </div> : <p className="disclosure-note">{rtl ? "Ù„Ù… ØªØ¶Ù ÙƒØªØ§Ø¨Ù‹Ø§ Ø­Ù‚ÙŠÙ‚ÙŠÙ‹Ø§ Ø¨Ø¹Ø¯." : "No real book has been added yet."}</p>}
-        </article>
-        <article className="panel librarian-card">
-          <div className="librarian-icon">âœ¦</div>
-          <span className="eyebrow">
-            {rtl ? "ØªÙˆØµÙŠØ© Ø´Ø®ØµÙŠØ©" : "Personal recommendation"}
-          </span>
-          <h3>{t.suggestion}</h3>
-          <p>{current
-            ? (rtl
-              ? `Ø§Ø¨Ø¯Ø£ Ø¨ØªØ­Ù„ÙŠÙ„ Â«${current.title}Â» Ø«Ù… Ø§Ø³Ø£Ù„ Ø£Ù…ÙŠÙ† Ø§Ù„Ù…ÙƒØªØ¨Ø© Ø¹Ù† Ø§Ù„Ø£ÙÙƒØ§Ø± ÙˆØ§Ù„ÙØµÙˆÙ„ Ø§Ù„ØªÙŠ ØªØ³ØªØ­Ù‚ Ø§Ù„Ø¹ÙˆØ¯Ø© Ø¥Ù„Ù‰ Ø§Ù„Ù…ØµØ¯Ø±.`
-              : `Analyze â€œ${current.title}â€, then ask the librarian which ideas and chapters deserve a return to the source.`)
-            : (rtl ? "Ø£Ø¶Ù Ø£ÙˆÙ„ ÙƒØªØ§Ø¨ Ø­Ù‚ÙŠÙ‚ÙŠ Ù„ÙŠØ¨Ø¯Ø£ Ø§Ù„Ø§Ù‚ØªØ±Ø§Ø­ Ù…Ù† Ø¨ÙŠØ§Ù†Ø§Øª Ù…ÙƒØªØ¨ØªÙƒØŒ Ù„Ø§ Ù…Ù† Ø£Ù…Ø«Ù„Ø© ÙˆÙ‡Ù…ÙŠØ©." : "Add your first real book so recommendations use your libraryâ€”not placeholder examples.")}</p>
-          <div className="source-note">
-            <b>{rtl ? "Ø³Ø¨Ø¨ Ø§Ù„Ø§Ù‚ØªØ±Ø§Ø­" : "Why this suggestion"}</b>
-            <span>
-              {rtl
-                ? "ÙŠØªÙØ¹Ù‘Ù„ Ù…Ù† ØªØ­Ù„ÙŠÙ„Ø§Øª ÙƒØªØ¨Ùƒ Ø§Ù„Ù…Ø­ÙÙˆØ¸Ø© ÙÙ‚Ø·"
-                : "Enabled only from your saved book analyses"}
-            </span>
-          </div>
-          {current && <button className="text-button" onClick={() => onOpenPilot(current)}>
-            {rtl ? "Ø­Ù„Ù‘Ù„ Ø§Ù„ÙƒØªØ§Ø¨ ÙˆØ§Ø³Ø£Ù„Ù‡" : "Analyze and ask this book"}
-          </button>}
-        </article>
-      </section>
-      <section className="panel library-preview">
-        <SectionHead
-          over={rtl ? "Ø±ÙÙˆÙÙƒ Ø§Ù„Ø´Ø®ØµÙŠØ©" : "Your shelves"}
-          title={t.myLibrary}
-          action={t.all}
-          onAction={() => setView("library")}
-        />
-        <div className="book-grid">
-          {pilotBooks.map((book) => (
-            <LiveBookCard key={book.id} book={book} rtl={rtl} onOpen={() => onOpenPilot(book)} />
-          ))}
-          <button className="add-book-card" onClick={onUpload}>
-            <i>ï¼‹</i>
-            <strong>{rtl ? "Ø£Ø¶Ù ÙƒØªØ§Ø¨Ù‹Ø§ Ø¬Ø¯ÙŠØ¯Ù‹Ø§" : "Add a new book"}</strong>
-                <span>PDF</span>
-          </button>
-        </div>
-      </section>
-      <section className="journey">
-        <SectionHead
-          over={rtl ? "Ù…Ù† Ø§Ù„Ù…Ù„Ù Ø¥Ù„Ù‰ Ø§Ù„Ù…Ø¹Ø±ÙØ©" : "From file to knowledge"}
-          title={t.journey}
-        />
-        <div className="steps">
-          {[
-            [
-              "01",
-              "â‡§",
-              rtl ? "Ø§Ø±ÙØ¹ ÙƒØªØ§Ø¨Ùƒ" : "Upload",
-              rtl ? "Ù…Ù„Ù PDF Ø®Ø§Øµ Ø¨Ùƒ" : "Your private PDF",
-            ],
-            [
-              "02",
-              "âŒ•",
-              rtl ? "ØªØ­Ù‚Ù‚ ÙˆÙÙ‡Ø±Ø³Ø©" : "Verify & catalogue",
-              rtl ? "Ø­Ù‚ÙˆÙ‚ØŒ Ø¨ÙŠØ§Ù†Ø§Øª ÙˆÙØµÙˆÙ„" : "Rights, metadata, chapters",
-            ],
-            [
-              "03",
-              "âœ¦",
-              rtl ? "ÙÙ‡Ù… ÙˆØªØ­Ù„ÙŠÙ„" : "Understand",
-              rtl ? "Ø®Ù„Ø§ØµØ© ÙˆÙØµÙˆÙ„ ÙˆØªÙˆØ«ÙŠÙ‚" : "Summary, chapters, citations",
-            ],
-            [
-              "04",
-              "â—–",
-              rtl ? "Ø§Ø³ØªÙ…Ø¹ ÙˆØ§Ø³Ø£Ù„" : "Listen & ask",
-              rtl ? "ØµÙˆØª ÙˆØ¥Ø¬Ø§Ø¨Ø§Øª Ù…Ù† Ø§Ù„Ù…ØµØ¯Ø±" : "Audio and grounded answers",
-            ],
-            [
-              "05",
-              "â†—",
-              rtl ? "Ø¹ÙØ¯ ÙˆØªØ§Ø¨Ø¹" : "Return & continue",
-              rtl ? "Ù…ÙˆØ§Ø¶Ø¹ Ù‚Ø±Ø§Ø¡Ø© ÙˆØªÙ†Ø¨ÙŠÙ‡Ø§Øª" : "Reading locations, reminders",
-            ],
-          ].map(([n, i, h, p]) => (
-            <div className="step" key={n}>
-              <b>{n}</b>
-              <i>{i}</i>
-              <h4>{h}</h4>
-              <p>{p}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function Metric({
-  icon,
-  value,
-  label,
-  note,
-}: {
-  icon: string;
-  value: string;
-  label: string;
-  note: string;
-}) {
-  return (
-    <article className="metric">
-      <i>{icon}</i>
-      <div>
-        <strong>{value}</strong>
-        <span>{label}</span>
-        <small>{note}</small>
-      </div>
-    </article>
-  );
-}
-function SectionHead({
-  over,
-  title,
-  action,
-  onAction,
-}: {
-  over: string;
-  title: string;
-  action?: string;
-  onAction?: () => void;
-}) {
-  return (
-    <div className="section-head">
-      <div>
-        <span>{over}</span>
-        <h3>{title}</h3>
-      </div>
-      {action && (
-        <button className="text-button" onClick={onAction}>
-          {action} â†
-        </button>
-      )}
-    </div>
-  );
-}
-function Bar({ value }: { value: number }) {
-  return (
-    <div className="progress">
-      <i style={{ width: `${value}%` }} />
-    </div>
-  );
-}
-function BookCover({ tone, title }: { tone: string; title: string }) {
-  return (
-    <div className={`book-cover ${tone}`}>
-      <span>Ø§Ù„Ù…ÙƒØªØ¨Ø© Ø§Ù„Ø°ÙƒÙŠØ©</span>
-      <strong>{title}</strong>
-      <i>â—ˆ</i>
-    </div>
-  );
-}
-function PageTitle({
-  title,
-  description,
-  action,
-  onAction,
-}: {
-  title: string;
-  description: string;
-  action?: string;
-  onAction?: () => void;
-}) {
-  return (
-    <header className="page-title">
-      <div>
-        <span>Ø§Ù„Ù…ÙƒØªØ¨Ø© Ø§Ù„Ø´Ø®ØµÙŠØ© Ø§Ù„Ø°ÙƒÙŠØ©</span>
-        <h2>{title}</h2>
-        <p>{description}</p>
-      </div>
-      {action && (
-        <button className="primary" onClick={onAction}>
-          ï¼‹ {action}
-        </button>
-      )}
-    </header>
-  );
-}
-
-const COVER_TONES = ["emerald", "navy", "gold"] as const;
-
-/** Deterministic (title-based) local cover tone â€” no image, no paid API, same tone every render. */
-function coverToneFor(seed: string): (typeof COVER_TONES)[number] {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  return COVER_TONES[hash % COVER_TONES.length];
-}
-
-function languageLabel(lang: string, rtl: boolean): string {
-  return lang === "ar"
-    ? rtl
-      ? "Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©"
-      : "Arabic"
-    : lang === "en"
-      ? rtl
-        ? "Ø§Ù„Ø¥Ù†Ø¬Ù„ÙŠØ²ÙŠØ©"
-        : "English"
-      : lang === "mixed"
-        ? rtl
-          ? "Ù…Ø®ØªÙ„Ø·Ø©"
-          : "Mixed"
-        : lang === "bilingual"
-          ? rtl
-            ? "Ø«Ù†Ø§Ø¦ÙŠØ© Ø§Ù„Ù„ØºØ©"
-            : "Bilingual"
-          : rtl
-            ? "Ù„Ù… ØªÙØ­Ø¯ÙÙ‘Ø¯ Ø¨Ø¹Ø¯"
-            : "Not detected yet";
-}
-
-const STATUS_LABELS_AR: Record<PilotBook["status"], string> = {
-  uploaded: "Ù…Ø­ÙÙˆØ¸ â€” Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ù…Ø­Ù„ÙŠ",
-  processing: "Ù‚ÙŠØ¯ Ø§Ù„Ù…Ø¹Ø§Ù„Ø¬Ø©",
-  ready: "Ø¬Ø§Ù‡Ø²",
-  failed: "ÙØ´Ù„",
-};
-const STATUS_LABELS_EN: Record<PilotBook["status"], string> = {
-  uploaded: "Saved â€” awaiting local analysis",
-  processing: "Processing",
-  ready: "Ready",
-  failed: "Failed",
-};
-
-function OriginalPdfCover({ book }: { book: PilotBook }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    setFailed(false);
-    const render = async () => {
-      const signed = await createBookSignedUrl(book.storage_path, 900);
-      const pdfjs = await import("pdfjs-dist");
-      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-      const pdf = await pdfjs.getDocument({ url: signed.url, disableFontFace: true }).promise;
-      const first = await pdf.getPage(1);
-      const base = first.getViewport({ scale: 1 });
-      const viewport = first.getViewport({ scale: Math.max(0.34, Math.min(1.2, 420 / base.width)) });
-      if (cancelled || !canvasRef.current) return;
-      const canvas = canvasRef.current;
-      const context = canvas.getContext("2d", { alpha: false });
-      if (!context) throw new Error("COVER_CANVAS_UNAVAILABLE");
-      canvas.width = Math.floor(viewport.width);
-      canvas.height = Math.floor(viewport.height);
-      await first.render({ canvasContext: context, viewport, canvas }).promise;
-      canvas.dataset.ready = "true";
-    };
-    render().catch(() => !cancelled && setFailed(true));
-    return () => { cancelled = true; };
-  }, [book.id, book.storage_path]);
-  if (failed) return <BookCover tone={coverToneFor(book.title)} title={book.title.split(" ").slice(0, 3).join(" ")} />;
-  return <div className="book-cover original-pdf-cover"><canvas ref={canvasRef} aria-label={book.title} /></div>;
-}
-
-/** A real saved book; page one is rendered as its cover with a safe fallback. */
-function LiveBookCard({ book, rtl, onOpen }: { book: PilotBook; rtl: boolean; onOpen: () => void }) {
-  const subtitle = languageLabel(book.source_language, rtl);
-  const status = rtl ? STATUS_LABELS_AR[book.status] : STATUS_LABELS_EN[book.status];
-  return (
-    <button className="book-card live-book-card" onClick={onOpen}>
-      <OriginalPdfCover book={book} />
-      <div>
-        <span className="tag">{rtl ? "ÙƒØªØ§Ø¨Ùƒ" : "Your book"}</span>
-        <h4>{book.title}</h4>
-        <p>{subtitle}</p>
-        <small>{status}</small>
-      </div>
-    </button>
-  );
-}
-
-function DuplicateReviewPanel({
-  rtl,
-  groups,
-  onBooksChanged,
-}: {
-  rtl: boolean;
-  groups: DuplicateGroup[];
-  onBooksChanged: () => void;
-}) {
-  const [confirmingId, setConfirmingId] = useState("");
-  const [confirmingGroup, setConfirmingGroup] = useState("");
-  const [busyId, setBusyId] = useState("");
-  const [error, setError] = useState("");
-  if (groups.length === 0) return null;
-  const remove = async (book: PilotBook) => {
-    setBusyId(book.id);
-    setError("");
-    try {
-      await rollbackPilotBook(book);
-      onBooksChanged();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : rtl ? "ØªØ¹Ø°Ø± Ø­Ø°Ù Ø§Ù„Ø³Ø¬Ù„." : "Could not delete this record.");
-    } finally {
-      setBusyId("");
-      setConfirmingId("");
-    }
-  };
-  const keepNewestOnly = async (group: DuplicateGroup) => {
-    const ordered = [...group.books].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-    setBusyId(group.key);
-    setError("");
-    try {
-      for (const duplicate of ordered.slice(1)) await rollbackPilotBook(duplicate);
-      onBooksChanged();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : rtl ? "ØªØ¹Ø°Ø± ØªÙ†Ø¸ÙŠÙ Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø©." : "Could not clean this group.");
-    } finally {
-      setBusyId("");
-      setConfirmingGroup("");
-    }
-  };
-  return (
-    <section className="panel duplicate-review">
-      <span className="eyebrow">{rtl ? "Ù…Ø±Ø§Ø¬Ø¹Ø© Ø§Ù„Ø³Ø¬Ù„Ø§Øª Ø§Ù„Ù…ÙƒØ±Ø±Ø©" : "Duplicate review"}</span>
-      <h3>{rtl ? "Ù„Ù… ÙŠÙØ­Ø°Ù Ø£ÙŠ ÙƒØªØ§Ø¨ ØªÙ„Ù‚Ø§Ø¦ÙŠÙ‹Ø§ â€” Ø±Ø§Ø¬Ø¹ Ø«Ù… Ø§Ø­Ø°Ù ÙŠØ¯ÙˆÙŠÙ‹Ø§" : "Nothing was deleted automatically â€” review, then delete manually"}</h3>
-      <p className="disclosure-note">
-        {rtl
-          ? "Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø§Øª Ø§Ù„Ù…Ø¤ÙƒØ¯Ø© ØªØªØ·Ø§Ø¨Ù‚ Ø¨Ù…Ø­ØªÙˆÙ‰ Ø§Ù„Ù…Ù„Ù Ù†ÙØ³Ù‡ (Ø¨ØµÙ…Ø© SHA-256). Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø§Øª ØºÙŠØ± Ø§Ù„Ù…Ø¤ÙƒØ¯Ø© ØªØªØ·Ø§Ø¨Ù‚ ÙÙ‚Ø· Ø¨Ø§Ù„Ø¹Ù†ÙˆØ§Ù† ÙˆØ­Ø¬Ù… Ø§Ù„Ù…Ù„Ù Ù„Ø£Ù†Ù‡Ø§ Ø£Ù‚Ø¯Ù… Ù…Ù† Ù…ÙŠØ²Ø© Ø§Ù„Ø¨ØµÙ…Ø© â€” Ø±Ø§Ø¬Ø¹Ù‡Ø§ Ø¨Ø¹Ù†Ø§ÙŠØ© Ù‚Ø¨Ù„ Ø§Ù„Ø­Ø°Ù."
-          : "Confirmed groups match on the file's own content hash (SHA-256). Unconfirmed groups match only on title + file size because they predate hashing â€” review carefully before deleting."}
-      </p>
-      {error && <div className="reader-error inline">{error}</div>}
-      {groups.map((group) => (
-        <div key={group.key} className="duplicate-group">
-          <small className={group.confirmed ? "dup-confirmed" : "dup-unconfirmed"}>
-            {group.confirmed
-              ? rtl
-                ? "Ù…Ø¤ÙƒØ¯ â€” Ù†ÙØ³ Ù…Ø­ØªÙˆÙ‰ Ø§Ù„Ù…Ù„Ù"
-                : "Confirmed â€” identical file content"
-              : rtl
-                ? "ØºÙŠØ± Ù…Ø¤ÙƒØ¯ â€” ØªØ·Ø§Ø¨Ù‚ Ø¨Ø§Ù„Ø¹Ù†ÙˆØ§Ù† ÙˆØ§Ù„Ø­Ø¬Ù… ÙÙ‚Ø·"
-                : "Unconfirmed â€” title + size match only"}
-          </small>
-          {confirmingGroup === group.key ? <span className="dup-confirm-row"><em>{rtl ? "Ø³Ù†ÙØ¨Ù‚ÙŠ Ø£Ø­Ø¯Ø« Ù†Ø³Ø®Ø© ÙˆÙ†Ø­Ø°Ù Ø§Ù„Ø¨Ù‚ÙŠØ©. ØªØ£ÙƒÙŠØ¯ØŸ" : "Keep the newest copy and delete the rest. Confirm?"}</em><button className="danger" disabled={busyId === group.key} onClick={() => keepNewestOnly(group)}>{rtl ? "Ù†Ø¹Ù…ØŒ Ù†Ø¸Ù‘Ù Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø©" : "Yes, clean group"}</button><button className="secondary" onClick={() => setConfirmingGroup("")}>{rtl ? "ØªØ±Ø§Ø¬Ø¹" : "Cancel"}</button></span> : <button className="primary compact" onClick={() => setConfirmingGroup(group.key)}>{rtl ? "Ø£Ø¨Ù‚Ù Ù†Ø³Ø®Ø© ÙˆØ§Ø­Ø¯Ø© ÙÙ‚Ø·" : "Keep one copy only"}</button>}
-          <ul>
-            {group.books.map((book) => (
-              <li key={book.id}>
-                <span>
-                  {book.title} â€” {new Date(book.created_at).toLocaleString(rtl ? "ar" : "en")}
-                </span>
-                {confirmingId === book.id ? (
-                  <span className="dup-confirm-row">
-                    <em>{rtl ? "ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø­Ø°ÙØŸ" : "Confirm delete?"}</em>
-                    <button className="danger" disabled={busyId === book.id} onClick={() => remove(book)}>
-                      {rtl ? "Ù†Ø¹Ù…ØŒ Ø§Ø­Ø°Ù" : "Yes, delete"}
-                    </button>
-                    <button className="secondary" onClick={() => setConfirmingId("")}>
-                      {rtl ? "ØªØ±Ø§Ø¬Ø¹" : "Cancel"}
-                    </button>
-                  </span>
-                ) : (
-                  <button className="secondary" onClick={() => setConfirmingId(book.id)}>
-                    {rtl ? "Ø­Ø°Ù Ù‡Ø°Ù‡ Ø§Ù„Ù†Ø³Ø®Ø©" : "Delete this copy"}
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
-    </section>
-  );
-}
-
-type PaidBookResult = {
-  source_language?: string;
-  metadata?: { title?: string; author?: string; subject?: string; pages_if_known?: string | number | null };
-  overview?: { summary?: string; key_ideas?: unknown[]; return_to_source?: unknown[] };
-  chapters?: Array<{ title?: string; summary?: string; pages_if_known?: string | number | null }>;
-  critical?: { strengths?: unknown[]; limitations?: unknown[]; platform_inferences?: unknown[] };
-  trust_notes?: unknown;
-};
-
-function readableItem(value: unknown): string {
-  if (typeof value === "string" || typeof value === "number") return String(value);
-  if (!value || typeof value !== "object") return "";
-  const item = value as Record<string, unknown>;
-  return [item.page ?? item.pages ?? item.pages_if_known, item.reason ?? item.note ?? item.text ?? item.title]
-    .filter(Boolean)
-    .join(" â€” ");
-}
-
-function describeAiError(value: unknown, rtl: boolean) {
-  const raw = value instanceof Error ? value.message : String(value ?? "");
-  const code = raw.match(/(PAID_AI_DISABLED|PRIVATE_PILOT_EMAIL_REQUIRED|PAID_PILOT_BOOK_LIMIT_REACHED|DAILY_ANALYSIS_LIMIT_REACHED|DAILY_QUESTION_LIMIT_REACHED|PILOT_QUESTION_LIMIT_REACHED|OPENAI_API_KEY_MISSING|LEGAL_CONSENT_REQUIRED|BOOK_NOT_PROCESSED|ANALYSIS_NOT_READY)/)?.[1];
-  const ar: Record<string, string> = {
-    PAID_AI_DISABLED: "Ø§Ù„Ø®Ø¯Ù…Ø© Ø§Ù„Ù…Ø¯ÙÙˆØ¹Ø© Ù…Ø§ Ø²Ø§Ù„Øª Ù…ØºÙ„Ù‚Ø© Ù…Ù† Ø®Ø§Ø¯Ù… SupabaseØ› Ù„Ù… ÙŠÙØ±Ø³Ù„ Ø§Ù„ÙƒØªØ§Ø¨ ÙˆÙ„Ù… ÙŠÙØ®ØµÙ… Ø£ÙŠ Ø±ØµÙŠØ¯.",
-    PRIVATE_PILOT_EMAIL_REQUIRED: "Ø³Ø¬Ù‘Ù„ Ø¯Ø®ÙˆÙ„Ùƒ Ø¨Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„ØªØ¬Ø±ÙŠØ¨ÙŠ Ø§Ù„Ù…Ø¹ØªÙ…Ø¯ Ø£ÙˆÙ„Ù‹Ø§. Ø§Ù„Ø¬Ù„Ø³Ø© Ø§Ù„Ù…Ø¬Ù‡ÙˆÙ„Ø© Ù„Ø§ ØªØ³ØªØ·ÙŠØ¹ Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø±ØµÙŠØ¯ OpenAI.",
-    PAID_PILOT_BOOK_LIMIT_REACHED: "Ø¨Ù„ØºØª Ø­Ø¯ Ø§Ù„ÙƒØªØ¨ Ø§Ù„Ù…Ø¯ÙÙˆØ¹Ø© Ø§Ù„Ù…Ø³Ù…ÙˆØ­ Ø¨Ù‡ ÙÙŠ Ø§Ù„Ù…Ø®ØªØ¨Ø±. Ù„Ù† ÙŠÙØ®ØµÙ… Ø´ÙŠØ¡ Ù„ÙƒØªØ§Ø¨ Ø¥Ø¶Ø§ÙÙŠ.",
-    DAILY_ANALYSIS_LIMIT_REACHED: "Ø¨Ù„ØºØª Ø­Ø¯ Ø§Ù„ØªØ­Ù„ÙŠÙ„Ø§Øª Ø§Ù„ÙŠÙˆÙ…ÙŠØ© Ø§Ù„Ø¢Ù…Ù†. Ø£ÙˆÙ‚ÙÙ†Ø§ Ø§Ù„Ø·Ù„Ø¨ Ù‚Ø¨Ù„ Ø§Ù„Ø®ØµÙ… Ø§Ù„Ø¥Ø¶Ø§ÙÙŠ.",
-    DAILY_QUESTION_LIMIT_REACHED: "Ø¨Ù„ØºØª Ø­Ø¯ Ø§Ù„Ø£Ø³Ø¦Ù„Ø© Ø§Ù„ÙŠÙˆÙ…ÙŠØ© Ø§Ù„Ø¢Ù…Ù†.",
-    PILOT_QUESTION_LIMIT_REACHED: "Ø¨Ù„ØºØª Ø­Ø¯ Ø§Ù„Ø£Ø³Ø¦Ù„Ø© Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ù„Ù„ØªØ¬Ø±Ø¨Ø© Ø§Ù„Ø­Ø§Ù„ÙŠØ©.",
-    OPENAI_API_KEY_MISSING: "Ù…ÙØªØ§Ø­ OpenAI ØºÙŠØ± Ù…Ø¶Ø¨ÙˆØ· Ø¯Ø§Ø®Ù„ Ø£Ø³Ø±Ø§Ø± SupabaseØ› Ù„Ù… ØªØ¨Ø¯Ø£ Ø§Ù„Ø®Ø¯Ù…Ø©.",
-    LEGAL_CONSENT_REQUIRED: "Ø¥Ù‚Ø±Ø§Ø± Ø­Ù‚ÙˆÙ‚ Ø§Ø³ØªØ®Ø¯Ø§Ù… Ù‡Ø°Ø§ Ø§Ù„ÙƒØªØ§Ø¨ ØºÙŠØ± Ù…Ø³Ø¬Ù„.",
-    BOOK_NOT_PROCESSED: "Ø­Ù„Ù‘Ù„ Ø§Ù„ÙƒØªØ§Ø¨ Ø£ÙˆÙ„Ù‹Ø§ Ù‚Ø¨Ù„ Ø·Ø±Ø­ Ø§Ù„Ø£Ø³Ø¦Ù„Ø©.",
-    ANALYSIS_NOT_READY: "Ø£Ù†Ø´Ø¦ Ø§Ù„Ø®Ù„Ø§ØµØ© Ø¨Ù‡Ø°Ù‡ Ø§Ù„Ù„ØºØ© Ø£ÙˆÙ„Ù‹Ø§ØŒ Ø«Ù… Ø£Ù†Ø´Ø¦ Ø§Ù„ØµÙˆØª.",
-  };
-  const en: Record<string, string> = {
-    PAID_AI_DISABLED: "Paid AI is still locked on the Supabase server. Nothing was sent and no credit was used.",
-    PRIVATE_PILOT_EMAIL_REQUIRED: "Sign in with the approved pilot email first. Anonymous sessions cannot use OpenAI credit.",
-    PAID_PILOT_BOOK_LIMIT_REACHED: "The paid pilot book limit has been reached. No additional credit was used.",
-    DAILY_ANALYSIS_LIMIT_REACHED: "The safe daily analysis limit has been reached.",
-    DAILY_QUESTION_LIMIT_REACHED: "The safe daily question limit has been reached.",
-    PILOT_QUESTION_LIMIT_REACHED: "The pilot's total question limit has been reached.",
-    OPENAI_API_KEY_MISSING: "The OpenAI key is not configured in Supabase secrets; the service did not start.",
-    LEGAL_CONSENT_REQUIRED: "The rights declaration for this book is not recorded.",
-    BOOK_NOT_PROCESSED: "Analyze the book before asking questions.",
-    ANALYSIS_NOT_READY: "Create the summary in this language before generating audio.",
-  };
-  return code ? (rtl ? ar[code] : en[code]) : raw || (rtl ? "ØªØ¹Ø°Ø± Ø¥ÙƒÙ…Ø§Ù„ Ø§Ù„Ø·Ù„Ø¨." : "The request could not be completed.");
-}
-
-function PaidResultView({ result, rtl }: { result: Record<string, unknown>; rtl: boolean }) {
-  const data = result as PaidBookResult;
-  const ideas = data.overview?.key_ideas ?? [];
-  const returns = data.overview?.return_to_source ?? [];
-  const strengths = data.critical?.strengths ?? [];
-  const limitations = data.critical?.limitations ?? [];
-  const inferences = data.critical?.platform_inferences ?? [];
-  return (
-    <div className="paid-result-view">
-      <div className="paid-result-meta">
-        <span>âœ“ {rtl ? "ØªØ­Ù„ÙŠÙ„ Ù…Ø­ÙÙˆØ¸" : "Saved analysis"}</span>
-        {data.metadata?.author && <span>{rtl ? "Ø§Ù„Ù…Ø¤Ù„Ù" : "Author"}: {data.metadata.author}</span>}
-        {data.metadata?.subject && <span>{rtl ? "Ø§Ù„Ù…ÙˆØ¶ÙˆØ¹" : "Subject"}: {data.metadata.subject}</span>}
-        {data.metadata?.pages_if_known && <span>{rtl ? "Ø§Ù„ØµÙØ­Ø§Øª" : "Pages"}: {String(data.metadata.pages_if_known)}</span>}
-      </div>
-      <section>
-        <h4>{rtl ? "Ø§Ù„Ø®Ù„Ø§ØµØ© Ø§Ù„Ø°ÙƒÙŠØ©" : "AI overview"}</h4>
-        <p className="paid-summary">{data.overview?.summary || (rtl ? "Ù„Ù… ØªÙØ­ÙØ¸ Ø®Ù„Ø§ØµØ©." : "No overview was saved.")}</p>
-      </section>
-      {ideas.length > 0 && <section><h4>{rtl ? "Ø§Ù„Ø£ÙÙƒØ§Ø± Ø§Ù„Ù…Ø­ÙˆØ±ÙŠØ©" : "Key ideas"}</h4><ol>{ideas.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ol></section>}
-      {(data.chapters?.length ?? 0) > 0 && <section><h4>{rtl ? "Ø§Ù„ÙØµÙˆÙ„" : "Chapters"}</h4><div className="chapters">{data.chapters?.map((chapter, index) => <details key={index} open={index === 0}><summary><b>{String(index + 1).padStart(2, "0")}</b><span>{chapter.title || (rtl ? "ÙØµÙ„" : "Chapter")}</span><em>{chapter.pages_if_known ? `${rtl ? "Øµ" : "p."} ${chapter.pages_if_known}` : ""}</em></summary><p>{chapter.summary}</p></details>)}</div></section>}
-      {(strengths.length > 0 || limitations.length > 0) && <section><h4>{rtl ? "Ø§Ù„Ù‚Ø±Ø§Ø¡Ø© Ø§Ù„Ù†Ù‚Ø¯ÙŠØ©" : "Critical reading"}</h4><div className="analysis-grid"><div><h4>âœ“ {rtl ? "Ù†Ù‚Ø§Ø· Ø§Ù„Ù‚ÙˆØ©" : "Strengths"}</h4><ul>{strengths.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul></div><div><h4>â–³ {rtl ? "Ø§Ù„Ø­Ø¯ÙˆØ¯" : "Limitations"}</h4><ul>{limitations.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul></div></div></section>}
-      {inferences.length > 0 && <section className="inference"><b>{rtl ? "Ø§Ø³ØªÙ†ØªØ§Ø¬Ø§Øª Ø§Ù„Ù…Ù†ØµØ©" : "Platform inferences"}</b><ul>{inferences.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul></section>}
-      {returns.length > 0 && <section><h4>{rtl ? "Ù…ÙˆØ§Ø¶Ø¹ Ø§Ù„Ø¹ÙˆØ¯Ø© Ø¥Ù„Ù‰ Ø§Ù„ÙƒØªØ§Ø¨" : "Return to the source"}</h4><ol className="return-list paid-return-list">{returns.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ol></section>}
-      {Boolean(data.trust_notes) && <p className="disclosure-note">{rtl ? "Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø§Ù„Ø«Ù‚Ø©: " : "Trust notes: "}{readableItem(data.trust_notes)}</p>}
-    </div>
-  );
-}
-
-function Library({
-  rtl,
-  title,
-  onUpload,
-  pilotBooks,
-  booksLoading,
-  booksError,
-  onRetry,
-  onBooksChanged,
-  searchQuery,
-  onOpenPilot,
-}: {
-  rtl: boolean;
-  title: string;
-  onUpload: () => void;
-  pilotBooks: PilotBook[];
-  booksLoading: boolean;
-  booksError: string;
-  onRetry: () => void;
-  onBooksChanged: () => void;
-  searchQuery: string;
-  onOpenPilot: (book: PilotBook) => void;
-}) {
-  const query = searchQuery.trim().toLowerCase();
-  const filteredPilotBooks = query
-    ? pilotBooks.filter((book) => book.title.toLowerCase().includes(query))
-    : pilotBooks;
-  return (
-    <div className="page">
-      <PageTitle
-        title={title}
-        description={
-          rtl
-            ? "Ù…Ø¬Ù…ÙˆØ¹Ø© Ø´Ø®ØµÙŠØ© ØªÙ†Ù…Ùˆ ÙˆØªØªØ±Ø§Ø¨Ø· Ù…Ø¹ ÙƒÙ„ ÙƒØªØ§Ø¨ ØªØ¶ÙŠÙÙ‡."
-            : "A private collection that grows and connects with every book."
-        }
-        action={rtl ? "Ø£Ø¶Ù ÙƒØªØ§Ø¨Ù‹Ø§" : "Add a book"}
-        onAction={onUpload}
-      />
-      {query && (
-        <p className="search-status">
-          {rtl
-            ? `Ù†ØªØ§Ø¦Ø¬ Ø§Ù„Ø¨Ø­Ø« Ø¹Ù† Â«${searchQuery}Â»: ${filteredPilotBooks.length}`
-            : `Search results for "${searchQuery}": ${filteredPilotBooks.length}`}
-        </p>
-      )}
-      {booksLoading && (
-        <section className="panel state-panel">
-          {rtl ? "Ø¬Ø§Ø±Ù ØªØ­Ù…ÙŠÙ„ Ù…ÙƒØªØ¨ØªÙƒâ€¦" : "Loading your libraryâ€¦"}
-        </section>
-      )}
-      {!booksLoading && booksError && (
-        <section className="panel state-panel error">
-          <p>{booksError}</p>
-          <button className="secondary" onClick={onRetry}>
-            {rtl ? "Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø©" : "Retry"}
-          </button>
-        </section>
-      )}
-      {!booksLoading && !booksError && pilotBooks.length === 0 && !query && (
-        <section className="panel state-panel empty">
-          {rtl
-            ? "Ù„Ù… ØªØ­ÙØ¸ Ø£ÙŠ ÙƒØªØ§Ø¨ Ø¨Ø¹Ø¯. Ø£Ø¶Ù ÙƒØªØ§Ø¨Ùƒ Ø§Ù„Ø£ÙˆÙ„ Ù„ØªØ±Ø§Ù‡ Ù‡Ù†Ø§ Ø¨Ø¹Ø¯ ÙƒÙ„ ØªØ­Ø¯ÙŠØ« Ù„Ù„ØµÙØ­Ø©."
-            : "You haven't saved a book yet. Add your first one to see it here after every refresh."}
-        </section>
-      )}
-      {!booksLoading && !booksError && filteredPilotBooks.length > 0 && (
-        <section className="panel live-books">
-          <span className="eyebrow">
-            {rtl ? "ÙƒØªØ¨ V0.7 Ø§Ù„Ù…Ø­ÙÙˆØ¸Ø©" : "Saved V0.7 books"}
-          </span>
-          <h3>{rtl ? "Ù…ÙƒØªØ¨ØªÙƒ Ø§Ù„ÙØ¹Ù„ÙŠØ©" : "Your live library"}</h3>
-          <p className="pilot-session-warning">
-            {rtl
-              ? "ØªÙ†Ø¨ÙŠÙ‡ Ø§Ù„Ù†Ø³Ø®Ø© Ø§Ù„ØªØ¬Ø±ÙŠØ¨ÙŠØ©: Ø¯Ø®ÙˆÙ„Ùƒ Ù…Ø±ØªØ¨Ø· Ø¨Ù‡Ø°Ø§ Ø§Ù„Ù…ØªØµÙØ­ Ø­Ø§Ù„ÙŠÙ‹Ø§Ø› Ù„Ø§ ØªÙ…Ø³Ø­ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…ØªØµÙØ­ Ù‚Ø¨Ù„ Ø§Ù„ØªØ±Ù‚ÙŠØ© Ø¥Ù„Ù‰ Ø­Ø³Ø§Ø¨ Ø¯Ø§Ø¦Ù… Ø£Ø¯Ù†Ø§Ù‡."
-              : "Pilot notice: access is currently tied to this browser. Do not clear browser data before upgrading to a permanent account below."}
-          </p>
-          <div className="library-full live-book-grid">
-            {filteredPilotBooks.map((book) => (
-              <LiveBookCard key={book.id} book={book} rtl={rtl} onOpen={() => onOpenPilot(book)} />
-            ))}
-          </div>
-        </section>
-      )}
-      {!booksLoading && !booksError && (
-        <DuplicateReviewPanel rtl={rtl} groups={groupDuplicateBooks(pilotBooks)} onBooksChanged={onBooksChanged} />
-      )}
-    </div>
-  );
-}
-
-function PilotWorkspace({
-  rtl,
-  book,
-  onBack,
-  onOpenReader,
-  onBookPatched,
-}: {
-  rtl: boolean;
-  book: PilotBook;
-  onBack: () => void;
-  onOpenReader: (page?: number) => void;
-  onBookPatched: (bookId: string, patch: Partial<PilotBook>) => void;
-}) {
-  const [loading, setLoading] = useState(true);
-  const [results, setResults] = useState<Record<string, unknown> | null>(null);
-  const [localAnalysis, setLocalAnalysis] = useState<LocalStructuralAnalysis | null>(null);
-  const [manualImportSaved, setManualImportSaved] = useState<StoredAnalysis | null>(null);
-  const [consent, setConsent] = useState<{ recorded: boolean; acceptedAt: string | null } | null>(null);
-  const [q, setQ] = useState("");
-  const [answer, setAnswer] = useState<Record<string, unknown> | null>(null);
-  const [audioUrls, setAudioUrls] = useState<string[]>([]);
-  const [resultLanguage, setResultLanguage] = useState<"ar" | "en">(
-    book.output_language === "en" ? "en" : rtl ? "ar" : "en",
-  );
-  const [professionalVoice, setProfessionalVoice] = useState<"marin" | "cedar">(() => localStorage.getItem(`spl-professional-voice-${book.id}`) === "cedar" ? "cedar" : "marin");
-  const [voicePreviewUrls, setVoicePreviewUrls] = useState<Partial<Record<"marin" | "cedar", string>>>({});
-  const [questionHistory, setQuestionHistory] = useState<Array<{ id: string; question: string; answer: Record<string, unknown>; language: "ar" | "en"; created_at: string }>>([]);
-  const [usageTotals, setUsageTotals] = useState({ calls: 0, input: 0, output: 0, textCostUsd: 0, audioCharacters: 0, unpricedCalls: 0 });
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  const [confirming, setConfirming] = useState<
-    "process" | "ask" | "audio" | ""
-  >("");
-  const [localBusy, setLocalBusy] = useState(false);
-  const [localProgress, setLocalProgress] = useState<LocalAnalysisProgress | null>(null);
-  const [localError, setLocalError] = useState("");
-  const [manualText, setManualText] = useState("");
-  const [manualErrors, setManualErrors] = useState<string[]>([]);
-  const [manualBusy, setManualBusy] = useState(false);
-  const [questionCostOpen, setQuestionCostOpen] = useState(false);
-  const [bookSearchTerm, setBookSearchTerm] = useState("");
-  const [bookSearchResults, setBookSearchResults] = useState<BookSearchMatch[] | null>(null);
-  const selectProfessionalVoice = (voice: "marin" | "cedar") => {
-    setProfessionalVoice(voice);
-    localStorage.setItem(`spl-professional-voice-${book.id}`, voice);
-  };
-  useEffect(() => {
-    setProfessionalVoice(localStorage.getItem(`spl-professional-voice-${book.id}`) === "cedar" ? "cedar" : "marin");
-  }, [book.id]);
-  const sizeMb = Math.max(0.1, (book.file_size || 0) / 1048576);
-  const band = sizeMb < 5 ? "small" : sizeMb < 20 ? "medium" : "large";
-  const estimates = {
-    small: { analysis: [0.05, 0.35], audio: [0.1, 0.6] },
-    medium: { analysis: [0.2, 0.9], audio: [0.1, 0.6] },
-    large: { analysis: [0.5, 1.8], audio: [0.1, 0.6] },
-  }[band];
-  const money = ([low, high]: number[]) =>
-    `$${low.toFixed(2)}â€“$${high.toFixed(2)}`;
-  const reload = async () => {
-    const data = await getBookResults(book.id);
-    const paid = data.analyses.find(
-      (a) =>
-        ["overview", "chapters", "critical", "metadata"].includes(a.kind) &&
-        (!a.source || a.source === "openai") &&
-        a.language === resultLanguage,
-    );
-    setResults((paid?.content as Record<string, unknown>) ?? null);
-    const local = data.analyses.find((a) => a.kind === "local_structural");
-    setLocalAnalysis(
-      (local?.content as unknown as LocalStructuralAnalysis) ?? null,
-    );
-    const manual = data.analyses.find((a) => a.kind === "manual_import");
-    setManualImportSaved(manual ?? null);
-    setQuestionHistory(data.questions.filter((item) => item.language === resultLanguage));
-    const cost = calculateLoggedTextCost(data.usage as AiUsageEvent[]);
-    setUsageTotals({
-      calls: data.usage.length,
-      input: data.usage.reduce((sum, item) => sum + (item.input_tokens ?? 0), 0),
-      output: data.usage.reduce((sum, item) => sum + (item.output_tokens ?? 0), 0),
-      textCostUsd: cost.usd,
-      audioCharacters: cost.audioCharacters,
-      unpricedCalls: cost.unpricedCalls,
-    });
-    const languageAudio = data.audio.filter(
-      (item) => item.language === resultLanguage && item.voice === professionalVoice,
-    );
-    if (languageAudio.length)
-      setAudioUrls(
-        await Promise.all(
-          languageAudio.map((item) => getPrivateAudioUrl(item.storage_path)),
-        ),
-      );
-    else setAudioUrls([]);
-  };
-  useEffect(() => {
-    reload()
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-    getLegalConsentStatus(book.id)
-      .then(setConsent)
-      .catch(() => setConsent(null));
-  }, [book.id, resultLanguage, professionalVoice]);
-  const process = async () => {
-    if (ZERO_COST_MODE) return;
-    setBusy("process");
-    setError("");
-    try {
-      await invokeBookAI(book.id, "process", { language: resultLanguage });
-      await reload();
-      setConfirming("");
-    } catch (e) {
-      setError(describeAiError(e, rtl));
-    } finally {
-      setBusy("");
-    }
-  };
-  const ask = async () => {
-    if (ZERO_COST_MODE) return;
-    if (!q.trim()) return;
-    setBusy("ask");
-    setError("");
-    try {
-      const data = await invokeBookAI(book.id, "ask", {
-        question: q,
-        language: resultLanguage,
-      });
-      setAnswer(data.answer);
-      setConfirming("");
-    } catch (e) {
-      setError(describeAiError(e, rtl));
-    } finally {
-      setBusy("");
-    }
-  };
-  const audio = async () => {
-    if (ZERO_COST_MODE) return;
-    setBusy("audio");
-    setError("");
-    try {
-      const data = await invokeBookAI(book.id, "audio", {
-        language: resultLanguage,
-        voice: professionalVoice,
-      });
-      setAudioUrls(
-        await Promise.all(
-          data.audio.map((item: { storage_path: string }) =>
-            getPrivateAudioUrl(item.storage_path),
-          ),
-        ),
-      );
-      await reload();
-      setConfirming("");
-    } catch (e) {
-      setError(describeAiError(e, rtl));
-    } finally {
-      setBusy("");
-    }
-  };
-  const previewVoice = async (voice: "marin" | "cedar") => {
-    if (ZERO_COST_MODE) return;
-    selectProfessionalVoice(voice);
-    setBusy(`preview-${voice}`);
-    setError("");
-    try {
-      const data = await invokeBookAI(book.id, "audio_preview", {
-        language: resultLanguage,
-        voice,
-      });
-      const url = await getPrivateAudioUrl(data.storage_path);
-      setVoicePreviewUrls((current) => ({ ...current, [voice]: url }));
-      await reload();
-    } catch (e) {
-      setError(describeAiError(e, rtl));
-    } finally {
-      setBusy("");
-    }
-  };
-  const runLocalAnalysis = async () => {
-    setLocalBusy(true);
-    setLocalError("");
-    setLocalProgress(null);
-    try {
-      const { analysis, appliedBookPatch } = await runLocalStructuralAnalysis(book, setLocalProgress);
-      setLocalAnalysis(analysis);
-      setBookSearchResults(null);
-      if (Object.keys(appliedBookPatch).length > 0) onBookPatched(book.id, appliedBookPatch);
-    } catch (e) {
-      const raw = e instanceof Error ? e.message : "";
-      console.error("SPL: local analysis failed", e);
-      setLocalError(
-        raw.startsWith("MIGRATION_REQUIRED")
-          ? rtl
-            ? "ÙŠØ­ØªØ§Ø¬ Ù‡Ø°Ø§ Ø¥Ù„Ù‰ ØªØ·Ø¨ÙŠÙ‚ Ù…Ù„Ù Ø§Ù„ØªØ±Ø­ÙŠÙ„ (migration) Ø§Ù„Ø¬Ø¯ÙŠØ¯ Ø£ÙˆÙ„Ù‹Ø§ â€” Ø±Ø§Ø¬Ø¹ CHANGED-FILES.md."
-            : "This needs the new migration file applied first â€” see CHANGED-FILES.md."
-          : raw ||
-              (rtl ? "ØªØ¹Ø°Ø± Ø¥Ø¬Ø±Ø§Ø¡ Ø§Ù„ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ù…Ø­Ù„ÙŠ" : "Local analysis failed"),
-      );
-    } finally {
-      setLocalBusy(false);
-    }
-  };
-  const runBookSearch = () => {
-    setBookSearchResults(searchInsideBook(localAnalysis?.pages_text, bookSearchTerm));
-  };
-  const submitManualImport = async () => {
-    setManualErrors([]);
-    setManualBusy(true);
-    try {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(manualText);
-      } catch {
-        setManualErrors([
-          rtl
-            ? "Ø§Ù„Ù†Øµ Ø§Ù„Ù…ÙØ¯Ø®Ù„ Ù„ÙŠØ³ JSON ØµØ§Ù„Ø­Ù‹Ø§."
-            : "The pasted text is not valid JSON.",
-        ]);
-        return;
-      }
-      const validation = validateManualImport(parsed);
-      if (!validation.ok) {
-        setManualErrors(validation.errors);
-        return;
-      }
-      await saveManualImport(book.id, validation.data);
-      await reload();
-      setManualText("");
-    } catch (e) {
-      const raw = e instanceof Error ? e.message : "";
-      setManualErrors([
-        raw.startsWith("MIGRATION_REQUIRED")
-          ? rtl
-            ? "ÙŠØ­ØªØ§Ø¬ Ù‡Ø°Ø§ Ø¥Ù„Ù‰ ØªØ·Ø¨ÙŠÙ‚ Ù…Ù„Ù Ø§Ù„ØªØ±Ø­ÙŠÙ„ (migration) Ø§Ù„Ø¬Ø¯ÙŠØ¯ Ø£ÙˆÙ„Ù‹Ø§ â€” Ø±Ø§Ø¬Ø¹ CHANGED-FILES.md."
-            : "This needs the new migration file applied first â€” see CHANGED-FILES.md."
-          : raw ||
-              (rtl
-                ? "ØªØ¹Ø°Ø± Ø­ÙØ¸ Ø§Ù„Ø§Ø³ØªÙŠØ±Ø§Ø¯ Ø§Ù„ÙŠØ¯ÙˆÙŠ"
-                : "Could not save the manual import"),
-      ]);
-    } finally {
-      setManualBusy(false);
-    }
-  };
-  const statusLabelsAr: Record<PilotBook["status"], string> = {
-    uploaded: "Ù…Ø­ÙÙˆØ¸",
-    processing: "Ù‚ÙŠØ¯ Ø§Ù„Ù…Ø¹Ø§Ù„Ø¬Ø©",
-    ready: "Ø¬Ø§Ù‡Ø²",
-    failed: "ÙØ´Ù„",
-  };
-  const statusLabelsEn: Record<PilotBook["status"], string> = {
-    uploaded: "Saved",
-    processing: "Processing",
-    ready: "Ready",
-    failed: "Failed",
-  };
-  const languageLabel = (lang: string) =>
-    lang === "ar"
-      ? rtl
-        ? "Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©"
-        : "Arabic"
-      : lang === "en"
-        ? rtl
-          ? "Ø§Ù„Ø¥Ù†Ø¬Ù„ÙŠØ²ÙŠØ©"
-          : "English"
-        : lang === "mixed"
-          ? rtl
-            ? "Ù…Ø®ØªÙ„Ø·Ø©"
-            : "Mixed"
-          : lang === "bilingual"
-            ? rtl
-              ? "Ø«Ù†Ø§Ø¦ÙŠØ© Ø§Ù„Ù„ØºØ©"
-              : "Bilingual"
-            : rtl
-              ? "ØºÙŠØ± Ù…Ø¹Ø±ÙˆÙØ©"
-              : "Unknown";
-  return (
-    <div className="page">
-      <button className="back" onClick={onBack}>
-        â†’ {rtl ? "Ø§Ù„Ø¹ÙˆØ¯Ø© Ø¥Ù„Ù‰ Ù…ÙƒØªØ¨ØªÙŠ" : "Back to my library"}
-      </button>
-      <PageTitle
-        title={book.title}
-        description={
-          rtl
-            ? "Ù…Ø­ÙÙˆØ¸ ÙÙŠ Ù…Ø³Ø§Ø­ØªÙƒ Ø§Ù„Ø®Ø§ØµØ©. Ø§Ù„Ø­ÙØ¸ ÙˆØ­Ø¯Ù‡ Ù„Ø§ ÙŠØ³ØªÙ‡Ù„Ùƒ Ø±ØµÙŠØ¯ OpenAI."
-            : "Saved in your private space. Storage alone does not use OpenAI credit."
-        }
-      />
-      <div className="mobile-book-tools" aria-label={rtl ? "Ø§Ø®ØªØµØ§Ø±Ø§Øª ÙˆØ¸Ø§Ø¦Ù Ø§Ù„ÙƒØªØ§Ø¨" : "Book feature shortcuts"}>
-        <button className="secondary" onClick={() => document.getElementById("ask-book-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{rtl ? "Ø§Ø³Ø£Ù„ Ø§Ù„ÙƒØªØ§Ø¨" : "Ask"}</button>
-        <button className="secondary" onClick={() => document.getElementById("professional-voice-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{rtl ? "Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„ØµÙˆØª" : "Choose voice"}</button>
-      </div>
-      <section className="panel book-info-card">
-        <span className="eyebrow">
-          {rtl ? "Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ÙƒØªØ§Ø¨ Ø§Ù„Ù…Ø­ÙÙˆØ¸" : "Saved book details"}
-        </span>
-        <dl className="book-info-grid">
-          <div>
-            <dt>{rtl ? "Ø§Ø³Ù… Ø§Ù„Ù…Ù„Ù" : "File name"}</dt>
-            <dd>{book.file_name}</dd>
-          </div>
-          <div>
-            <dt>{rtl ? "Ø§Ù„Ø­Ø¬Ù…" : "Size"}</dt>
-            <dd>{sizeMb.toFixed(2)} MB</dd>
-          </div>
-          <div>
-            <dt>{rtl ? "ØªØ§Ø±ÙŠØ® Ø§Ù„Ø±ÙØ¹" : "Uploaded"}</dt>
-            <dd>
-              {new Date(book.created_at).toLocaleString(rtl ? "ar" : "en")}
-            </dd>
-          </div>
-          <div>
-            <dt>{rtl ? "Ø§Ù„Ø­Ø§Ù„Ø©" : "Status"}</dt>
-            <dd>
-              {rtl ? statusLabelsAr[book.status] : statusLabelsEn[book.status]}
-            </dd>
-          </div>
-          <div>
-            <dt>{rtl ? "Ù„ØºØ© Ø§Ù„Ù…ØµØ¯Ø±" : "Source language"}</dt>
-            <dd>{languageLabel(book.source_language)}</dd>
-          </div>
-          <div>
-            <dt>{rtl ? "Ù„ØºØ© Ø§Ù„Ù…Ø®Ø±Ø¬Ø§Øª" : "Output language"}</dt>
-            <dd>{languageLabel(book.output_language)}</dd>
-          </div>
-          <div>
-            <dt>{rtl ? "Ù…Ø³Ø§Ø± Ø§Ù„ØªØ®Ø²ÙŠÙ†" : "Storage path"}</dt>
-            <dd className="mono">{book.storage_path}</dd>
-          </div>
-          <div>
-            <dt>{rtl ? "Ø¥Ù‚Ø±Ø§Ø± Ø§Ù„Ø­Ù‚ÙˆÙ‚" : "Legal consent"}</dt>
-            <dd>
-              {consent === null
-                ? rtl
-                  ? "Ø¬Ø§Ø±Ù Ø§Ù„ØªØ­Ù‚Ù‚â€¦"
-                  : "Checkingâ€¦"
-                : consent.recorded
-                  ? `${rtl ? "Ù…ÙØ³Ø¬ÙÙ‘Ù„" : "Recorded"}${
-                      consent.acceptedAt
-                        ? ` â€” ${new Date(consent.acceptedAt).toLocaleDateString(rtl ? "ar" : "en")}`
-                        : ""
-                    }`
-                  : rtl
-                    ? "ØºÙŠØ± Ù…ÙØ³Ø¬ÙÙ‘Ù„"
-                    : "Not recorded"}
-            </dd>
-          </div>
-        </dl>
-      </section>
-      <section className="service-map panel">
-        <div className="free-lane">
-          <span>{rtl ? "Ù…Ø¬Ø§Ù†ÙŠ" : "FREE"}</span>
-          <h3>
-            {rtl
-              ? "Ø§ÙØªØ­ Ø§Ù„ÙƒØªØ§Ø¨ ÙˆØ§Ø³ØªÙ…Ø¹ Ø¨ØµÙˆØª Ø§Ù„Ø¬Ù‡Ø§Ø²"
-              : "Read with your device voice"}
-          </h3>
-          <p>
-            {rtl
-              ? "ÙŠÙ‚Ø±Ø£ Ø§Ù„Ù†Øµ Ø§Ù„Ø£ØµÙ„ÙŠ Ø¹Ù„Ù‰ Ø¬Ù‡Ø§Ø²Ùƒ Ø¨Ù„Ø§ Ø¥Ø±Ø³Ø§Ù„ Ø¥Ù„Ù‰ OpenAI ÙˆØ¨Ù„Ø§ Ø®ØµÙ… Ù…Ù† Ø±ØµÙŠØ¯Ùƒ."
-              : "Reads the original text on your device. Nothing is sent to OpenAI and no API credit is used."}
-          </p>
-          <button className="secondary" onClick={() => onOpenReader()}>
-            â—« {rtl ? "ÙØªØ­ Ø§Ù„Ù‚Ø§Ø±Ø¦ ÙˆØ§Ù„ØµÙˆØª Ø§Ù„Ù…Ø¬Ø§Ù†ÙŠ" : "Open free reader & voice"}
-          </button>
-        </div>
-        <div className="paid-lane">
-          <span>{rtl ? "Ø§Ø®ØªÙŠØ§Ø±ÙŠ ÙˆÙ…Ø¯ÙÙˆØ¹" : "OPTIONAL Â· PAID"}</span>
-          <h3>
-            {rtl
-              ? "ØªØ­Ù„ÙŠÙ„ ÙˆØªØ±Ø¬Ù…Ø© ÙˆØµÙˆØª Ø§Ø­ØªØ±Ø§ÙÙŠ"
-              : "Analysis, translation & professional voice"}
-          </h3>
-          <p>
-            {rtl
-              ? `Ù„ØºØ© Ø§Ù„Ù†ØªÙŠØ¬Ø©: ${languageLabel(book.output_language)}. Ù„Ø§ ØªØ¨Ø¯Ø£ Ø§Ù„Ø®Ø¯Ù…Ø© Ø¥Ù„Ø§ Ø¨Ø¹Ø¯ ØªØ£ÙƒÙŠØ¯Ùƒ.`
-              : `Output: ${languageLabel(book.output_language)}. The service starts only after confirmation.`}
-          </p>
-          {ZERO_COST_MODE && (
-            <p className="locked-note">
-              ğŸ”’{" "}
-              {rtl
-                ? "Ù…ÙÙ‚ÙÙ„Ø© ÙÙŠ Ù‡Ø°Ø§ Ø§Ù„Ø¥ØµØ¯Ø§Ø± (ÙˆØ¶Ø¹ Ø§Ù„ØªÙƒÙ„ÙØ© Ø§Ù„ØµÙØ±ÙŠØ©) â€” Ù„Ø§ ÙŠÙØ±Ø³Ù„ Ø£ÙŠ Ø·Ù„Ø¨ Ø¥Ù„Ù‰ OpenAI."
-                : "Locked in this build (Zero-Cost Mode) â€” no request is ever sent to OpenAI."}
-            </p>
-          )}
-        </div>
-      </section>
-      <section className="panel local-analysis-card">
-        <span className="eyebrow">
-          {rtl ? "Ù…Ø¬Ø§Ù†ÙŠ â€” Ø¨Ø¯ÙˆÙ† OpenAI" : "FREE â€” no OpenAI"}
-        </span>
-        <h3>
-          {rtl ? "Ø§Ù„ØªØ¬Ø±Ø¨Ø© Ø§Ù„Ù…Ø­Ù„ÙŠØ© Ø§Ù„Ù…Ø¬Ø§Ù†ÙŠØ©" : "Free local experience"}
-        </h3>
-        <p>
-          {rtl
-            ? "ØªØ­Ù„ÙŠÙ„ Ø¨Ù†ÙŠÙˆÙŠ ÙŠØ¹Ù…Ù„ Ø¯Ø§Ø®Ù„ Ù…ØªØµÙØ­Ùƒ ÙÙ‚Ø· Ø¹Ø¨Ø± PDF.js: Ø¹Ø¯Ø¯ Ø§Ù„ØµÙØ­Ø§Øª ÙˆØ§Ù„ÙƒÙ„Ù…Ø§ØªØŒ Ù„ØºØ© Ø§Ù„Ù†ØµØŒ Ø¹Ù†Ø§ÙˆÙŠÙ† Ù…Ø±Ø´Ù‘Ø­Ø©ØŒ Ø£ÙƒØ«Ø± Ø§Ù„ÙƒÙ„Ù…Ø§Øª ØªÙƒØ±Ø§Ø±Ù‹Ø§. Ù‡Ø°Ø§ Ù„ÙŠØ³ ØªÙ„Ø®ÙŠØµÙ‹Ø§ ÙˆÙ„Ø§ ØªØ±Ø¬Ù…Ø© ÙˆÙ„Ø§ ØªØ­Ù„ÙŠÙ„Ù‹Ø§ Ø¨Ø§Ù„Ø°ÙƒØ§Ø¡ Ø§Ù„Ø§ØµØ·Ù†Ø§Ø¹ÙŠ."
-            : "A structural pass that runs only in your browser via PDF.js: page/word counts, detected language, candidate headings, top terms. This is not a summary, translation, or AI analysis."}
-        </p>
-        {!localAnalysis && !localBusy && (
-          <button className="secondary" onClick={runLocalAnalysis}>
-            âŒ• {rtl ? "Ø´ØºÙ‘Ù„ Ø§Ù„ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ù…Ø­Ù„ÙŠ Ø§Ù„Ù…Ø¬Ø§Ù†ÙŠ" : "Run free local analysis"}
-          </button>
-        )}
-        {localBusy && (
-          <div className="local-progress">
-            <Bar
-              value={
-                localProgress
-                  ? Math.round((localProgress.page / localProgress.totalPages) * 100)
-                  : 0
-              }
-            />
-            <small>
-              {localProgress
-                ? rtl
-                  ? `ØµÙØ­Ø© ${localProgress.page} Ù…Ù† ${localProgress.totalPages}`
-                  : `Page ${localProgress.page} of ${localProgress.totalPages}`
-                : rtl
-                  ? "Ø¬Ø§Ø±Ù Ø§Ù„ØªØ­Ù…ÙŠÙ„â€¦"
-                  : "Loadingâ€¦"}
-            </small>
-          </div>
-        )}
-        {localError && <div className="reader-error inline">{localError}</div>}
-        {localAnalysis && (
-          <div className="local-analysis-results">
-            <div className="local-stats">
-              <b>
-                {localAnalysis.page_count}
-                <small>{rtl ? "ØµÙØ­Ø©" : "pages"}</small>
-              </b>
-              <b>
-                {localAnalysis.word_count}
-                <small>{rtl ? "ÙƒÙ„Ù…Ø©" : "words"}</small>
-              </b>
-              <b>
-                {languageLabel(localAnalysis.detected_language)}
-                <small>{rtl ? "Ø§Ù„Ù„ØºØ© Ø§Ù„Ù…ÙƒØªØ´ÙØ©" : "detected language"}</small>
-              </b>
-              <b>
-                {localAnalysis.heading_candidates.length}
-                <small>{rtl ? "Ø¹Ù†ÙˆØ§Ù† Ù…Ø±Ø´Ù‘Ø­" : "heading candidates"}</small>
-              </b>
-            </div>
-            {(localAnalysis.extractive_summary?.length ?? 0) > 0 && (
-              <div className="extractive-summary">
-                <h4>{rtl ? "Ø®Ù„Ø§ØµØ© Ø§Ø³ØªØ®Ø±Ø§Ø¬ÙŠØ© Ù…Ø¬Ø§Ù†ÙŠØ©" : "Free extractive overview"}</h4>
-                <p className="disclosure-note">
-                  {rtl
-                    ? "Ø¬Ù…Ù„ Ù…Ø®ØªØ§Ø±Ø© Ø¢Ù„ÙŠÙ‹Ø§ Ù…Ù† ØµÙØ­Ø§Øª Ø§Ù„ÙƒØªØ§Ø¨ Ù†ÙØ³Ù‡ØŒ Ø¨Ù„Ø§ ØªØ±Ø¬Ù…Ø© ÙˆØ¨Ù„Ø§ Ø¥Ø¹Ø§Ø¯Ø© ØµÙŠØ§ØºØ© ÙˆØ¨Ù„Ø§ Ø¥Ø±Ø³Ø§Ù„ Ø¥Ù„Ù‰ Ø£ÙŠ Ø®Ø¯Ù…Ø© Ø®Ø§Ø±Ø¬ÙŠØ©."
-                    : "Sentences selected from the book itself, with no translation, rewriting, or external service."}
-                </p>
-                <ol className="candidate-list">
-                  {localAnalysis.extractive_summary?.map((item, index) => (
-                    <li key={`${item.page}-${index}`}>
-                      <em>{rtl ? `Øµ ${item.page}` : `p. ${item.page}`}</em> {item.text}
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
-            {localAnalysis.heading_candidates.length > 0 && (
-              <details>
-                <summary>
-                  {rtl ? "Ø§Ù„Ø¹Ù†Ø§ÙˆÙŠÙ† Ø§Ù„Ù…Ø±Ø´Ù‘Ø­Ø©" : "Heading candidates"}
-                </summary>
-                <ul className="candidate-list">
-                  {localAnalysis.heading_candidates.slice(0, 15).map((h, i) => (
-                    <li key={i}>
-                      <em>{rtl ? `Øµ ${h.page}` : `p. ${h.page}`}</em> {h.text}
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            )}
-            {localAnalysis.top_terms.length > 0 && (
-              <details>
-                <summary>{rtl ? "Ø£ÙƒØ«Ø± Ø§Ù„ÙƒÙ„Ù…Ø§Øª ØªÙƒØ±Ø§Ø±Ù‹Ø§" : "Top terms"}</summary>
-                <ul className="candidate-list">
-                  {localAnalysis.top_terms.slice(0, 15).map((term) => (
-                    <li key={term.term}>
-                      {term.term} â€” {term.count}
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            )}
-            <div className="book-search">
-              <h4>{rtl ? "Ø¨Ø­Ø« Ø¯Ø§Ø®Ù„ Ø§Ù„ÙƒØªØ§Ø¨ (Ù…Ø­Ù„ÙŠ)" : "Search inside the book (local)"}</h4>
-              <p className="disclosure-note">
-                {rtl
-                  ? "Ø¨Ø­Ø« Ø­Ø±ÙÙŠ Ø¹Ù† ÙƒÙ„Ù…Ø© Ø£Ùˆ Ø¹Ø¨Ø§Ø±Ø© Ø¯Ø§Ø®Ù„ ØµÙØ­Ø§Øª Ø§Ù„ÙƒØªØ§Ø¨ Ù†ÙØ³Ù‡Ø§ â€” Ù„ÙŠØ³ Ø³Ø¤Ø§Ù„Ù‹Ø§ Ø°ÙƒÙŠÙ‹Ø§ ÙˆÙ„Ø§ ÙŠÙÙ‡Ù… Ø§Ù„Ù…Ø¹Ù†Ù‰ØŒ ÙÙ‚Ø· ÙŠØ·Ø§Ø¨Ù‚ Ø§Ù„Ù†Øµ ÙˆÙŠØ¹ÙŠØ¯ Ø±Ù‚Ù… Ø§Ù„ØµÙØ­Ø© ÙˆÙ…Ù‚ØªØ·ÙÙ‹Ø§ Ø­Ù‚ÙŠÙ‚ÙŠÙ‹Ø§."
-                  : "A literal word/phrase match across the book's own pages â€” not a smart question, no meaning understanding, just real text matches with page numbers and a real snippet."}
-              </p>
-              {localAnalysis.pages_text ? (
-                <>
-                  <div className="book-search-form">
-                    <input
-                      type="text"
-                      value={bookSearchTerm}
-                      onChange={(e) => setBookSearchTerm(e.target.value)}
-                      placeholder={rtl ? "Ø§ÙƒØªØ¨ ÙƒÙ„Ù…Ø© Ø£Ùˆ Ø¹Ø¨Ø§Ø±Ø©â€¦" : "Type a word or phraseâ€¦"}
-                      onKeyDown={(e) => e.key === "Enter" && runBookSearch()}
-                    />
-                    <button className="secondary" onClick={runBookSearch} disabled={bookSearchTerm.trim().length < 2}>
-                      {rtl ? "Ø¨Ø­Ø«" : "Search"}
-                    </button>
-                  </div>
-                  {bookSearchResults && (
-                    bookSearchResults.length > 0 ? (
-                      <ul className="candidate-list">
-                        {bookSearchResults.map((match, index) => (
-                          <li key={`${match.page}-${index}`}>
-                            <button className="search-result-link" onClick={() => onOpenReader(match.page)}>
-                              <em>{rtl ? `Ø§ÙØªØ­ Øµ ${match.page}` : `Open p. ${match.page}`}</em> {match.snippet}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="disclosure-note">{rtl ? "Ù„Ø§ ØªÙˆØ¬Ø¯ Ù†ØªØ§Ø¦Ø¬ Ù…Ø·Ø§Ø¨Ù‚Ø©." : "No matches found."}</p>
-                    )
-                  )}
-                </>
-              ) : (
-                <p className="disclosure-note">
-                  {rtl ? "ØºÙŠØ± Ù…ØªØ§Ø­ Ù„Ù‡Ø°Ø§ Ø§Ù„ÙƒØªØ§Ø¨ â€” Ø£Ø¹Ø¯ ØªØ´ØºÙŠÙ„ Ø§Ù„ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ù…Ø­Ù„ÙŠ Ø£Ø¹Ù„Ø§Ù‡ Ù„ØªÙØ¹ÙŠÙ„ Ø§Ù„Ø¨Ø­Ø«." : "Not available for this book â€” re-run the local analysis above to enable search."}
-                </p>
-              )}
-            </div>
-            <p className="disclosure-note">{localAnalysis.disclosure}</p>
-            <button
-              className="text-button"
-              onClick={runLocalAnalysis}
-              disabled={localBusy}
-            >
-              {rtl ? "Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ´ØºÙŠÙ„" : "Re-run"}
-            </button>
-          </div>
-        )}
-      </section>
-      <section className="panel zero-cost-explainer">
-        <span className="eyebrow">
-          {rtl ? "Ù…Ø³Ø§Ø±Ø§Ù† ÙˆØ§Ø¶Ø­Ø§Ù† Ø¨Ù„Ø§ Ø§Ù„ØªØ¨Ø§Ø³" : "Two clearly separated paths"}
-        </span>
-        <h3>
-          {rtl ? "Ø§Ù„Ù…Ø­Ù„ÙŠ Ù„Ù„Ø§Ø³ØªØ®Ø±Ø§Ø¬ØŒ ÙˆOpenAI Ù„Ù„ÙÙ‡Ù…" : "Local extraction; OpenAI understanding"}
-        </h3>
-        <p>
-          {rtl
-            ? "Ù„Ø§ Ù†Ø³Ø® ÙˆÙ„Ø§ JSON ÙˆÙ„Ø§ Ø®Ø·ÙˆØ§Øª ØªÙ‚Ù†ÙŠØ©. Ø§Ù„Ø¨Ø­Ø« Ø§Ù„Ø­Ø±ÙÙŠ ÙˆØ§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø¨Ù†ÙŠÙˆÙŠØ© ÙŠØ¹Ù…Ù„Ø§Ù† ÙÙŠ Ø§Ù„Ù…ØªØµÙØ­. Ø§Ù„ØªÙ„Ø®ÙŠØµ ÙˆØ§Ù„ØªØ±Ø¬Ù…Ø© ÙˆØ§Ù„Ø£Ø³Ø¦Ù„Ø© ÙˆØ§Ù„ØµÙˆØª Ø§Ù„Ø§Ø­ØªØ±Ø§ÙÙŠ ØªØ³ØªØ®Ø¯Ù… OpenAI ÙÙ‚Ø· Ø¨Ø¹Ø¯ ØªØ£ÙƒÙŠØ¯ Ù…Ø³ØªÙ‚Ù„ Ù„ÙƒÙ„ Ø®Ø¯Ù…Ø©."
-            : "No copying, JSON, or technical steps. Literal search and structural metadata run in the browser. Summaries, translation, questions, and professional audio use OpenAI only after a separate confirmation for each service."}
-        </p>
-      </section>
-      <section className="budget-card panel">
-        <div>
-          <span className="eyebrow">
-              {rtl ? "Ø­Ù…Ø§ÙŠØ© Ù…ÙŠØ²Ø§Ù†ÙŠØ© Ø§Ù„ØªØ¬Ø±Ø¨Ø©" : "Pilot budget protection"}
-          </span>
-          <h3>
-            {rtl
-                ? "Ø§Ù„Ù…ÙŠØ²Ø§Ù†ÙŠØ© Ø§Ù„ØªÙŠ Ø®ØµØµØªÙ‡Ø§ Ø¹Ù†Ø¯ Ø¨Ø¯Ø¡ Ø§Ù„ØªØ¬Ø±Ø¨Ø©: 10 Ø¯ÙˆÙ„Ø§Ø±Ø§Øª"
-                : "Starting budget allocated to this pilot: $10"}
-          </h3>
-          <p>
-            {rtl
-                ? "Ù‡Ø°Ù‡ Ù„ÙŠØ³Øª Ù‚Ø±Ø§Ø¡Ø© Ø­ÙŠØ© Ù„Ø±ØµÙŠØ¯ OpenAI Ø§Ù„Ø­Ø§Ù„ÙŠ. Ø±Ø§Ø¬Ø¹ ØµÙØ­Ø© Billing Ù„Ù…Ø¹Ø±ÙØ© Ø§Ù„Ø±ØµÙŠØ¯ Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ ÙØ¹Ù„ÙŠÙ‹Ø§Ø› ÙˆØ§Ù„Ù†Ø·Ø§Ù‚Ø§Øª Ø£Ø¯Ù†Ø§Ù‡ ØªÙ‚Ø¯ÙŠØ±Ø§Øª ØªØ®Ø·ÙŠØ·ÙŠØ© ÙˆÙ„ÙŠØ³Øª ÙØ§ØªÙˆØ±Ø©."
-                : "This is not a live reading of your current OpenAI balance. Check Billing for the actual remainder; the ranges below are planning estimates, not a bill."}
-          </p>
-        </div>
-        <div className="budget-numbers">
-          <b>
-            {money(estimates.analysis)}
-            <small>
-              {rtl
-                ? "ØªØ­Ù„ÙŠÙ„/ØªØ±Ø¬Ù…Ø© Ù‡Ø°Ø§ Ø§Ù„ÙƒØªØ§Ø¨"
-                : "analysis/translation for this book"}
-            </small>
-          </b>
-          <b>
-            {money(estimates.audio)}
-            <small>
-              {rtl ? "Ø®Ù„Ø§ØµØ© ØµÙˆØªÙŠØ© Ø§Ø­ØªØ±Ø§ÙÙŠØ©" : "professional audio summary"}
-            </small>
-          </b>
-          <b>
-            {money([
-              PAID_PILOT_MAX_BOOKS * (estimates.analysis[0] + estimates.audio[0]),
-              PAID_PILOT_MAX_BOOKS * (estimates.analysis[1] + estimates.audio[1]),
-            ])}
-            <small>
-              {rtl ? "Ø³Ù‚Ù ØªØ®Ø·ÙŠØ·ÙŠ Ù„Ø®Ù…Ø³Ø© ÙƒØªØ¨ Ù…Ù…Ø§Ø«Ù„Ø©" : "planning range for five similar books"}
-            </small>
-          </b>
-          <b>
-            {usageTotals.calls}
-            <small>{rtl ? "Ø§Ø³ØªØ¯Ø¹Ø§Ø¡Ø§Øª Ù…Ø³Ø¬Ù„Ø© Ù„Ù‡Ø°Ø§ Ø§Ù„ÙƒØªØ§Ø¨" : "logged calls for this book"}</small>
-          </b>
-          <b>
-            ${usageTotals.textCostUsd.toFixed(4)}
-            <small>{rtl ? "ØªÙƒÙ„ÙØ© Ø§Ù„Ù†Øµ Ø§Ù„Ù…Ø­Ø³ÙˆØ¨Ø© Ù„Ù‡Ø°Ø§ Ø§Ù„ÙƒØªØ§Ø¨" : "calculated text cost for this book"}</small>
-          </b>
-        </div>
-        <small>
-          {rtl
-            ? `Ø­Ø¬Ù… Ø§Ù„Ù…Ù„Ù: ${sizeMb.toFixed(1)} MB Â· Ø±Ù…ÙˆØ² Ø§Ù„Ù†Øµ: Ø¥Ø¯Ø®Ø§Ù„ ${usageTotals.input.toLocaleString()} / Ø¥Ø®Ø±Ø§Ø¬ ${usageTotals.output.toLocaleString()} Â· Ø£Ø­Ø±Ù Ø§Ù„ØµÙˆØª Ø§Ù„Ù…Ø±Ø³Ù„Ø©: ${usageTotals.audioCharacters.toLocaleString()} Â· Ø§Ù„Ø´Ø­Ù† Ø§Ù„ØªÙ„Ù‚Ø§Ø¦ÙŠ Ù…ØºÙ„Ù‚. ØªÙƒÙ„ÙØ© Ø§Ù„Ù†Øµ Ù…Ø­Ø³ÙˆØ¨Ø© ÙˆÙÙ‚ Ø³Ø¹Ø± Ø§Ù„Ù†Ù…ÙˆØ°Ø¬Ø› Ø§Ù„ØµÙˆØª ÙŠØ¨Ù‚Ù‰ ØªÙ‚Ø¯ÙŠØ±Ù‹Ø§ Ù„Ø£Ù† ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„ØµÙˆØª Ù„Ø§ ØªØ¹ÙŠØ¯ Ø±Ù…ÙˆØ² Ø§Ù„ÙÙˆØªØ±Ø© ÙÙŠ Ø§Ù„Ø§Ø³ØªØ¬Ø§Ø¨Ø©.`
-            : `File size: ${sizeMb.toFixed(1)} MB Â· text tokens: ${usageTotals.input.toLocaleString()} in / ${usageTotals.output.toLocaleString()} out Â· audio characters sent: ${usageTotals.audioCharacters.toLocaleString()} Â· auto-reload is off. Text cost uses the model rate; audio remains an estimate because the speech response does not return billing-token usage.`}
-        </small>
-      </section>
-      {loading ? (
-        <section className="panel">
-          {rtl ? "Ø¬Ø§Ø±Ù ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù†ØªØ§Ø¦Ø¬â€¦" : "Loading resultsâ€¦"}
-        </section>
-      ) : (
-        <div className="pilot-grid">
-          <article className="panel reading-surface">
-            <span className="eyebrow">
-              {rtl ? "Ù†ØªØ§Ø¦Ø¬ Ø§Ù„Ø°ÙƒØ§Ø¡ Ø§Ù„Ø§ØµØ·Ù†Ø§Ø¹ÙŠ Ø§Ù„Ù…Ø¯ÙÙˆØ¹Ø©" : "Paid AI results"}
-            </span>
-            <h3>
-              {rtl
-                ? "Ø§Ù„Ø®Ù„Ø§ØµØ© ÙˆØ§Ù„ØªØ­Ù„ÙŠÙ„ ÙˆØ§Ù„ÙØµÙˆÙ„"
-                : "Summary, analysis and chapters"}
-            </h3>
-            <label className="select-label paid-language-select">
-              {rtl ? "Ù„ØºØ© Ø§Ù„Ù†ØªÙŠØ¬Ø© Ø§Ù„Ø­Ø§Ù„ÙŠØ©" : "Current result language"}
-              <select value={resultLanguage} onChange={(event) => setResultLanguage(event.target.value as "ar" | "en")}>
-                <option value="ar">Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©</option>
-                <option value="en">English</option>
-              </select>
-            </label>
-            {ZERO_COST_MODE ? (
-              <div className="paid-empty locked">
-                <p>
-                  ğŸ”’{" "}
-                  {rtl
-                    ? "Ù‡Ø°Ù‡ Ø§Ù„Ù…ÙŠØ²Ø© Ù…Ù‚ÙÙ„Ø© ÙÙŠ ÙˆØ¶Ø¹ Ø§Ù„ØªÙƒÙ„ÙØ© Ø§Ù„ØµÙØ±ÙŠØ© Ù„Ù‡Ø°Ø§ Ø§Ù„Ø¥ØµØ¯Ø§Ø±. Ø¬Ø±Ù‘Ø¨ Ø¨Ø¯Ù„Ù‹Ø§ Ù…Ù†Ù‡Ø§ Ø§Ù„ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ù…Ø­Ù„ÙŠ Ø§Ù„Ù…Ø¬Ø§Ù†ÙŠ Ø£Ùˆ Ø§Ù„Ø§Ø³ØªÙŠØ±Ø§Ø¯ Ø§Ù„ÙŠØ¯ÙˆÙŠ Ø£Ø¹Ù„Ø§Ù‡."
-                    : "This feature is locked in this build's Zero-Cost Mode. Try the free local analysis or manual import above instead."}
-                </p>
-              </div>
-            ) : (
-              !results && (
-              <div className="paid-empty">
-                <p>
-                  {rtl
-                    ? "Ù„Ù… ÙŠÙØ±Ø³Ù„ Ø§Ù„ÙƒØªØ§Ø¨ Ø¥Ù„Ù‰ OpenAI Ø¨Ø¹Ø¯ØŒ ÙˆÙ„Ø°Ù„Ùƒ Ù„Ù… ÙŠÙØ®ØµÙ… Ø´ÙŠØ¡ Ù„Ù„ØªØ­Ù„ÙŠÙ„."
-                    : "This book has not been sent to OpenAI, so no analysis credit has been used."}
-                </p>
-                {confirming !== "process" ? (
-                  <button
-                    className="primary"
-                    onClick={() => setConfirming("process")}
-                  >
-                    âœ¦{" "}
-                    {rtl
-                      ? `Ø§Ø·Ù„Ø¨ Ø§Ù„ØªØ­Ù„ÙŠÙ„ ÙˆØ§Ù„ØªØ±Ø¬Ù…Ø© â€” ØªÙ‚Ø¯ÙŠØ± ${money(estimates.analysis)}`
-                      : `Request analysis & translation â€” est. ${money(estimates.analysis)}`}
-                  </button>
-                ) : (
-                  <div className="cost-confirm">
-                    <strong>
-                      {rtl ? "ØªØ£ÙƒÙŠØ¯ Ø®Ø¯Ù…Ø© Ù…Ø¯ÙÙˆØ¹Ø©" : "Confirm paid service"}
-                    </strong>
-                    <p>
-                      {rtl
-                          ? "Ø³ÙŠÙØ±Ø³Ù„ Ù‡Ø°Ø§ Ø§Ù„ÙƒØªØ§Ø¨ Ø¥Ù„Ù‰ OpenAI ÙˆÙŠÙØ®ØµÙ… Ø§Ù„Ø§Ø³ØªÙ‡Ù„Ø§Ùƒ Ù…Ù† Ø±ØµÙŠØ¯ API Ø§Ù„ÙØ¹Ù„ÙŠ ÙÙŠ Ø­Ø³Ø§Ø¨Ùƒ."
-                          : "This book will be sent to OpenAI and usage will be deducted from the actual API credit in your account."}
-                    </p>
-                    <button
-                      className="primary"
-                      disabled={busy === "process"}
-                      onClick={process}
-                    >
-                      {busy === "process"
-                        ? "â€¦"
-                        : rtl
-                          ? "Ø£ÙˆØ§ÙÙ‚ ÙˆØ§Ø¨Ø¯Ø£ Ø§Ù„ØªØ­Ù„ÙŠÙ„"
-                          : "Confirm and analyse"}
-                    </button>
-                    <button
-                      className="secondary"
-                      onClick={() => setConfirming("")}
-                    >
-                      {rtl ? "ØªØ±Ø§Ø¬Ø¹" : "Go back"}
-                    </button>
-                  </div>
-                )}
-              </div>
-              )
-            )}
-            {results && <PaidResultView result={results} rtl={rtl} />}
-          </article>
-          <aside className="detail-aside">
-            <section className="panel" id="ask-book-panel">
-              <h3>{rtl ? "Ø§Ø³Ø£Ù„ Ø§Ù„ÙƒØªØ§Ø¨ â€” Ù…Ø¯ÙÙˆØ¹" : "Ask the book â€” paid"}</h3>
-              {ZERO_COST_MODE ? (
-                <p className="locked-note">
-                  ğŸ”’{" "}
-                  {rtl
-                    ? "Ù‚Ø±ÙŠØ¨Ù‹Ø§ â€” ØºÙŠØ± Ù…ÙØ¹Ù‘Ù„Ø© ÙÙŠ ÙˆØ¶Ø¹ Ø§Ù„ØªÙƒÙ„ÙØ© Ø§Ù„ØµÙØ±ÙŠØ© Ù„Ù‡Ø°Ø§ Ø§Ù„Ø¥ØµØ¯Ø§Ø±."
-                    : "Coming soon â€” disabled in this build's Zero-Cost Mode."}
-                </p>
-              ) : (
-                <>
-                  <button className="secondary question-cost-button" onClick={() => setQuestionCostOpen((open) => !open)}>{rtl ? "Ø§Ø¹Ø±Ù ÙØ§Ø¦Ø¯Ø© Ø§Ù„Ø³Ø¤Ø§Ù„ ÙˆØªÙƒÙ„ÙØªÙ‡ Ø£ÙˆÙ„Ù‹Ø§" : "See question purpose and cost first"}</button>
-                  {questionCostOpen && <div className="question-cost-info"><strong>{rtl ? "Ù‚Ø¨Ù„ Ø£Ù† ØªÙƒØªØ¨ Ø§Ù„Ø³Ø¤Ø§Ù„" : "Before you ask"}</strong><p>{rtl ? "Ø§Ù„ÙØ§Ø¦Ø¯Ø©: Ø¥Ø¬Ø§Ø¨Ø© Ù…Ø±ØªØ¨Ø·Ø© Ø¨ØªØ­Ù„ÙŠÙ„ Ù‡Ø°Ø§ Ø§Ù„ÙƒØªØ§Ø¨ Ù…Ø¹ Ù…Ø±Ø§Ø¬Ø¹ Ø¹Ù†Ø¯ ØªÙˆÙØ±Ù‡Ø§. ÙƒÙ„ Ø³Ø¤Ø§Ù„ Ø®Ø¯Ù…Ø© Ù…Ø³ØªÙ‚Ù„Ø© Ù…Ø¯ÙÙˆØ¹Ø©Ø› Ø§Ù„ØªÙ‚Ø¯ÙŠØ± Ø§Ù„ØªØ®Ø·ÙŠØ·ÙŠ Ù„Ù„Ø³Ø¤Ø§Ù„ Ø§Ù„Ù‚ØµÙŠØ± $0.01â€“$0.15ØŒ ÙˆÙ‚Ø¯ ÙŠØ²ÙŠØ¯ Ù…Ø¹ Ø·ÙˆÙ„ Ø§Ù„Ø³Ø¤Ø§Ù„ ÙˆØ§Ù„Ø¥Ø¬Ø§Ø¨Ø©. Ù„Ø§ ÙŠØ¨Ø¯Ø£ Ø§Ù„Ø®ØµÙ… Ø¥Ù„Ø§ Ø¨Ø¹Ø¯ Ø²Ø± Ø§Ù„ØªØ£ÙƒÙŠØ¯." : "Purpose: a book-grounded answer with references when available. Each question is a separate paid action; a short-question planning estimate is $0.01â€“$0.15 and may increase with length. Billing starts only after confirmation."}</p></div>}
-                  <p className="question-purpose-note">
-                    {results
-                      ? (rtl ? "Ø§ÙƒØªØ¨ Ø³Ø¤Ø§Ù„Ù‹Ø§ Ù…Ø­Ø¯Ø¯Ù‹Ø§Ø› Ø³ØªØ£ØªÙŠ Ø§Ù„Ø¥Ø¬Ø§Ø¨Ø© Ù…Ù† ØªØ­Ù„ÙŠÙ„ Ù‡Ø°Ø§ Ø§Ù„ÙƒØªØ§Ø¨ Ù…Ø¹ Ù…Ø±Ø§Ø¬Ø¹ Ø¹Ù†Ø¯ ØªÙˆÙØ±Ù‡Ø§." : "Ask a specific question; the answer uses this book's analysis and includes references when available.")
-                      : (rtl ? "ØªÙÙØ¹Ù‘Ù„ Ø§Ù„Ø£Ø³Ø¦Ù„Ø© Ø¨Ø¹Ø¯ Ø§ÙƒØªÙ…Ø§Ù„ ØªØ­Ù„ÙŠÙ„ Ù‡Ø°Ø§ Ø§Ù„ÙƒØªØ§Ø¨." : "Questions become available after this book is analyzed.")}
-                  </p>
-                  <button
-                    className="secondary sample-question-button"
-                    disabled={!results}
-                    onClick={() => setQ(rtl ? "Ù…Ø§ Ø§Ù„Ø£ÙÙƒØ§Ø± Ø§Ù„Ù…Ø­ÙˆØ±ÙŠØ© ÙÙŠ Ù‡Ø°Ø§ Ø§Ù„ÙƒØªØ§Ø¨ØŒ ÙˆÙ…Ø§ Ø§Ù„Ø£Ø¯Ù„Ø© Ø§Ù„ØªÙŠ Ø§Ø¹ØªÙ…Ø¯ Ø¹Ù„ÙŠÙ‡Ø§ Ø§Ù„Ù…Ø¤Ù„ÙØŸ" : "What are the book's central ideas, and what evidence does the author use?")}
-                  >
-                    {rtl ? "Ø§Ø³ØªØ®Ø¯Ù… Ø³Ø¤Ø§Ù„Ù‹Ø§ Ù†Ù…ÙˆØ°Ø¬ÙŠÙ‹Ø§" : "Use a sample question"}
-                  </button>
-                  <textarea
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                    placeholder={rtl ? "Ø§ÙƒØªØ¨ Ø³Ø¤Ø§Ù„Ùƒâ€¦" : "Type your questionâ€¦"}
-                  />
-                  {confirming !== "ask" ? (
-                    <button
-                      className="secondary"
-                      disabled={!results || !q.trim()}
-                      onClick={() => setConfirming("ask")}
-                    >
-                      {rtl ? "Ø±Ø§Ø¬Ø¹ Ø§Ù„ØªÙƒÙ„ÙØ© ÙˆØ£Ø±Ø³Ù„" : "Review cost & ask"}
-                    </button>
-                  ) : (
-                    <div className="cost-confirm">
-                      <p>
-                        {rtl
-                          ? "ÙƒÙ„ Ø³Ø¤Ø§Ù„ ÙŠØ³ØªØ®Ø¯Ù… API. Ø§Ø¨Ø¯Ø£ Ø¨Ø¹Ø¯Ø¯ Ù‚Ù„ÙŠÙ„ ÙÙŠ Ø§Ù„ØªØ¬Ø±Ø¨Ø©."
-                          : "Each question uses the API. Keep the pilot small."}
-                      </p>
-                      <button
-                        className="primary"
-                        disabled={busy === "ask"}
-                        onClick={ask}
-                      >
-                        {busy === "ask"
-                          ? "â€¦"
-                          : rtl
-                            ? "ØªØ£ÙƒÙŠØ¯ ÙˆØ¥Ø±Ø³Ø§Ù„"
-                            : "Confirm & ask"}
-                      </button>
-                    </div>
-                  )}
-                  {answer && <div className="answer-live"><strong>{String(answer.answer ?? "")}</strong>{Array.isArray(answer.references) && <ul>{answer.references.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul>}<small>{rtl ? "Ø§Ù„Ø«Ù‚Ø©" : "Confidence"}: {String(answer.confidence ?? "â€”")}</small></div>}
-                  {questionHistory.length > 0 && <details className="question-history"><summary>{rtl ? `Ø§Ù„Ø£Ø³Ø¦Ù„Ø© Ø§Ù„Ù…Ø­ÙÙˆØ¸Ø© (${questionHistory.length})` : `Saved questions (${questionHistory.length})`}</summary>{questionHistory.map((item) => <div key={item.id}><b>{item.question}</b><p>{String(item.answer.answer ?? "")}</p></div>)}</details>}
-                </>
-              )}
-            </section>
-            <section className="panel" id="professional-voice-panel">
-              <h3>
-                {rtl ? "Ø§Ù„ØµÙˆØª Ø§Ù„Ø§Ø­ØªØ±Ø§ÙÙŠ â€” Ù…Ø¯ÙÙˆØ¹" : "Professional voice â€” paid"}
-              </h3>
-              {ZERO_COST_MODE ? (
-                <p className="locked-note">
-                  ğŸ”’{" "}
-                  {rtl
-                    ? "Ù‚Ø±ÙŠØ¨Ù‹Ø§ â€” ØºÙŠØ± Ù…ÙØ¹Ù‘Ù„Ø© ÙÙŠ ÙˆØ¶Ø¹ Ø§Ù„ØªÙƒÙ„ÙØ© Ø§Ù„ØµÙØ±ÙŠØ© Ù„Ù‡Ø°Ø§ Ø§Ù„Ø¥ØµØ¯Ø§Ø±. ØµÙˆØª Ø§Ù„Ø¬Ù‡Ø§Ø² Ø§Ù„Ù…Ø¬Ø§Ù†ÙŠ Ù…ØªØ§Ø­ ÙÙŠ Ø§Ù„Ù‚Ø§Ø±Ø¦."
-                    : "Coming soon â€” disabled in this build's Zero-Cost Mode. Free device voice is available in the reader."}
-                </p>
-              ) : (
-                <>
-                  <p>
-                    {rtl
-                      ? `ØªÙ‚Ø¯ÙŠØ± Ø§Ù„Ø®Ù„Ø§ØµØ© Ø§Ù„ØµÙˆØªÙŠØ©: ${money(estimates.audio)}. ØµÙˆØª Ø§Ù„Ø¬Ù‡Ø§Ø² Ø§Ù„Ù…Ø¬Ø§Ù†ÙŠ Ù…ÙˆØ¬ÙˆØ¯ ÙÙŠ Ø§Ù„Ù‚Ø§Ø±Ø¦.`
-                      : `Estimated audio summary: ${money(estimates.audio)}. Free device voice is available in the reader.`}
-                  </p>
-                  <p className="voice-preview-note">
-                    {rtl
-                      ? "Ø§Ø³ØªÙ…Ø¹ Ø¥Ù„Ù‰ Ø¹ÙŠÙ†Ø© Ù‚ØµÙŠØ±Ø© Ø£ÙˆÙ„Ù‹Ø§. ØªÙÙ†Ø´Ø£ Ø§Ù„Ø¹ÙŠÙ†Ø© Ù…Ø±Ø© ÙˆØ§Ø­Ø¯Ø© Ø¨ØªÙƒÙ„ÙØ© Ø¶Ø¦ÙŠÙ„Ø© Ø¬Ø¯Ù‹Ø§ØŒ Ø«Ù… ÙŠØ¹Ø§Ø¯ ØªØ´ØºÙŠÙ„Ù‡Ø§ Ø¯ÙˆÙ† ØªÙƒÙ„ÙØ©."
-                      : "Listen to a short sample first. It has a tiny one-time generation cost, then replays at no cost."}
-                  </p>
-                  <div className="voice-choice-grid">
-                    {(["marin", "cedar"] as const).map((voice) => (
-                      <div className={`voice-choice ${professionalVoice === voice ? "selected" : ""}`} key={voice}>
-                        <button
-                          className="voice-select"
-                          aria-pressed={professionalVoice === voice}
-                          onClick={() => selectProfessionalVoice(voice)}
-                        >
-                          <span className="voice-radio" aria-hidden="true">{professionalVoice === voice ? "â—" : "â—‹"}</span>
-                          <strong>{voice === "marin" ? (rtl ? "ØµÙˆØª Ø£Ù†Ø«ÙˆÙŠ â€” Marin" : "Female voice â€” Marin") : (rtl ? "ØµÙˆØª Ø±Ø¬Ø§Ù„ÙŠ â€” Cedar" : "Male voice â€” Cedar")}</strong>
-                          <span>{rtl ? "Ù‡Ø§Ø¯Ø¦ØŒ Ø¯Ø§ÙØ¦ØŒ ÙˆÙ‚Ø±Ø§Ø¡Ø© Ù…ØªØ²Ù†Ø©" : "Calm, warm, balanced narration"}</span>
-                          {professionalVoice === voice && <b className="voice-selected-label">{rtl ? "Ù…Ø®ØªØ§Ø± Ù„Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„ØµÙˆØª Ø§Ù„ÙƒØ§Ù…Ù„" : "Selected for full audio"}</b>}
-                        </button>
-                        <button className="secondary voice-preview-button" disabled={busy === `preview-${voice}`} onClick={() => previewVoice(voice)}>
-                          {busy === `preview-${voice}` ? "â€¦" : rtl ? "Ø£Ù†Ø´Ø¦/Ø´ØºÙ‘Ù„ Ø§Ù„Ø¹ÙŠÙ†Ø©" : "Create/play sample"}
-                        </button>
-                        {voicePreviewUrls[voice] && <audio controls preload="metadata" src={voicePreviewUrls[voice]} />}
-                      </div>
-                    ))}
-                  </div>
-                  <p className="selected-voice-summary">
-                    {rtl ? "Ø§Ù„ØµÙˆØª Ø§Ù„Ù…Ø®ØªØ§Ø± Ù„Ù„Ø´Ø±Ø§Ø¡: " : "Voice selected for purchase: "}
-                    <strong>{professionalVoice === "marin" ? (rtl ? "Ø§Ù„Ø£Ù†Ø«ÙˆÙŠ â€” Marin" : "Female â€” Marin") : (rtl ? "Ø§Ù„Ø±Ø¬Ø§Ù„ÙŠ â€” Cedar" : "Male â€” Cedar")}</strong>
-                  </p>
-                  {confirming !== "audio" ? (
-                    <button
-                      className="secondary"
-                      disabled={!results}
-                      onClick={() => setConfirming("audio")}
-                    >
-                      {rtl ? "Ø±Ø§Ø¬Ø¹ Ø§Ù„ØªÙƒÙ„ÙØ©" : "Review cost"}
-                    </button>
-                  ) : (
-                    <div className="cost-confirm">
-                      <strong className="confirm-voice-name">
-                        {rtl ? "Ø³ÙŠÙÙ†Ø´Ø£ Ø§Ù„ØµÙˆØª Ø§Ù„ÙƒØ§Ù…Ù„ Ø¨Ø§Ø³ØªØ®Ø¯Ø§Ù…: " : "Full audio will use: "}
-                        {professionalVoice === "marin" ? (rtl ? "Ø§Ù„ØµÙˆØª Ø§Ù„Ø£Ù†Ø«ÙˆÙŠ â€” Marin" : "Female â€” Marin") : (rtl ? "Ø§Ù„ØµÙˆØª Ø§Ù„Ø±Ø¬Ø§Ù„ÙŠ â€” Cedar" : "Male â€” Cedar")}
-                      </strong>
-                      <button
-                        className="primary"
-                        disabled={busy === "audio"}
-                        onClick={audio}
-                      >
-                        {busy === "audio"
-                          ? "â€¦"
-                          : rtl
-                            ? "Ø£ÙˆØ§ÙÙ‚ ÙˆØ£Ù†Ø´Ø¦ Ø§Ù„ØµÙˆØª"
-                            : "Confirm & generate"}
-                      </button>
-                      <button
-                        className="secondary"
-                        onClick={() => setConfirming("")}
-                      >
-                        {rtl ? "ØªØ±Ø§Ø¬Ø¹" : "Go back"}
-                      </button>
-                    </div>
-                  )}
-                  {audioUrls.length > 0 && <div className="professional-audio-list">{audioUrls.map((url, index) => <label key={url}><span>{rtl ? `Ø§Ù„Ø¬Ø²Ø¡ ${index + 1}` : `Part ${index + 1}`}</span><audio controls preload="metadata" src={url} /></label>)}<small>{rtl ? "Ù‡Ø°Ù‡ Ø§Ù„Ø£ØµÙˆØ§Øª Ù…ÙˆÙ„Ø¯Ø© Ø¨Ø§Ù„Ø°ÙƒØ§Ø¡ Ø§Ù„Ø§ØµØ·Ù†Ø§Ø¹ÙŠ." : "These voices are AI-generated."}</small></div>}
-                </>
-              )}
-            </section>
-            {error && <div className="reader-error inline">{error}</div>}
-          </aside>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function BookDetail({ rtl, onBack }: { rtl: boolean; onBack: () => void }) {
-  const [tab, setTab] = useState("summary");
-  const [playing] = useState(false);
-  const tabs = rtl
-    ? [
-        ["summary", "Ø§Ù„Ø®Ù„Ø§ØµØ©"],
-        ["chapters", "Ø§Ù„ÙØµÙˆÙ„"],
-        ["analysis", "Ø§Ù„ØªØ­Ù„ÙŠÙ„"],
-        ["return", "Ø§Ù„Ø¹ÙˆØ¯Ø© Ù„Ù„ÙƒØªØ§Ø¨"],
-        ["audio", "Ø§Ù„Ø§Ø³ØªÙ…Ø§Ø¹"],
-      ]
-    : [
-        ["summary", "Overview"],
-        ["chapters", "Chapters"],
-        ["analysis", "Analysis"],
-        ["return", "Return to source"],
-        ["audio", "Listen"],
-      ];
-  return (
-    <div className="page book-detail">
-      <button className="back" onClick={onBack}>
-        â†’ {rtl ? "Ø§Ù„Ø¹ÙˆØ¯Ø© Ø¥Ù„Ù‰ Ù…ÙƒØªØ¨ØªÙŠ" : "Back to my library"}
-      </button>
-      <section className="book-hero panel">
-        <BookCover
-          tone="emerald"
-          title={rtl ? "Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ø¹Ø±ÙØ©" : "Knowledge Management"}
-        />
-        <div className="book-identity">
-          <span className="tag">
-            {rtl ? "Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ø¹Ø±ÙØ©" : "Knowledge management"}
-          </span>
-          <h2>
-            {rtl
-              ? "Ù…Ø¯Ø®Ù„ Ø¥Ù„Ù‰ Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ø¹Ø±ÙØ©"
-              : "Introduction to Knowledge Management"}
-          </h2>
-          <p>
-            {rtl
-              ? "Ù†Ù…ÙˆØ°Ø¬ ØªØ¬Ø±ÙŠØ¨ÙŠ â€¢ 284 ØµÙØ­Ø© â€¢ Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©"
-              : "Demo edition â€¢ 284 pages â€¢ Arabic"}
-          </p>
-          <div className="book-badges">
-            <span>âœ“ {rtl ? "Ø§Ù„ØªØ­Ù„ÙŠÙ„ Ø¬Ø§Ù‡Ø²" : "Analysis ready"}</span>
-            <span>âŒ {rtl ? "12 ÙØµÙ„Ù‹Ø§" : "12 chapters"}</span>
-            <span>â—– 18:42</span>
-            <span>â— {rtl ? "Ù…ÙˆØ«Ù‚ Ø¨Ø§Ù„ØµÙØ­Ø§Øª" : "Page cited"}</span>
-          </div>
-        </div>
-        <div className="trust-score">
-          <strong>92%</strong>
-          <span>{rtl ? "Ø«Ù‚Ø© Ø§Ù„Ù…Ø®Ø±Ø¬Ø§Øª" : "Output confidence"}</span>
-          <small>
-            {rtl
-              ? "ÙŠØ­ØªØ§Ø¬ Ø¥Ù„Ù‰ Ù…Ø±Ø§Ø¬Ø¹Ø© Ø¨Ø´Ø±ÙŠØ© Ù‚Ø¨Ù„ Ø§Ù„Ø§Ø³ØªØ´Ù‡Ø§Ø¯ Ø§Ù„Ø£ÙƒØ§Ø¯ÙŠÙ…ÙŠ"
-              : "Human review required before academic citation"}
-          </small>
-        </div>
-      </section>
-      <nav className="book-tabs">
-        {tabs.map(([id, label]) => (
-          <button
-            key={id}
-            className={tab === id ? "active" : ""}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
-      <div className="book-content">
-        <article className="panel reading-surface">
-          {tab === "summary" && (
-            <>
-              <ContentTitle
-                n="01"
-                over={rtl ? "Ø®Ù„Ø§ØµØ© 18 Ø¯Ù‚ÙŠÙ‚Ø©" : "18-minute overview"}
-                title={
-                  rtl
-                    ? "Ø®Ø±ÙŠØ·Ø© Ø§Ù„ÙƒØªØ§Ø¨ ÙÙŠ Ù‚Ø±Ø§Ø¡Ø© ÙˆØ§Ø­Ø¯Ø©"
-                    : "The book map in one reading"
-                }
-              />
-              <TrustLabel rtl={rtl} />
-              <p className="lead-copy">
-                {rtl
-                  ? "ÙŠÙ†Ø·Ù„Ù‚ Ø§Ù„ÙƒØªØ§Ø¨ Ù…Ù† Ø£Ù† Ø§Ù„Ù…Ø¹Ø±ÙØ© Ù„ÙŠØ³Øª Ù…Ø¬Ø±Ø¯ Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ù…Ø­ÙÙˆØ¸Ø©ØŒ Ø¨Ù„ Ù‚Ø¯Ø±Ø© Ø§Ù„Ù…Ø¤Ø³Ø³Ø© Ø¹Ù„Ù‰ ØªØ­ÙˆÙŠÙ„ Ø®Ø¨Ø±Ø§Øª Ø§Ù„Ø£ÙØ±Ø§Ø¯ Ø¥Ù„Ù‰ Ù…ÙˆØ±Ø¯ ÙŠÙ…ÙƒÙ† Ù…Ø´Ø§Ø±ÙƒØªÙ‡ ÙˆØªØ·ÙˆÙŠØ±Ù‡ ÙˆØ§Ø³ØªØ®Ø¯Ø§Ù…Ù‡ ÙÙŠ Ø§ØªØ®Ø§Ø° Ø§Ù„Ù‚Ø±Ø§Ø±. ÙˆÙŠØ¹Ø±Ø¶ Ø§Ù„ÙØ±Ù‚ Ø¨ÙŠÙ† Ø§Ù„Ù…Ø¹Ø±ÙØ© Ø§Ù„ØµØ±ÙŠØ­Ø© Ø§Ù„Ù‚Ø§Ø¨Ù„Ø© Ù„Ù„ØªÙˆØ«ÙŠÙ‚ ÙˆØ§Ù„Ù…Ø¹Ø±ÙØ© Ø§Ù„Ø¶Ù…Ù†ÙŠØ© Ø§Ù„Ù…Ø±ØªØ¨Ø·Ø© Ø¨Ø§Ù„ØªØ¬Ø±Ø¨Ø©."
-                  : "The book argues that knowledge is more than stored information: it is an organizationâ€™s ability to turn individual experience into a resource that can be shared, developed, and used in decisions."}
-              </p>
-              <h3>{rtl ? "Ø§Ù„Ø£ÙÙƒØ§Ø± Ø§Ù„Ù…Ø­ÙˆØ±ÙŠØ©" : "Core ideas"}</h3>
-              <div className="key-ideas">
-                <Idea
-                  n="1"
-                  title={rtl ? "Ø§Ù„Ù…Ø¹Ø±ÙØ© Ø£ØµÙ„ Ù…ØªØ¬Ø¯Ø¯" : "Knowledge is renewable"}
-                  text={
-                    rtl
-                      ? "ØªØ²Ø¯Ø§Ø¯ Ù‚ÙŠÙ…ØªÙ‡Ø§ Ø¨Ø§Ù„Ù…Ø´Ø§Ø±ÙƒØ© Ø§Ù„Ù…Ù†Ø¸Ù…Ø©ØŒ Ù„Ø§ Ø¨Ø§Ù„Ø§Ø­ØªÙØ§Ø¸ Ø§Ù„ÙØ±Ø¯ÙŠ."
-                      : "Its value grows through structured sharing."
-                  }
-                />
-                <Idea
-                  n="2"
-                  title={
-                    rtl ? "Ø§Ù„ØªÙ‚Ù†ÙŠØ© Ù„ÙŠØ³Øª ÙƒØ§ÙÙŠØ©" : "Technology is not enough"
-                  }
-                  text={
-                    rtl
-                      ? "Ù†Ø¬Ø§Ø­ Ø§Ù„Ù†Ø¸Ø§Ù… ÙŠØ¹ØªÙ…Ø¯ Ø¹Ù„Ù‰ Ø§Ù„Ø«Ù‚Ø§ÙØ© ÙˆØ§Ù„Ø­ÙˆØ§ÙØ² ÙˆØ§Ù„Ø«Ù‚Ø©."
-                      : "Success depends on culture, incentives, and trust."
-                  }
-                />
-                <Idea
-                  n="3"
-                  title={
-                    rtl
-                      ? "Ø§Ù„ÙÙ‡Ø±Ø³Ø© Ø¬Ø³Ø± Ø§Ù„Ø§Ø³ØªØ±Ø¬Ø§Ø¹"
-                      : "Cataloguing enables retrieval"
-                  }
-                  text={
-                    rtl
-                      ? "Ù…Ø§ Ù„Ø§ ÙŠÙˆØµÙ ÙˆÙŠÙ†Ø¸Ù… ÙŠØµØ¹Ø¨ Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„ÙŠÙ‡ ÙˆØ¥Ø¹Ø§Ø¯Ø© Ø§Ø³ØªØ®Ø¯Ø§Ù…Ù‡."
-                      : "What is not described and organized is hard to reuse."
-                  }
-                />
-              </div>
-              <blockquote>
-                {rtl
-                  ? "Ù‡Ø°Ù‡ ØµÙŠØ§ØºØ© ØªÙ„Ø®ÙŠØµÙŠØ© Ù„Ù„Ù…Ù†ØµØ© ÙˆÙ„ÙŠØ³Øª Ø§Ù‚ØªØ¨Ø§Ø³Ù‹Ø§ Ø­Ø±ÙÙŠÙ‹Ø§ Ù…Ù† Ø§Ù„Ù…Ø¤Ù„Ù."
-                  : "This is a platform-generated summary, not a verbatim quotation from the author."}
-              </blockquote>
-            </>
-          )}
-          {tab === "chapters" && (
-            <>
-              <ContentTitle
-                n="02"
-                over={rtl ? "12 ÙØµÙ„Ù‹Ø§ Ù…ÙƒØªØ´ÙÙ‹Ø§" : "12 detected chapters"}
-                title={
-                  rtl
-                    ? "Ù…Ø±ÙˆØ± Ø£Ø¹Ù…Ù‚ Ø¹Ù„Ù‰ Ø¨Ù†ÙŠØ© Ø§Ù„ÙƒØªØ§Ø¨"
-                    : "A deeper pass through the book"
-                }
-              />
-              <div className="chapters">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <details key={n} open={n === 1}>
-                    <summary>
-                      <b>{String(n).padStart(2, "0")}</b>
-                      <span>
-                        {rtl
-                          ? [
-                              "Ù…Ù† Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø¥Ù„Ù‰ Ø§Ù„Ù…Ø¹Ø±ÙØ©",
-                              "Ø§Ù„Ù…Ø¹Ø±ÙØ© Ø§Ù„ØµØ±ÙŠØ­Ø© ÙˆØ§Ù„Ø¶Ù…Ù†ÙŠØ©",
-                              "Ø«Ù‚Ø§ÙØ© Ø§Ù„Ù…Ø´Ø§Ø±ÙƒØ©",
-                              "Ø¯ÙˆØ±Ø© Ø­ÙŠØ§Ø© Ø§Ù„Ù…Ø¹Ø±ÙØ©",
-                              "Ù‚ÙŠØ§Ø³ Ø§Ù„Ø£Ø«Ø±",
-                            ][n - 1]
-                          : [
-                              "From data to knowledge",
-                              "Explicit and tacit knowledge",
-                              "A culture of sharing",
-                              "The knowledge lifecycle",
-                              "Measuring impact",
-                            ][n - 1]}
-                      </span>
-                      <em>
-                        {6 + n} {rtl ? "Ø¯Ù‚Ø§Ø¦Ù‚" : "min"}
-                      </em>
-                    </summary>
-                    <div>
-                      <TrustLabel rtl={rtl} />
-                      <p>
-                        {rtl
-                          ? "ÙŠØ¹Ø±Ø¶ Ø§Ù„ÙØµÙ„ Ø§Ù„Ù…ÙØ§Ù‡ÙŠÙ… Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ© ÙˆØ§Ù„Ø­Ø¬Ø¬ ÙˆØ§Ù„Ø£Ù…Ø«Ù„Ø©ØŒ Ù…Ø¹ ÙØµÙ„ ÙˆØ§Ø¶Ø­ Ø¨ÙŠÙ† Ù…Ø§ ÙˆØ±Ø¯ ÙÙŠ Ø§Ù„Ù†Øµ ÙˆÙ…Ø§ Ø§Ø³ØªÙ†ØªØ¬ØªÙ‡ Ø§Ù„Ù…Ù†ØµØ©."
-                          : "The chapter presents its main concepts, arguments, and examples, clearly separating source content from platform inference."}
-                      </p>
-                      <button className="text-button disabled-soon" disabled title={rtl ? "Ù†Ù…ÙˆØ°Ø¬ Ø¹Ø±Ø¶" : "Display sample"}>
-                        {rtl
-                          ? `Ø§ÙØªØ­ Ø§Ù„ÙØµÙ„ Ø¹Ù†Ø¯ Ø§Ù„ØµÙØ­Ø© ${18 + n * 12}`
-                          : `Open chapter at page ${18 + n * 12}`}{" "}
-                        â†
-                      </button>
-                    </div>
-                  </details>
-                ))}
-              </div>
-            </>
-          )}
-          {tab === "analysis" && (
-            <>
-              <ContentTitle
-                n="03"
-                over={rtl ? "Ù‚Ø±Ø§Ø¡Ø© Ù†Ù‚Ø¯ÙŠØ©" : "Critical reading"}
-                title={
-                  rtl
-                    ? "Ù…Ø§ Ø§Ù„Ø°ÙŠ ÙŠØ¶ÙŠÙÙ‡ Ø§Ù„ÙƒØªØ§Ø¨ ÙˆÙ…Ø§ Ø­Ø¯ÙˆØ¯Ù‡ØŸ"
-                    : "What the book adds â€” and where it stops"
-                }
-              />
-              <div className="analysis-grid">
-                <div>
-                  <h3>âœ“ {rtl ? "Ù†Ù‚Ø§Ø· Ø§Ù„Ù‚ÙˆØ©" : "Strengths"}</h3>
-                  <ul>
-                    <li>
-                      {rtl
-                        ? "ÙŠØ±Ø¨Ø· Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ø¹Ø±ÙØ© Ø¨Ø§Ù„Ø¹Ù…Ù„ Ø§Ù„ÙŠÙˆÙ…ÙŠ."
-                        : "Connects knowledge management to daily work."}
-                    </li>
-                    <li>
-                      {rtl
-                        ? "ÙŠÙ‚Ø¯Ù… Ø¥Ø·Ø§Ø±Ù‹Ø§ ÙˆØ§Ø¶Ø­Ù‹Ø§ Ù„Ù„ØªØ­ÙˆÙŠÙ„ ÙˆØ§Ù„Ù…Ø´Ø§Ø±ÙƒØ©."
-                        : "Offers a clear sharing framework."}
-                    </li>
-                    <li>
-                      {rtl
-                        ? "Ø£Ù…Ø«Ù„ØªÙ‡ Ù‚Ø§Ø¨Ù„Ø© Ù„Ù„ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„Ù…Ø¤Ø³Ø³ÙŠ."
-                        : "Examples transfer well to institutions."}
-                    </li>
-                  </ul>
-                </div>
-                <div>
-                  <h3>â–³ {rtl ? "Ø§Ù„Ø­Ø¯ÙˆØ¯" : "Limitations"}</h3>
-                  <ul>
-                    <li>
-                      {rtl
-                        ? "Ù„Ø§ ÙŠÙ†Ø§Ù‚Ø´ Ø§Ù„Ø°ÙƒØ§Ø¡ Ø§Ù„Ø§ØµØ·Ù†Ø§Ø¹ÙŠ Ø§Ù„Ø­Ø¯ÙŠØ« Ø¨Ø¹Ù…Ù‚."
-                        : "Modern AI is not explored deeply."}
-                    </li>
-                    <li>
-                      {rtl
-                        ? "Ø¨Ø¹Ø¶ Ø§Ù„Ø£Ù…Ø«Ù„Ø© ØªØ­ØªØ§Ø¬ ØªØ­Ø¯ÙŠØ«Ù‹Ø§."
-                        : "Some examples need updating."}
-                    </li>
-                    <li>
-                      {rtl
-                        ? "Ø§Ù„Ù‚ÙŠØ§Ø³ Ø§Ù„Ø¹Ù…Ù„ÙŠ Ù…Ø®ØªØµØ±."
-                        : "Practical measurement is brief."}
-                    </li>
-                  </ul>
-                </div>
-              </div>
-              <div className="inference">
-                <b>{rtl ? "ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ù…Ù†ØµØ©" : "Platform analysis"}</b>
-                <p>
-                  {rtl
-                    ? "ÙŠÙ…ÙƒÙ† ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„Ø¥Ø·Ø§Ø± Ø¹Ù„Ù‰ Ø§Ù„Ù…ÙƒØªØ¨Ø§Øª Ø§Ù„Ù…ØªØ®ØµØµØ©ØŒ Ù„ÙƒÙ† Ø°Ù„Ùƒ Ø§Ø³ØªÙ†ØªØ§Ø¬ ØªØ·Ø¨ÙŠÙ‚ÙŠ ÙˆÙ„ÙŠØ³ Ø±Ø£ÙŠÙ‹Ø§ Ù…Ù†Ø³ÙˆØ¨Ù‹Ø§ Ø¥Ù„Ù‰ Ø§Ù„Ù…Ø¤Ù„Ù."
-                    : "The framework can be applied to specialist libraries, but this is a platform inferenceâ€”not a view attributed to the author."}
-                </p>
-              </div>
-            </>
-          )}
-          {tab === "return" && (
-            <>
-              <ContentTitle
-                n="04"
-                over={rtl ? "Ø¬Ø³Ø± Ø§Ù„Ø¹ÙˆØ¯Ø© Ø¥Ù„Ù‰ Ø§Ù„Ø£ØµÙ„" : "Bridge back to source"}
-                title={
-                  rtl
-                    ? "Ø®Ù…Ø³Ø© Ù…ÙˆØ§Ø¶Ø¹ ØªØ³ØªØ­Ù‚ Ø§Ù„Ù‚Ø±Ø§Ø¡Ø© Ø¨Ù†ÙØ³Ùƒ"
-                    : "Five passages worth reading yourself"
-                }
-              />
-              <p className="lead-copy">
-                {rtl
-                  ? "Ø§Ù„Ø®Ù„Ø§ØµØ© Ù„Ø§ ØªÙƒÙÙŠ Ù„ÙÙ‡Ù… Ù‡Ø°Ù‡ Ø§Ù„Ù…ÙˆØ§Ø¶Ø¹Ø› Ø§ÙØªØ­Ù‡Ø§ ÙÙŠ Ø³ÙŠØ§Ù‚Ù‡Ø§ Ø§Ù„Ø£ØµÙ„ÙŠ."
-                  : "The overview is not enough for these passages; read them in their original context."}
-              </p>
-              <div className="return-list">
-                {[
-                  [42, "ØªØ¹Ø±ÙŠÙ Ø§Ù„Ù…Ø¹Ø±ÙØ© Ø§Ù„Ø¶Ù…Ù†ÙŠØ©"],
-                  [74, "Ù†Ù…ÙˆØ°Ø¬ ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ù…Ø¹Ø±ÙØ©"],
-                  [121, "Ù…Ù‚Ø§ÙˆÙ…Ø© Ø§Ù„Ù…Ø´Ø§Ø±ÙƒØ© Ø¯Ø§Ø®Ù„ Ø§Ù„Ù…Ø¤Ø³Ø³Ø§Øª"],
-                  [166, "Ø¨Ù†Ø§Ø¡ Ø°Ø§ÙƒØ±Ø© Ù…Ø¤Ø³Ø³ÙŠØ©"],
-                  [231, "Ù…Ø¤Ø´Ø±Ø§Øª Ù‚ÙŠØ§Ø³ Ø§Ù„Ø£Ø«Ø±"],
-                ].map(([p, s], i) => (
-                  <button key={p} disabled title={rtl ? "Ù†Ù…ÙˆØ°Ø¬ Ø¹Ø±Ø¶" : "Display sample"}>
-                    <b>{i + 1}</b>
-                    <span>
-                      {rtl
-                        ? s
-                        : [
-                            "Defining tacit knowledge",
-                            "The knowledge conversion model",
-                            "Resistance to organizational sharing",
-                            "Building institutional memory",
-                            "Impact indicators",
-                          ][i]}
-                    </span>
-                    <em>{rtl ? `ØµÙØ­Ø© ${p}` : `Page ${p}`} â†</em>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-          {tab === "audio" && (
-            <>
-              <ContentTitle
-                n="05"
-                over={rtl ? "Ø§Ù„Ù†Ø³Ø®Ø© Ø§Ù„ØµÙˆØªÙŠØ© Ù„Ù„Ø®Ù„Ø§ØµØ©" : "Audio overview"}
-                title={
-                  rtl ? "Ø§Ø³ØªÙ…Ø¹ Ø¥Ù„Ù‰ Ø®Ø±ÙŠØ·Ø© Ø§Ù„ÙƒØªØ§Ø¨" : "Listen to the book map"
-                }
-              />
-              <div className="audio-player">
-                <button disabled title={rtl ? "Ù…Ø´ØºÙ‘Ù„ Ù†Ù…ÙˆØ°Ø¬ÙŠ ØºÙŠØ± Ù…ØªØµÙ„ Ø¨Ù…Ù„Ù ØµÙˆØª" : "Sample player without an audio file"}>
-                  {playing ? "â…¡" : "â–¶"}
-                </button>
-                <div>
-                  <strong>
-                    {rtl
-                      ? "Ø®Ù„Ø§ØµØ© Ø§Ù„ÙƒØªØ§Ø¨ â€” ØµÙˆØª Ø¹Ø±Ø¨ÙŠ"
-                      : "Book overview â€” Arabic voice"}
-                  </strong>
-                  <Bar value={playing ? 38 : 0} />
-                  <span>06:58 / 18:42</span>
-                </div>
-                <select aria-label="Speed">
-                  <option>1Ã—</option>
-                  <option>1.25Ã—</option>
-                  <option>1.5Ã—</option>
-                </select>
-              </div>
-              <div className="audio-note">
-                <b>â—‰ {rtl ? "Ù…Ø§ Ø§Ù„Ø°ÙŠ ÙŠÙÙ‚Ø±Ø£ØŸ" : "What is narrated?"}</b>
-                <p>
-                  {rtl
-                    ? "Ø§Ù„Ø®Ù„Ø§ØµØ© ÙˆÙ…Ù„Ø®ØµØ§Øª Ø§Ù„ÙØµÙˆÙ„ Ø§Ù„ØªÙŠ Ø£Ù†Ø´Ø£ØªÙ‡Ø§ Ø§Ù„Ù…Ù†ØµØ© ÙÙ‚Ø·Ø› ÙˆÙ„ÙŠØ³Øª Ù‚Ø±Ø§Ø¡Ø© Ø­Ø±ÙÙŠØ© ÙƒØ§Ù…Ù„Ø© Ù„Ù„ÙƒØªØ§Ø¨ Ø§Ù„Ù…Ø­Ù…ÙŠ."
-                    : "Only platform-generated overview and chapter summariesâ€”not a complete verbatim narration of a protected book."}
-                </p>
-              </div>
-            </>
-          )}
-        </article>
-        <aside className="detail-aside">
-          <div className="panel">
-            <h3>{rtl ? "Ø¨Ø·Ø§Ù‚Ø© Ø§Ù„Ø«Ù‚Ø©" : "Trust card"}</h3>
-            <p className="trust-row">
-              <b className="dot source" />
-              <span>{rtl ? "Ù…Ø¹Ù„ÙˆÙ…Ø© Ù…Ù† Ø§Ù„ÙƒØªØ§Ø¨" : "From the book"}</span>
-              <em>8</em>
-            </p>
-            <p className="trust-row">
-              <b className="dot analysis" />
-              <span>{rtl ? "ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ù…Ù†ØµØ©" : "Platform analysis"}</span>
-              <em>3</em>
-            </p>
-            <p className="trust-row">
-              <b className="dot verify" />
-              <span>{rtl ? "ÙŠØ­ØªØ§Ø¬ ØªØ­Ù‚Ù‚Ù‹Ø§" : "Needs verification"}</span>
-              <em>1</em>
-            </p>
-          </div>
-          <div className="panel">
-            <h3>{rtl ? "Ù„ØºØ§Øª Ø§Ù„Ù…Ø®Ø±Ø¬Ø§Øª" : "Output languages"}</h3>
-            <label className="select-label">
-              {rtl ? "Ù„ØºØ© Ø§Ù„ØªØ­Ù„ÙŠÙ„" : "Analysis language"}
-              <select>
-                <option>{rtl ? "Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©" : "Arabic"}</option>
-                <option>English</option>
-                <option>{rtl ? "Ø¹Ø±Ø¶ Ø«Ù†Ø§Ø¦ÙŠ" : "Bilingual"}</option>
-              </select>
-            </label>
-            <label className="select-label">
-              {rtl ? "Ù„ØºØ© Ø§Ù„ØµÙˆØª" : "Audio language"}
-              <select>
-                <option>{rtl ? "Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©" : "Arabic"}</option>
-                <option>English</option>
-              </select>
-            </label>
-          </div>
-          <button className="feedback-mini disabled-soon" disabled>
-            âœ {rtl ? "Ø³Ø¬Ù‘Ù„ Ù…Ù„Ø§Ø­Ø¸ØªÙƒ Ø¹Ù† Ù‡Ø°Ø§ Ø§Ù„ÙƒØªØ§Ø¨" : "Log feedback on this book"}
-          </button>
-        </aside>
-      </div>
-    </div>
-  );
-}
-
-function ContentTitle({
-  n,
-  over,
-  title,
-}: {
-  n: string;
-  over: string;
-  title: string;
-}) {
-  return (
-    <header className="content-title">
-      <b>{n}</b>
-      <div>
-        <span>{over}</span>
-        <h2>{title}</h2>
-      </div>
-    </header>
-  );
-}
-function TrustLabel({ rtl }: { rtl: boolean }) {
-  return (
-    <span className="trust-label">
-      <b className="dot source" />{" "}
-      {rtl
-        ? "Ù…Ø³ØªÙ†Ø¯ Ø¥Ù„Ù‰ Ø§Ù„ÙƒØªØ§Ø¨ Ù…Ø¹ Ø¥Ø­Ø§Ù„Ø§Øª"
-        : "Grounded in the book with citations"}
-    </span>
-  );
-}
-function Idea({ n, title, text }: { n: string; title: string; text: string }) {
-  return (
-    <div className="idea">
-      <b>{n}</b>
-      <div>
-        <h4>{title}</h4>
-        <p>{text}</p>
-      </div>
-    </div>
-  );
-}
-
-function UserGuide({ rtl, onUpload, onLibrary, onActivate, activating }: { rtl: boolean; onUpload: () => void; onLibrary: () => void; onActivate: () => void; activating: boolean }) {
-  const topics = rtl ? [
-    ["1. Ø¥Ø¶Ø§ÙØ© Ø§Ù„ÙƒØªØ§Ø¨", "Ø§Ø®ØªØ± PDF ÙˆØ­Ø¯Ø¯ Ù„ØºØ© Ø§Ù„Ù…Ø®Ø±Ø¬Ø§Øª ÙˆØ£Ù‚Ø± Ø¨Ø­Ù‚ Ø§Ù„Ø§Ø³ØªØ®Ø¯Ø§Ù…. Ø§Ù„Ø±ÙØ¹ ÙˆØ­Ø¯Ù‡ Ù„Ø§ ÙŠØ´ØºÙ‘Ù„ Ø®Ø¯Ù…Ø© Ù…Ø¯ÙÙˆØ¹Ø©."],
-    ["2. ØµÙØ­Ø© Ø§Ù„ÙƒØªØ§Ø¨", "ØµÙØ­Ø© Ø§Ù„ÙƒØªØ§Ø¨ Ø§Ù„Ø­Ø§Ù„ÙŠØ© Ù‡ÙŠ Ø§Ù„Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø«Ø§Ø¨ØªØ© Ù„ÙƒÙ„ ÙƒØªØ§Ø¨ Ø¬Ø¯ÙŠØ¯ØŒ ÙˆØ¨Ù‡Ø§ Ø§Ù„Ù‚Ø±Ø§Ø¡Ø© ÙˆØ§Ù„ØªØ­Ù„ÙŠÙ„ ÙˆØ§Ù„Ù†ØªØ§Ø¦Ø¬ ÙˆØ§Ù„ØµÙˆØª ÙˆØ§Ù„Ø£Ø³Ø¦Ù„Ø©."],
-    ["3. Ø§Ù„ØºÙ„Ø§Ù Ø§Ù„Ø£ØµÙ„ÙŠ", "ØªØ£Ø®Ø° Ø§Ù„Ù…ÙƒØªØ¨Ø© Ø§Ù„ØºÙ„Ø§Ù Ù…Ù† Ø§Ù„ØµÙØ­Ø© Ø§Ù„Ø£ÙˆÙ„Ù‰ Ù„Ù„ÙƒØªØ§Ø¨ Ù†ÙØ³Ù‡ØŒ Ù…Ø¹ Ø¨Ø¯ÙŠÙ„ Ø¢Ù…Ù† ÙÙ‚Ø· Ø¥Ø°Ø§ ØªØ¹Ø°Ø± ÙØªØ­ Ø§Ù„Ù…Ù„Ù."],
-    ["4. Ø§Ù„Ù‚Ø±Ø§Ø¡Ø© ÙˆÙ…ÙˆØ¶Ø¹ Ø§Ù„ØªÙˆÙ‚Ù", "ØªÙØ­ÙØ¸ Ø§Ù„ØµÙØ­Ø© ÙˆØ§Ù„Ø¹Ù„Ø§Ù…Ø§Øª Ù„ØªØ¹ÙˆØ¯ Ø¥Ù„Ù‰ Ø§Ù„Ù…ÙˆØ¶Ø¹ Ù†ÙØ³Ù‡ Ù…Ù† Ø§Ù„ÙƒÙ…Ø¨ÙŠÙˆØªØ± Ø£Ùˆ Ø§Ù„Ù‡Ø§ØªÙ."],
-    ["5. Ø§Ù„ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ù…Ø¬Ø§Ù†ÙŠ", "ÙŠÙØ­Øµ Ø¨Ù†ÙŠØ© Ø§Ù„ÙƒØªØ§Ø¨ Ø¯Ø§Ø®Ù„ Ø§Ù„Ù…ØªØµÙØ­ Ø¯ÙˆÙ† ØªÙƒÙ„ÙØ© AI ÙˆØ¯ÙˆÙ† Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù…Ù„Ù Ø¥Ù„Ù‰ OpenAI."],
-    ["6. Ø§Ù„ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ù…Ø¯ÙÙˆØ¹", "ÙŠØ­Ø§ÙØ¸ Ø¹Ù„Ù‰ Ø§Ù„Ø®Ù„Ø§ØµØ© ÙˆØ§Ù„Ø£ÙÙƒØ§Ø± Ø§Ù„Ù…Ø­ÙˆØ±ÙŠØ© ÙˆØ§Ù„ÙØµÙˆÙ„ ÙˆÙ†Ù‚Ø§Ø· Ø§Ù„Ù‚ÙˆØ© ÙˆØ§Ù„Ø­Ø¯ÙˆØ¯ ÙˆØ§Ù„Ø§Ø³ØªÙ†ØªØ§Ø¬Ø§Øª ÙˆÙ…ÙˆØ§Ø¶Ø¹ Ø§Ù„Ø¹ÙˆØ¯Ø©ØŒ ÙˆÙ„Ø§ ÙŠØ¨Ø¯Ø£ Ù‚Ø¨Ù„ ØªØ£ÙƒÙŠØ¯ Ø§Ù„ØªÙƒÙ„ÙØ©."],
-    ["7. ØªØ¬Ø±Ø¨Ø© Ø§Ù„ØµÙˆØª", "Ø§Ø³ØªÙ…Ø¹ Ø¥Ù„Ù‰ ØµÙˆØª Ø§Ù„Ù…Ø±Ø£Ø© ÙˆØµÙˆØª Ø§Ù„Ø±Ø¬Ù„Ø› ØªÙÙ†Ø´Ø£ Ø§Ù„Ø¹ÙŠÙ†Ø© Ù…Ø±Ø© ÙˆØ§Ø­Ø¯Ø© Ø«Ù… ÙŠØ¹Ø§Ø¯ ØªØ´ØºÙŠÙ„Ù‡Ø§ Ø¯ÙˆÙ† ØªÙƒÙ„ÙØ© Ø¬Ø¯ÙŠØ¯Ø©."],
-    ["8. Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„ØµÙˆØª", "Ø§Ø¶ØºØ· Ø¹Ù„Ù‰ Ø§Ù„ØµÙˆØª Ø§Ù„Ø°ÙŠ ØªØ±ÙŠØ¯Ù‡Ø› ÙŠØ¸Ù‡Ø± Ø§Ù„Ø§Ø®ØªÙŠØ§Ø± Ø¨ÙˆØ¶ÙˆØ­ ÙˆÙŠÙØ­ÙØ¸ Ù„Ù‡Ø°Ø§ Ø§Ù„ÙƒØªØ§Ø¨ Ù‚Ø¨Ù„ ØªØ£ÙƒÙŠØ¯ Ø´Ø±Ø§Ø¡ Ø§Ù„ØµÙˆØª Ø§Ù„ÙƒØ§Ù…Ù„."],
-    ["9. Ø£Ø³Ø¦Ù„Ø© Ø§Ù„ÙƒØªØ§Ø¨", "Ø¨Ø¹Ø¯ Ø§ÙƒØªÙ…Ø§Ù„ Ø§Ù„ØªØ­Ù„ÙŠÙ„ØŒ Ø§ÙƒØªØ¨ Ø³Ø¤Ø§Ù„Ù‹Ø§ Ø£Ùˆ Ø§Ø³ØªØ®Ø¯Ù… Ø§Ù„Ø³Ø¤Ø§Ù„ Ø§Ù„Ù†Ù…ÙˆØ°Ø¬ÙŠØŒ Ø«Ù… Ø±Ø§Ø¬Ø¹ Ø§Ù„ØªÙƒÙ„ÙØ© Ù‚Ø¨Ù„ Ø§Ù„Ø¥Ø±Ø³Ø§Ù„."],
-    ["10. Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡Ø§Øª", "Ø§Ø®ØªØ± Ø§Ù„ÙƒØªØ§Ø¨ ÙˆØ§Ù„Ù…ÙˆØ¹Ø¯ØŒ ÙØ¹Ù‘Ù„ Ø¥Ø´Ø¹Ø§Ø±Ø§Øª Ø§Ù„Ø¬Ù‡Ø§Ø²ØŒ Ø«Ù… Ø§Ø³ØªØ®Ø¯Ù… Ø§Ø®ØªØ¨Ø§Ø± Ø§Ù„Ø¢Ù† Ù„Ù„ØªØ£ÙƒØ¯ Ù…Ù† Ø¸Ù‡ÙˆØ± Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡."],
-    ["11. Ø§Ù„Ù‡Ø§ØªÙ", "Ø¹Ù„Ù‰ iPhone Ø§ÙØªØ­ Ø§Ù„Ù…Ù†ØµØ© Ù…Ù† Ø§Ù„Ø´Ø§Ø´Ø© Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ©. ÙˆØ¹Ù„Ù‰ Samsung Ø§Ø³ØªØ®Ø¯Ù… Chrome ÙˆØ§Ø³Ù…Ø­ Ø¨Ø§Ù„Ø¥Ø´Ø¹Ø§Ø±Ø§Øª Ø«Ù… Ø­Ø¯Ù‘Ø« Ø§Ù„ØµÙØ­Ø© Ø¹Ù†Ø¯ Ø¸Ù‡ÙˆØ± Ù†Ø³Ø®Ø© Ù‚Ø¯ÙŠÙ…Ø©."],
-    ["12. Ø§Ù„ÙˆØ¶Ø¹ Ø§Ù„Ù„ÙŠÙ„ÙŠ", "ÙŠØºÙŠÙ‘Ø± Ø£Ù„ÙˆØ§Ù† Ø§Ù„ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ù…Ø­ÙŠØ·Ø© Ù„ØªØµØ¨Ø­ Ø§Ù„Ø­Ø±ÙˆÙ ÙˆØ§Ø¶Ø­Ø©ØŒ Ø¨ÙŠÙ†Ù…Ø§ ØªØ¨Ù‚Ù‰ ØµÙØ­Ø© PDF ÙˆØ®Ø·Ù‡Ø§ ÙˆØ£Ù„ÙˆØ§Ù†Ù‡Ø§ Ø§Ù„Ø£ØµÙ„ÙŠØ© Ø¯ÙˆÙ† ØªØºÙŠÙŠØ±."],
-    ["13. ØªÙ†Ø´ÙŠØ· Ø£Ø­Ø¯Ø« Ù†Ø³Ø®Ø©", "Ø¥Ø°Ø§ Ø¨Ù‚ÙŠ Ø§Ù„Ù‡Ø§ØªÙ Ø£Ùˆ Ø§Ù„ÙƒÙ…Ø¨ÙŠÙˆØªØ± Ø¹Ù„Ù‰ Ù†Ø³Ø®Ø© Ù‚Ø¯ÙŠÙ…Ø©ØŒ Ø§Ø¶ØºØ· ØªÙ†Ø´ÙŠØ· Ø§Ù„Ù†Ø³Ø®Ø©Ø› ØªÙÙ…Ø³Ø­ Ø°Ø§ÙƒØ±Ø© Ø§Ù„Ù…Ù†ØµØ© Ø§Ù„Ù‚Ø¯ÙŠÙ…Ø© ÙˆØªÙÙØªØ­ Ø£Ø­Ø¯Ø« Ù…Ø¹Ø§ÙŠÙ†Ø© ØªÙ„Ù‚Ø§Ø¦ÙŠÙ‹Ø§."],
-  ] : [
-    ["1. Add a book", "Choose a PDF, output language, and lawful-use confirmation. Uploading does not start paid AI."],
-    ["2. Book page", "The current book page remains the fixed template for every new book."],
-    ["3. Original cover", "The cover comes from the PDF's first page, with a safe fallback only if the file cannot be opened."],
-    ["4. Reading position", "Page and bookmarks are saved across computer and phone."],
-    ["5. Free analysis", "Examines structure locally without AI cost or sending the file to OpenAI."],
-    ["6. Paid analysis", "Preserves all current summary, ideas, chapters, critical reading and return points after cost confirmation."],
-    ["7. Voice preview", "Preview female and male samples; generated samples are reused."],
-    ["8. Voice selection", "Select and save one voice per book before buying full audio."],
-    ["9. Ask the book", "After analysis, enter a question or use the sample, then review cost."],
-    ["10. Notifications", "Choose the book and time, enable device notifications, then run the test."],
-    ["11. Phones", "Use Home Screen mode on iPhone and Chrome with notification permission on Samsung."],
-    ["12. Night mode", "Improves interface contrast while preserving the original PDF page."],
-    ["13. Activate latest version", "Clears the platform's old cache and reloads the latest build on phone or computer."],
-  ];
-  return <div className="page user-guide-page"><PageTitle title={rtl ? "Ø¯Ù„ÙŠÙ„ Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø§Ù„Ù…ÙƒØªØ¨Ø©" : "Library user guide"} description={rtl ? "Ø®Ø·ÙˆØ§Øª Ø¹Ù…Ù„ÙŠØ© ØªØ´Ø±Ø­ Ø§Ù„Ù…ÙˆØ¬ÙˆØ¯ ÙˆØªÙØ¹Ù‘Ù„Ù‡ Ø¯ÙˆÙ† ØªØºÙŠÙŠØ± ØµÙØ­Ø© Ø§Ù„ÙƒØªØ§Ø¨ Ø§Ù„Ù†Ø§Ø¬Ø­Ø©." : "Practical steps that activate the current experience without changing the successful book page."} /><div className="guide-actions"><button className="primary" onClick={onUpload}>ï¼‹ {rtl ? "Ø£Ø¶Ù ÙƒØªØ§Ø¨Ù‹Ø§" : "Add a book"}</button><button className="secondary" onClick={onLibrary}>â–¥ {rtl ? "Ø§ÙØªØ­ Ù…ÙƒØªØ¨ØªÙŠ" : "Open my library"}</button><button className="secondary activate-version-button" disabled={activating} onClick={onActivate}>â†» {activating ? (rtl ? "Ø¬Ø§Ø±Ù Ø§Ù„ØªÙ†Ø´ÙŠØ·â€¦" : "Activatingâ€¦") : (rtl ? "ØªÙ†Ø´ÙŠØ· Ø£Ø­Ø¯Ø« Ù†Ø³Ø®Ø©" : "Activate latest version")}</button></div><section className="panel guide-topics">{topics.map(([title, body]) => <details key={title}><summary>{title}</summary><p>{body}</p></details>)}</section></div>;
-}
-
-function Progress({ rtl, title, books }: { rtl: boolean; title: string; books: PilotBook[] }) {
-  const [reminders, setReminders] = useState<BookReminder[]>([]);
-  const [bookId, setBookId] = useState(books[0]?.id ?? "");
-  const [when, setWhen] = useState(() => {
-    const value = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    value.setSeconds(0, 0);
-    return new Date(value.getTime() - value.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-  });
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [pushReady, setPushReady] = useState(false);
-  const reload = () => listBookReminders().then(setReminders).catch((error) => setMessage(describeReminderError(error, rtl)));
-  useEffect(() => { reload(); }, []);
-  useEffect(() => { if (!bookId && books[0]) setBookId(books[0].id); }, [books, bookId]);
-  const save = async () => {
-    setBusy(true); setMessage("");
-    try {
-      await enablePushForThisDevice();
-      await saveBookReminder(bookId, new Date(when));
-      await reload();
-      setMessage(rtl ? "Ø­ÙÙØ¸ Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡ ÙˆØ³ÙŠØµÙ„ Ø¥Ù„Ù‰ Ø£Ø¬Ù‡Ø²ØªÙƒ Ø§Ù„Ù…ÙØ¹Ù‘Ù„Ø©." : "The reminder was saved for your enabled devices.");
-    } catch (error) { setMessage(describeReminderError(error, rtl)); }
-    finally { setBusy(false); }
-  };
-  return (
-    <div className="page">
-      <PageTitle
-        title={title}
-        description={
-          rtl
-            ? "ØªØ°ÙƒÙŠØ±Ø§Øª Ù‡Ø§Ø¯Ø¦Ø© ØªØ¹ÙŠØ¯Ùƒ Ø¥Ù„Ù‰ Ù…Ø§ Ø¨Ø¯Ø£ØªØŒ Ø¯ÙˆÙ† Ø¥Ø²Ø¹Ø§Ø¬."
-            : "Gentle reminders that bring you back without becoming noise."
-        }
-      />
-      <div className="progress-layout">
-        <article className="panel">
-          <h3>{rtl ? "Ø®Ø·Ø© Ù‡Ø°Ø§ Ø§Ù„Ø£Ø³Ø¨ÙˆØ¹" : "This weekâ€™s plan"}</h3>
-          <div className="week">
-            {["Ø³", "Ø­", "Ù†", "Ø«", "Ø±", "Ø®", "Ø¬"].map((d, i) => (
-              <span className={i < 4 ? "done" : i === 4 ? "today" : ""} key={i}>
-                {d}
-                <b>{i < 4 ? "âœ“" : i === 4 ? "â€¢" : ""}</b>
-              </span>
-            ))}
-          </div>
-          <div className="goal">
-            <strong>47 / 90</strong>
-            <span>
-              {rtl ? "Ø¯Ù‚ÙŠÙ‚Ø© Ù‚Ø±Ø§Ø¡Ø© ÙˆØ§Ø³ØªÙ…Ø§Ø¹" : "reading & listening minutes"}
-            </span>
-            <Bar value={52} />
-          </div>
-        </article>
-        <article className="panel reminders">
-          <h3>{rtl ? "ØªÙ†Ø¨ÙŠÙ‡Ø§Øª Ù‚Ø§Ø¯Ù…Ø©" : "Upcoming reminders"}</h3>
-          <div className="v0103-reminder-form">
-            <div className={`notification-activation ${pushReady ? "ready" : ""}`}>
-              <div><strong>{rtl ? "ØªÙØ¹ÙŠÙ„ ØªÙ†Ø¨ÙŠÙ‡Ø§Øª Ù‡Ø°Ø§ Ø§Ù„Ø¬Ù‡Ø§Ø²" : "Enable notifications on this device"}</strong><small>{pushReady ? (rtl ? "âœ“ ØªÙ… ØªÙØ¹ÙŠÙ„ Ø§Ù„Ø¬Ù‡Ø§Ø²" : "âœ“ Device enabled") : (rtl ? "Ø®Ø·ÙˆØ© Ù…Ø·Ù„ÙˆØ¨Ø© Ù…Ø±Ø© ÙˆØ§Ø­Ø¯Ø© Ø¹Ù„Ù‰ ÙƒÙ„ Ù‡Ø§ØªÙ Ø£Ùˆ ÙƒÙ…Ø¨ÙŠÙˆØªØ±." : "Required once on each phone or computer.")}</small></div>
-              <button className="secondary" disabled={busy || pushReady} onClick={async () => { setBusy(true); setMessage(""); try { await enablePushForThisDevice(); setPushReady(true); setMessage(rtl ? "ØªÙ… ØªÙØ¹ÙŠÙ„ ØªÙ†Ø¨ÙŠÙ‡Ø§Øª Ù‡Ø°Ø§ Ø§Ù„Ø¬Ù‡Ø§Ø². Ø§Ø®ØªØ¨Ø±Ù‡Ø§ Ø§Ù„Ø¢Ù†." : "Notifications enabled on this device. Test them now."); } catch (error) { setMessage(describeReminderError(error, rtl)); } finally { setBusy(false); } }}>{pushReady ? (rtl ? "Ù…ÙØ¹Ù‘Ù„" : "Enabled") : (rtl ? "ØªÙØ¹ÙŠÙ„ Ø§Ù„Ø¬Ù‡Ø§Ø²" : "Enable device")}</button>
-            </div>
-            <select value={bookId} onChange={(event) => setBookId(event.target.value)} disabled={!books.length}>
-              {!books.length && <option value="">{rtl ? "Ø£Ø¶Ù ÙƒØªØ§Ø¨Ù‹Ø§ Ø£ÙˆÙ„Ù‹Ø§" : "Add a book first"}</option>}
-              {books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}
-            </select>
-            <input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} />
-            <button className="primary" disabled={busy || !bookId} onClick={save}>{busy ? (rtl ? "Ø¬Ø§Ø±Ù Ø§Ù„Ø­ÙØ¸â€¦" : "Savingâ€¦") : (rtl ? "Ø­ÙØ¸ Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡" : "Save reminder")}</button>
-            <button className="secondary" disabled={busy} onClick={async () => {
-              try { await showReminderTest(rtl ? "Ø§Ø®ØªØ¨Ø§Ø± ØªÙ†Ø¨ÙŠÙ‡ Ø§Ù„Ù…ÙƒØªØ¨Ø©" : "Library reminder test", rtl ? "Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡Ø§Øª ØªØ¹Ù…Ù„ Ø¹Ù„Ù‰ Ù‡Ø°Ø§ Ø§Ù„Ø¬Ù‡Ø§Ø²." : "Notifications work on this device."); }
-              catch (error) { setMessage(describeReminderError(error, rtl)); }
-            }}>{rtl ? "Ø§Ø®ØªØ¨Ø§Ø± Ø§Ù„Ø¢Ù†" : "Test now"}</button>
-          </div>
-          {message && <p className="v0103-reminder-message">{message}</p>}
-          {reminders.length === 0 && <p>{rtl ? "Ù„Ø§ ØªÙˆØ¬Ø¯ ØªÙ†Ø¨ÙŠÙ‡Ø§Øª Ù…Ø­ÙÙˆØ¸Ø©." : "No saved reminders."}</p>}
-          {reminders.map((reminder) => <Reminder
-            key={reminder.id}
-            time={new Date(reminder.remind_at).toLocaleString(rtl ? "ar" : "en")}
-            value={books.find((book) => book.id === reminder.book_id)?.title ?? (rtl ? "ÙƒØªØ§Ø¨Ùƒ" : "Your book")}
-            onCancel={async () => { await disableBookReminder(reminder.id); await reload(); }}
-          />)}
-        </article>
-      </div>
-    </div>
-  );
-}
-function Reminder({ time, value, onCancel }: { time: string; value: string; onCancel: () => void }) {
-  return (
-    <div className="reminder">
-      <i>â—´</i>
-      <div>
-        <strong>{value}</strong>
-        <span>{time}</span>
-      </div>
-      <button onClick={onCancel} title="Ø¥Ù„ØºØ§Ø¡ / Cancel">Ã—</button>
-    </div>
-  );
-}
-
-function Librarian({ rtl, title }: { rtl: boolean; title: string }) {
-  const [q, setQ] = useState("");
-  const [a, setA] = useState(false);
-  return (
-    <div className="page">
-      <PageTitle
-        title={title}
-        description={
-          rtl
-            ? "ÙŠØ³Ø§Ø¹Ø¯Ùƒ Ù…Ù† Ø¯Ø§Ø®Ù„ Ù…Ø¬Ù…ÙˆØ¹ØªÙƒØŒ ÙˆÙŠØ±Ø¨Ø· Ø§Ù„Ø¥Ø¬Ø§Ø¨Ø§Øª Ø¨Ø§Ù„Ù…ØµØ§Ø¯Ø± Ø§Ù„Ø£ØµÙ„ÙŠØ©."
-            : "An assistant grounded in your collection and linked back to original sources."
-        }
-      />
-      <div className="librarian-workspace">
-        <div className="chat panel">
-          <div className="chat-intro">
-            <i>âœ¦</i>
-            <h3>
-              {rtl
-                ? "Ù…Ø§Ø°Ø§ ØªØ±ÙŠØ¯ Ø£Ù† ØªÙÙ‡Ù… Ø§Ù„ÙŠÙˆÙ…ØŸ"
-                : "What would you like to understand today?"}
-            </h3>
-            <p>
-              {rtl
-                ? "Ø§Ø³Ø£Ù„ ÙƒØªØ§Ø¨Ù‹Ø§ ÙˆØ§Ø­Ø¯Ù‹Ø§ Ø£Ùˆ Ù‚Ø§Ø±Ù† ÙÙƒØ±Ø© Ø¨ÙŠÙ† ÙƒØªØ¨Ùƒ."
-                : "Ask one book or compare an idea across your library."}
-            </p>
-          </div>
-          {a && (
-            <div className="answer">
-              <span>{rtl ? "Ø¥Ø¬Ø§Ø¨Ø© ØªØ¬Ø±ÙŠØ¨ÙŠØ©" : "Demo answer"}</span>
-              <p>
-                {rtl
-                  ? "ØªØ¸Ù‡Ø± Ø§Ù„Ø¥Ø¬Ø§Ø¨Ø© Ù‡Ù†Ø§ Ù…Ø¹ ÙØµÙ„ Ø§Ù„ÙƒØªØ§Ø¨ ÙˆØ±Ù‚Ù… Ø§Ù„ØµÙØ­Ø© ÙˆØ¨Ø·Ø§Ù‚Ø© ØªÙˆØ¶Ø­ Ù…Ø§ Ø¥Ø°Ø§ ÙƒØ§Ù†Øª Ù…Ù† Ø§Ù„Ù†Øµ Ø£Ùˆ Ù…Ù† ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ù…Ù†ØµØ©."
-                  : "The answer appears with chapter, page, and a trust card identifying source text versus platform analysis."}
-              </p>
-              <button className="disabled-soon" disabled>{rtl ? "Ù†Ù…ÙˆØ°Ø¬ Ø¹Ø±Ø¶ â€” ØµÙØ­Ø© 74" : "Display sample â€” page 74"} â†</button>
-            </div>
-          )}
-          <div className="chat-input">
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={
-                rtl
-                  ? "Ù…Ø«Ø§Ù„: Ù…Ø§ Ø§Ù„ÙØ±Ù‚ Ø¨ÙŠÙ† Ø§Ù„Ù…Ø¹Ø±ÙØ© Ø§Ù„Ø¶Ù…Ù†ÙŠØ© ÙˆØ§Ù„ØµØ±ÙŠØ­Ø©ØŸ"
-                  : "Example: What is the difference between tacit and explicit knowledge?"
-              }
-            />
-            <button onClick={() => q.trim() && setA(true)}>â†‘</button>
-          </div>
-        </div>
-        <aside className="panel trust">
-          <h3>{rtl ? "Ø¨Ø·Ø§Ù‚Ø© Ø§Ù„Ø«Ù‚Ø©" : "Trust card"}</h3>
-          <p>
-            <b className="dot source" />
-            {rtl ? "Ù…Ù† Ø§Ù„ÙƒØªØ§Ø¨ â€” Ù…ÙˆØ«Ù‚ Ø¨Ø§Ù„ØµÙØ­Ø©" : "From the book â€” page cited"}
-          </p>
-          <p>
-            <b className="dot analysis" />
-            {rtl ? "ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ù…Ù†ØµØ© â€” Ø§Ø³ØªÙ†ØªØ§Ø¬" : "Platform analysis â€” inference"}
-          </p>
-          <p>
-            <b className="dot verify" />
-            {rtl ? "ÙŠØ­ØªØ§Ø¬ Ø¥Ù„Ù‰ ØªØ­Ù‚Ù‚" : "Needs verification"}
-          </p>
-          <small>
-            {rtl
-              ? "Ù„Ø§ ØªÙÙ†Ø³Ø¨ Ø§Ø³ØªÙ†ØªØ§Ø¬Ø§Øª Ø§Ù„Ù…Ù†ØµØ© Ø¥Ù„Ù‰ Ø§Ù„Ù…Ø¤Ù„Ù."
-              : "Platform inferences are never attributed to the author."}
-          </small>
-        </aside>
-      </div>
-    </div>
-  );
-}
-
-function Feedback({ rtl, t }: { rtl: boolean; t: typeof text.ar }) {
-  const featureOptions = rtl
-    ? [
-        "Ø±ÙØ¹ ÙƒØªØ§Ø¨ ÙˆØªØ­Ù„ÙŠÙ„Ù‡",
-        "Ø§Ù„Ù…Ù„Ø®Øµ Ø§Ù„Ø¹Ø§Ù…",
-        "Ù…Ù„Ø®ØµØ§Øª Ø§Ù„ÙØµÙˆÙ„",
-        "Ø§Ù„Ø§Ø³ØªÙ…Ø§Ø¹",
-        "Ø£Ù…ÙŠÙ† Ø§Ù„Ù…ÙƒØªØ¨Ø©",
-      ]
-    : [
-        "Upload and analyse a book",
-        "Book overview",
-        "Chapter summaries",
-        "Audio",
-        "AI librarian",
-      ];
-  const [feature, setFeature] = useState(featureOptions[0]);
-  const [rating, setRating] = useState<number | null>(null);
-  const [note, setNote] = useState("");
-  const [saved, setSaved] = useState(false);
-  const [saveError, setSaveError] = useState("");
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="page">
-      <PageTitle title={t.journal} description={t.journalSub} />
-      <form
-        className="feedback panel"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setSaved(false);
-          setSaveError("");
-          setBusy(true);
-          try {
-            await saveFeedback(feature, rating, note);
-            setSaved(true);
-            setNote("");
-            setRating(null);
-          } catch (err) {
-            setSaveError(
-              err instanceof Error
-                ? err.message
-                : rtl
-                  ? "ØªØ¹Ø°Ø± Ø­ÙØ¸ Ø§Ù„Ù…Ù„Ø§Ø­Ø¸Ø©"
-                  : "Could not save the note",
-            );
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <label>
-          {rtl ? "Ù…Ø§ Ø§Ù„Ø°ÙŠ Ø¬Ø±Ø¨ØªÙ‡ØŸ" : "What did you test?"}
-          <select value={feature} onChange={(e) => setFeature(e.target.value)}>
-            {featureOptions.map((option) => (
-              <option key={option}>{option}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          {rtl ? "Ù‡Ù„ Ø³Ø§Ø¹Ø¯Ùƒ Ø¹Ù„Ù‰ Ø§Ù„ÙÙ‡Ù…ØŸ" : "Did it improve understanding?"}
-          <div className="rating">
-            {[1, 2, 3, 4, 5].map((n) => (
-              <button
-                type="button"
-                key={n}
-                className={rating === n ? "active" : ""}
-                onClick={() => setRating(n)}
-                aria-pressed={rating === n}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-        </label>
-        <label>
-          {rtl ? "Ù…Ù„Ø§Ø­Ø¸ØªÙƒ Ø¨Ø§Ù„ØªÙØµÙŠÙ„" : "Your detailed note"}
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder={
-              rtl
-                ? "Ù…Ø§ Ø§Ù„Ø°ÙŠ Ù†Ø¬Ø­ØŸ Ù…Ø§ Ø§Ù„Ø°ÙŠ Ø£Ø±Ø¨ÙƒÙƒØŸ ÙˆÙ…Ø§ Ø§Ù„Ø°ÙŠ Ø£Ø¹Ø§Ø¯Ùƒ Ø¥Ù„Ù‰ Ø§Ù„ÙƒØªØ§Ø¨ØŸ"
-                : "What worked, what confused you, and what led you back to the book?"
-            }
-          />
-        </label>
-        <button className="primary" type="submit" disabled={busy}>
-          {busy ? "â€¦" : rtl ? "Ø­ÙØ¸ Ø§Ù„Ù…Ù„Ø§Ø­Ø¸Ø©" : "Save note"}
-        </button>
-        {saveError && <div className="reader-error inline">{saveError}</div>}
-        {saved && (
-          <span className="saved">
-            âœ“{" "}
-            {rtl
-              ? "Ø­ÙÙØ¸Øª Ø§Ù„Ù…Ù„Ø§Ø­Ø¸Ø© ÙÙŠ Ù…ÙƒØªØ¨ØªÙƒ Ø§Ù„Ø®Ø§ØµØ©"
-              : "Note saved to your private library"}
-          </span>
-        )}
-      </form>
-    </div>
-  );
-}
-
-function Upload({
-  rtl,
-  t,
-  file,
-  setFile,
-  outputLanguage,
-  setOutputLanguage,
-  rights1,
-  rights2,
-  setRights1,
-  setRights2,
-  processing,
-  percent,
-  close,
-  start,
-}: {
-  rtl: boolean;
-  t: typeof text.ar;
-  file: File | null;
-  setFile: (v: File | null) => void;
-  outputLanguage: OutputLanguage;
-  setOutputLanguage: (v: OutputLanguage) => void;
-  rights1: boolean;
-  rights2: boolean;
-  setRights1: (v: boolean) => void;
-  setRights2: (v: boolean) => void;
-  processing: boolean;
-  percent: number;
-  close: () => void;
-  start: () => void;
-}) {
-  return (
-    <div
-      className="modal-backdrop"
-      onMouseDown={(e) => e.target === e.currentTarget && close()}
-    >
-      <section className="modal">
-        <button className="modal-close" onClick={close}>
-          Ã—
-        </button>
-        <div className="modal-icon">â‡§</div>
-        <span className="eyebrow">
-          {rtl ? "Ø§Ù„Ø®Ø·ÙˆØ© Ø§Ù„Ø£ÙˆÙ„Ù‰ â€” Ù…Ø¬Ø§Ù†ÙŠØ©" : "Step one â€” free"}
-        </span>
-        <h2>{t.uploadTitle}</h2>
-        <p>{t.uploadSub}</p>
-        {!processing ? (
-          <>
-            <div className="free-notice">
-              <b>
-                âœ“{" "}
-                {rtl
-                  ? "Ù„Ø§ Ø§Ø³ØªØ®Ø¯Ø§Ù… Ù„Ù€ OpenAI ÙÙŠ Ù‡Ø°Ù‡ Ø§Ù„Ø®Ø·ÙˆØ©"
-                  : "No OpenAI usage in this step"}
-              </b>
-              <span>
-                {rtl
-                  ? "Ø³Ù†Ø­ÙØ¸ Ø§Ù„Ù…Ù„Ù ÙÙ‚Ø·. Ø§Ù„ØªØ­Ù„ÙŠÙ„ ÙˆØ§Ù„ØªØ±Ø¬Ù…Ø© ÙˆØ§Ù„ØµÙˆØª Ø§Ù„Ø§Ø­ØªØ±Ø§ÙÙŠ ØªØ¨Ù‚Ù‰ Ø®ÙŠØ§Ø±Ø§Øª Ù…Ù†ÙØµÙ„Ø© ØªØ­ØªØ§Ø¬ ØªØ£ÙƒÙŠØ¯Ù‹Ø§."
-                  : "We only store the file. Analysis, translation and professional audio remain separate, confirmed options."}
-              </span>
-            </div>
-            <label className="dropzone">
-              <input
-                type="file"
-                accept="application/pdf,.pdf"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-              <i>â–¤</i>
-              <strong>{file?.name || t.choose}</strong>
-              <span>
-                {rtl
-                  ? "Ø­Ø¯ Ø£Ù‚ØµÙ‰ 20 Ù…ÙŠØ¬Ø§Ø¨Ø§ÙŠØªØ› ÙŠÙÙˆØµÙ‰ Ø¨ÙƒØªØ§Ø¨ Ù†ØµÙŠ Ù…Ù† 50 Ø¥Ù„Ù‰ 500 ØµÙØ­Ø©"
-                  : "20 MB maximum; a text-based PDF of 50â€“500 pages is recommended"}
-              </span>
-            </label>
-            <label className="select-label output-language">
-              {rtl
-                ? "Ù„ØºØ© Ø§Ù„Ù…Ù„Ø®Øµ ÙˆØ§Ù„ØªØ­Ù„ÙŠÙ„ Ø¥Ø°Ø§ Ø·Ù„Ø¨ØªÙ‡Ù…Ø§ Ù„Ø§Ø­Ù‚Ù‹Ø§"
-                : "Summary and analysis language, if requested later"}
-              <select
-                value={outputLanguage}
-                onChange={(e) =>
-                  setOutputLanguage(e.target.value as OutputLanguage)
-                }
-              >
-                <option value="ar">
-                  {rtl
-                    ? "Ø§Ù„Ø¹Ø±Ø¨ÙŠØ© â€” ÙˆÙ…Ù†Ù‡Ø§ ØªØ±Ø¬Ù…Ø© Ù…Ù„Ø®Øµ Ø§Ù„ÙƒØªØ§Ø¨ Ø§Ù„Ø¥Ù†Ø¬Ù„ÙŠØ²ÙŠ"
-                    : "Arabic â€” including summaries of English books"}
-                </option>
-                <option value="en">
-                  {rtl
-                    ? "Ø§Ù„Ø¥Ù†Ø¬Ù„ÙŠØ²ÙŠØ© â€” ÙˆÙ…Ù†Ù‡Ø§ ØªØ±Ø¬Ù…Ø© Ù…Ù„Ø®Øµ Ø§Ù„ÙƒØªØ§Ø¨ Ø§Ù„Ø¹Ø±Ø¨ÙŠ"
-                    : "English â€” including summaries of Arabic books"}
-                </option>
-                <option value="bilingual">
-                  {rtl ? "Ø§Ù„Ø¹Ø±Ø¨ÙŠØ© ÙˆØ§Ù„Ø¥Ù†Ø¬Ù„ÙŠØ²ÙŠØ©" : "Arabic and English"}
-                </option>
-              </select>
-            </label>
-            <div className="rights-box">
-              <h3>{rtl ? "Ø¨ÙˆØ§Ø¨Ø© Ø§Ù„Ø«Ù‚Ø© ÙˆØ§Ù„Ø­Ù‚ÙˆÙ‚" : "Trust & rights gate"}</h3>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={rights1}
-                  onChange={(e) => setRights1(e.target.checked)}
-                />
-                <span>{t.rights1}</span>
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={rights2}
-                  onChange={(e) => setRights2(e.target.checked)}
-                />
-                <span>{t.rights2}</span>
-              </label>
-              <small>
-                {rtl
-                  ? "Ù„Ù† ÙŠØ¨Ø¯Ø£ Ø§Ù„Ø±ÙØ¹ Ù‚Ø¨Ù„ Ø§Ù„ØªØ£Ø´ÙŠØ± Ø¹Ù„Ù‰ Ø§Ù„Ø¥Ù‚Ø±Ø§Ø±ÙŠÙ†."
-                  : "Upload cannot start until both declarations are accepted."}
-              </small>
-            </div>
-            <div className="modal-actions">
-              <button className="secondary" onClick={close}>
-                {t.cancel}
-              </button>
-              <button
-                className="primary"
-                disabled={!file || !rights1 || !rights2}
-                onClick={start}
-              >
-                {t.start}
-              </button>
-            </div>
-          </>
-        ) : (
-          <div className="processing">
-            <div className="processing-ring">
-              <strong>{percent}%</strong>
-            </div>
-            <h3>{rtl ? "Ù†Ø­ÙØ¸ ÙƒØªØ§Ø¨Ùƒ Ø¨Ø£Ù…Ø§Ù†â€¦" : "Saving your book securelyâ€¦"}</h3>
-            <p>
-              {percent < 55
-                ? rtl
-                  ? "Ø±ÙØ¹ Ø§Ù„Ù…Ù„Ù Ø¥Ù„Ù‰ Ù…Ø³Ø§Ø­ØªÙƒ Ø§Ù„Ø®Ø§ØµØ©"
-                  : "Uploading to your private storage"
-                : rtl
-                  ? "Ø­ÙØ¸ Ø§Ù„Ø¥Ù‚Ø±Ø§Ø± ÙˆØ¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ÙƒØªØ§Ø¨"
-                  : "Saving consent and book details"}
-            </p>
-            <Bar value={percent} />
-            <small>
-              {rtl
-                ? "Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ø§ØªØµØ§Ù„ Ø¨Ù€ OpenAI ÙˆÙ„Ø§ Ø®ØµÙ… Ù…Ø§Ù„ÙŠ."
-                : "No OpenAI call and no API charge."}
-            </small>
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
+YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíãİ¹õ:-jZ.¶›­–)Ş³V–×÷'B²G—Rf÷&ÔWfVçBÂW6TVffV7BÂW6TÖVÖòÂW6U&VbÂW6U7FFRÒg&öÒ'&V7B#°¦–×÷'BFev÷&¶W%W&Âg&öÒ'Ff§2ÖF—7Bö'V–ÆB÷Fbçv÷&¶W"æÖ–âæÖ§3÷W&Â#°¦–×÷'B&VFW"Â²G—R6fVD&ööµ&VbÒg&öÒ"âõ&VFW"#°¦–×÷'B°¢vWD&ööµ&W7VÇG2À¢vWDÆ–'&'•7FG2À¢vWDÆVvÄ6öç6VçE7FGW2À¢vWE&—fFTVF–õW&ÂÀ¢FVÆWFU–Æ÷D&öö²À¢F÷væÆöD&öö´f–ÆRÀ¢w&÷WGWÆ–6FT&öö·2À¢–çfö¶T&öö´’À¢Æ—7E–Æ÷D&öö·2À¢&öÆÆ&6µ–Æ÷D&öö²À¢6fTfVVF&6²À¢6fTÆVvÄ6öç6VçBÀ¢6fTÖçVÄ–×÷'BÀ¢WÆöE–Æ÷D&öö²À¢WFFT&öö´6FVv÷'’À¢G—RGWÆ–6FTw&÷WÀ¢G—R•W6vTWfVçBÀ¢G—R÷WGWDÆæwVvRÀ¢G—R–Æ÷D&öö²À¢G—R7F÷&VDæÇ—6—2À¢G—RÆ–'&'•7FG2À§Òg&öÒ"âöÆ–"öÆ–'&'’#°¦–×÷'B²6–vä–äÆ–'&'”66÷VçBÂ6–vä÷WDÆ–'&'”66÷VçBÂ6–våWÆ–'&'”66÷VçBÂ7W&6RÂ7W&6T6öæf–wW&VBÒg&öÒ"âöÆ–"÷7W&6R#°¦–×÷'B²”Eõ”ÄõEôÔ…ô$ôôµ2Â¤U$õô4õ5EôÔôDRÒg&öÒ"âöÆ–"ö6öæf–r#°¦–×÷'B²'VäÆö6Å7G'V7GW&ÄæÇ—6—2ÂG—RÆö6ÄæÇ—6—5&öw&W72Òg&öÒ"âöÆ–"öÆö6ÄæÇ—6—2#°¦–×÷'B²6V&6„–ç6–FT&öö²ÂfÆ–FFTÖçVÄ–×÷'BÂG—R&ööµ6V&6„ÖF6‚ÂG—RÆö6Å7G'V7GW&ÄæÇ—6—2ÂG—RÖçVÄ–×÷'E–ÆöBÒg&öÒ"âöÆ–"÷FW‡DæÇ—6—2#°¦–×÷'B²6Æ7VÆFTÆövvVEFW‡D6÷7BÒg&öÒ"âöÆ–"ö÷Vä”6÷7B#°¦–×÷'B°¢F—6&ÆT&ööµ&VÖ–æFW"À¢Væ&ÆUW6„f÷%F†—4FWf–6RÀ¢Æ—7D&ööµ&VÖ–æFW'2À¢6fT&ööµ&VÖ–æFW"À¢6†÷u&VÖ–æFW%FW7BÀ¢G—R&ööµ&VÖ–æFW"À§Òg&öÒ"âöÆ–"÷&VÖ–æFW'2#° §G—RÆærÒ&""Â&Vâ#°§G—Rf–WrĞ¢Â&†öÖR ¢Â&Æ–'&'’ ¢Â&&öö² ¢Â'–Æ÷B ¢Â'&VFW" ¢Â'&öw&W72 ¢Â&Æ–'&&–â ¢Â&fVVF&6² ¢Â&wV–FR#° ¦6öç7BFW‡BÒ°¢#¢°¢æÖS¢-Š}˜M˜]˜=Š­ŠŠ’Š}˜M‹MŠí‹]˜­Š’Š}˜M‹˜=˜­Š’"À¢fW'6–öã¢-Šİ‹=Š}Š‚Š}˜M˜]˜=Š­ŠŠ’Š}˜M˜]˜ŠİŠò(	BcããB"À¢6V&6ƒ¢-Š}ŠŠİŠ²˜˜¢˜=Š­Š˜2˜Š=˜˜=Š}‹˜>(
+b"À¢†VÆÆó¢-‹]ŠŠ}ŠÒŠ}˜M˜]‹‹˜ŠˆÂ‹ŠŠıŠ}˜M‹Šİ˜]˜b"À¢–çG&ó ¢-˜]˜=Š­ŠŠ­˜2˜MŠrŠ­ŠíŠ­‹]‹Š}˜M˜=Š­Š}Š‚ŠŠı˜M˜½Šr‹˜m˜=‰²Š˜BŠ­˜]˜mŠİ˜2Ší‹˜­‹}Š­˜r˜Š­‹˜­Šı˜2Š]˜M˜’Š}˜M˜]˜Š}‹m‹’Š}˜MŠ­˜¢Š­‹=Š­Šİ˜"Š}˜M˜-‹Š}ŠŠ’â"À¢FC¢-Š=‹m˜˜=Š­Š}Š˜½Šr"À¢6öçF–çVS¢-˜Š}‹]˜BŠ}˜M˜-‹Š}ŠŠ’"À¢&öö·3¢-Š}˜M˜=Š­Š‚"À¢&VG“¢-ŠÍŠ}˜}‹"˜M˜MŠ­Šİ˜M˜­˜B"À¢Ö–çWFW3¢-Šı˜-˜­˜-Š’Š}‹=Š­˜]Š}‹’"À¢7G&V³¢-Š=˜­Š}˜R˜]Š­Š­Š}˜M˜­Š’"À¢7W'&VçC¢-Š­Š}Š‹’˜]˜bŠİ˜­Š²Š­˜˜-˜Š¢"À¢7VvvW7F–öã¢-Š=˜]˜­˜b˜]˜=Š­ŠŠ­˜2˜­˜-Š­‹ŠÒ"À¢×”Æ–'&'“¢-˜]˜=Š­ŠŠ­˜¢"À¢ÆÃ¢-‹‹‹b˜=˜BŠ}˜M˜=Š­Š‚"À¢¦÷W&æW“¢-‹Šİ˜MŠ’˜=Š­Š}Š˜2"À¢WÆöEF—FÆS¢-Š=‹m˜˜=Š­Š}Š˜½ŠrŠ]˜M˜’˜]˜=Š­ŠŠ­˜2"À¢WÆöE7V#¢-Š}˜M˜]˜M˜˜­Š˜-˜’ŠíŠ}‹]˜½Š}ˆÂ˜˜M˜b˜­˜ı˜m‹M‹Š=˜‚˜­˜ı‹MŠ}‹˜2˜]‹’˜]‹=Š­ŠíŠı˜RŠ-Ší‹â"À¢6†ö÷6S¢-Š}ŠíŠ­‹Db"À¢&–v‡G3 ¢-Š=˜-‹™Š=˜m˜m˜¢Š=˜]˜M˜2Šİ˜"Š}‹=Š­ŠíŠıŠ}˜R˜}‹ŠrŠ}˜M˜]˜M˜Š=˜‚˜MŠı˜¢Š­‹]‹˜­ŠÒŠ˜]‹Š}˜MŠÍŠ­˜r˜M˜MŠ}‹=Š­ŠíŠıŠ}˜RŠ}˜M‹MŠí‹]˜¢â"À¢&–v‡G3# ¢-Š=˜˜}˜RŠ=˜bŠ}˜M˜]˜m‹]Š’˜MŠrŠ­‹=˜]ŠÒŠ˜m‹M‹Š}˜M˜=Š­Š}Š‚Š=˜‚Š]˜m‹MŠ}Š˜-‹Š}ŠŠ’Šİ‹˜˜­Š’˜=Š}˜]˜MŠ’˜M‹˜]˜B˜]Šİ˜]˜¢â"À¢7F'C¢-Š}Šİ˜‹‚Š}˜M˜=Š­Š}Š‚˜˜¢˜]˜=Š­ŠŠ­˜¢"À¢6æ6VÃ¢-Š]˜M‹­Š}Š"À¢¦÷W&æÃ¢-‹=ŠÍ˜BŠ}˜MŠ­ŠÍ‹ŠŠ’"À¢¦÷W&æÅ7V# ¢-˜]˜MŠ}Šİ‹Š}Š­˜2˜}˜mŠrŠ­‹=Š}‹Šı˜mŠr˜˜¢Š­‹}˜˜­‹Š}˜M˜]˜mŠ­ŠÂ˜‹]˜­Š}‹­Š’Š}˜MŠı‹Š}‹=Š’Š}˜M‹˜M˜]˜­Š’˜MŠ}Šİ˜-˜½Šrâ"À¢ÒÀ¢Vã¢°¢æÖS¢%6Ö'BW'6öæÂÆ–'&'’"À¢fW'6–öã¢%Væ–f–VBÆ–'&'’66÷VçB(	BcããB"À¢6V&6ƒ¢%6V&6‚–÷W"&öö·2æB–FV>(
+b"À¢†VÆÆó¢$vööBÖ÷&æ–ærÂ&FVÂ&†Öâ"À¢–çG&ó ¢%–÷W"Æ–'&'’FöW2æ÷B&WÆ6RF†R&öö²â—BÖ2—BÂF†VâÆVG2–÷R&6²FòF†R76vW2v÷'F‚&VF–ærâ"À¢FC¢$FB&öö²"À¢6öçF–çVS¢$6öçF–çVR&VF–ær"À¢&öö·3¢$&öö·2"À¢&VG“¢%&VG’FòW‡Æ÷&R"À¢Ö–çWFW3¢$Ö–çWFW2Æ—7FVæVB"À¢7G&V³¢$F’7G&V²"À¢7W'&VçC¢$6öçF–çVRv†W&R–÷R7F÷VB"À¢7VvvW7F–öã¢%–÷W"Æ–'&&–â7VvvW7G2"À¢×”Æ–'&'“¢$×’Æ–'&'’"À¢ÆÃ¢%f–WrÆÂ&öö·2"À¢¦÷W&æW“¢%–÷W"&öö²¦÷W&æW’"À¢WÆöEF—FÆS¢$FB&öö²Fò–÷W"Æ–'&'’"À¢WÆöE7V# ¢%–÷W"f–ÆR7F—2&—fFRæB—2æWfW"V&Æ—6†VB÷"6†&VBv—F‚æ÷F†W"W6W"â"À¢6†ö÷6S¢$6†ö÷6RDb"À¢&–v‡G3 ¢$’6öæf—&ÒF†B’÷vâF†—2f–ÆR÷"†fRW&Ö—76–öâFò&ö6W72—Bf÷"W'6öæÂW6Râ"À¢&–v‡G3# ¢$’VæFW'7FæBF†BF†RÆFf÷&ÒFöW2æ÷BÆÆ÷rV&Æ—6†–ærF†R&öö²÷"vVæW&F–ærgVÆÂfW&&F–Òæ'&F–öâöb&÷FV7FVBv÷&²â"À¢7F'C¢%6fR&öö²Fò×’Æ–'&'’"À¢6æ6VÃ¢$6æ6VÂ"À¢¦÷W&æÃ¢$W‡W&–Væ6R¦÷W&æÂ"À¢¦÷W&æÅ7V# ¢%–÷W"æ÷FW2v–ÆÂwV–FR&öGV7B–×&÷fVÖVçG2æBF†RgWGW&R6FVÖ–27GVG’â"À¢ÒÀ§Ó° ¦6öç7Bæf–vF–öâÒ°¢#¢°¢²&†öÖR"Â-Š}˜M‹Šm˜­‹=˜­Š’"Â.(È"%ÒÀ¢²&Æ–'&'’"Â-˜]˜=Š­ŠŠ­˜¢"Â.)jR%ÒÀ¢²'&VFW""Â-Š}˜M˜-Š}‹Šb˜Š}˜M‹]˜Š¢Š}˜M˜]ŠÍŠ}˜m˜¢"Â.)z²%ÒÀ¢²'WÆöB"Â-Š=‹m˜˜=Š­Š}Š˜½Šr"Â.ûÈ²%ÒÀ¢²'&öw&W72"Â-Š}˜MŠ­˜-Šı˜R˜Š}˜MŠ­˜mŠ˜­˜}Š}Š¢"Â/	ùIB%ÒÀ¢²&Æ–'&&–â"Â-Š=˜]˜­˜bŠ}˜M˜]˜=Š­ŠŠ’"Â.)Êb%ÒÀ¢²&fVVF&6²"Â-‹=ŠÍ˜BŠ}˜MŠ­ŠÍ‹ŠŠ’"Â.)Èâ%ÒÀ¢ÒÀ¢Vã¢°¢²&†öÖR"Â$†öÖR"Â.(È"%ÒÀ¢²&Æ–'&'’"Â$×’Æ–'&'’"Â.)jR%ÒÀ¢²'&VFW""Â$g&VR&VFW"bfö–6R"Â.)z²%ÒÀ¢²'WÆöB"Â$FB&öö²"Â.ûÈ²%ÒÀ¢²'&öw&W72"Â%&öw&W72bÆW'G2"Â/	ùIB%ÒÀ¢²&Æ–'&&–â"Â$Æ–'&'’76—7FçB"Â.)Êb%ÒÀ¢²&fVVF&6²"Â%&W6V&6‚¦÷W&æÂ"Â.)Èâ%ÒÀ¢ÒÀ§Ò26öç7C° ¦gVæ7F–öâFW67&–&U&VÖ–æFW$W'&÷"†W'&÷#¢Væ¶æ÷vâÂ'FÃ¢&ööÆVâ’°¢6öç7BfÇVRÒW'&÷"2²ÖW76vSó¢7G&–ærÒÂçVÆÃ°¢6öç7B&rÒfÇVSòæÖW76vRóò7G&–ær†W'&÷"óò""“°¢6öç7BÖW76vW3¢&V6÷&CÇ7G&–ærÂ·7G&–ærÂ7G&–æuÓâÒ°¢c5õ$TÔ”äDU%ôÔ”u$D”ôåõ$UT•$TC¢²-Š}˜MŠ­˜mŠ˜­˜}Š}Š¢ŠÍŠ}˜}‹-Š’˜˜¢cãã2˜M˜=˜m˜}ŠrŠ­ŠİŠ­Š}ŠÂŠ­‹}Š˜­˜"Ö–w&F–öâŠ}˜M˜]‹Š}ŠÍ‹’Š=˜˜M˜½Šrâ"Â%cãã2&VÖ–æFW'2æVVBF†R&Wf–WvVBÖ–w&F–öâf—'7Bâ%ÒÀ¢d”EôäõEô4ôäd”uU$TC¢²-˜]˜Š}Š­˜­ŠÒŠ}˜MŠ­˜mŠ˜­˜}Š}Š¢˜M˜RŠ­˜ıŠÍ˜}™‹"Š‹Šòâ"Â%W6‚æ÷F–f–6F–öâ¶W—2&Ræ÷B6öæf–wW&VB–WBâ%ÒÀ¢”õ5ô„ôÔUõ45$TTåõ$UT•$TC¢²-‹˜M˜’•†öæS¢Š=‹m˜Š}˜M˜]˜=Š­ŠŠ’Š]˜M˜’Š}˜M‹MŠ}‹MŠ’Š}˜M‹Šm˜­‹=˜­Š’˜Š}˜Š­Šİ˜}Šr˜=Š­‹}Š˜­˜-ˆÂŠ½˜R˜‹™˜BŠ}˜MŠ­˜mŠ˜­˜}Š}Š¢â"Â$öâ•†öæRÂFBF†RÆ–'&'’FòF†R†öÖR67&VVâÂ÷Vâ—B2âÂF†VâVæ&ÆRæ÷F–f–6F–öç2â%ÒÀ¢U4…õU$Ô•54”ôåôDTä”TC¢²-˜M˜R˜­‹=˜]ŠÒŠ}˜MŠÍ˜}Š}‹"ŠŠ}˜MŠ­˜mŠ˜­˜}Š}Š¢â"Â%F†—2FWf–6RF–Bæ÷BÆÆ÷ræ÷F–f–6F–öç2â%ÒÀ¢U4…õTå5Uõ%DTC¢²-˜}‹ŠrŠ}˜M˜]Š­‹]˜ŠÒ˜MŠr˜­Šı‹˜RŠ}˜MŠ­˜mŠ˜­˜}Š}Š¢Š}˜M˜]‹}˜M˜ŠŠ’â"Â%F†—2'&÷w6W"FöW2æ÷B7W÷'BF†R&WV—&VBæ÷F–f–6F–öç2â%ÒÀ¢$TÔ”äDU%õD”ÔUô”ådÄ”C¢²-Š}ŠíŠ­‹˜˜-Š­˜½Šr˜]‹=Š­˜-Š˜M˜­˜½Šr‹]Šİ˜­Šİ˜½Šrâ"Â$6†ö÷6RfÆ–BgWGW&RF–ÖRâ%ÒÀ¢Ó°¢6öç7Bf÷VæBÒö&¦V7BæVçG&–W2†ÖW76vW2’æf–æB‚…¶¶W•Ò’Óâ&ræ–æ6ÇVFW2†¶W’’“°¢&WGW&âf÷VæBòf÷VæE³Õ·'FÂò¢Ò¢&rÇÂ‡'FÂò-Š­‹‹‹Š­˜m˜˜­‹Š}˜MŠ­˜mŠ˜­˜râ"¢%F†R&VÖ–æFW"6÷VÆBæ÷B&R6ö×ÆWFVBâ"“°§Ğ ¦W‡÷'BFVfVÇBgVæ7F–öâ†öÖR‚’°¢6öç7B¶ÆærÂ6WDÆæuÒÒW6U7FFSÄÆæsâ‚&""“°¢6öç7B¶F&²Â6WDF&µÒÒW6U7FFR†fÇ6R“°¢6öç7B·f–WrÂ6WEf–WuÒÒW6U7FFSÅf–Wsâ‚&†öÖR"“°¢6öç7B·WÆöBÂ6WEWÆöEÒÒW6U7FFR†fÇ6R“°¢6öç7B·&–v‡G3Â6WE&–v‡G3ÒÒW6U7FFR†fÇ6R“°¢6öç7B·&–v‡G3"Â6WE&–v‡G3%ÒÒW6U7FFR†fÇ6R“°¢6öç7B¶f–ÆRÂ6WDf–ÆUÒÒW6U7FFSÄf–ÆRÂçVÆÃâ†çVÆÂ“°¢6öç7B¶÷WGWDÆæwVvRÂ6WD÷WGWDÆæwVvUÒÒW6U7FFSÄ÷WGWDÆæwVvSâ‚&""“°¢6öç7B·–Æ÷D&öö·2Â6WE–Æ÷D&öö·5ÒÒW6U7FFSÅ–Æ÷D&ööµµÓâ…µÒ“°¢6öç7B¶Æ–'&'•7FG2Â6WDÆ–'&'•7FG5ÒÒW6U7FFSÄÆ–'&'•7FG3â‡²æÇ—6VD&öö·3¢ÂVW7F–öç3¢ÂVF–õ'G3¢Ò“°¢6öç7B¶&öö·4ÆöF–ærÂ6WD&öö·4ÆöF–æuÒÒW6U7FFR‡G'VR“°¢6öç7B¶&öö·4W'&÷"Â6WD&öö·4W'&÷%ÒÒW6U7FFR‚""“°¢6öç7B¶&öö·4ÆöEFö¶VâÂ6WD&öö·4ÆöEFö¶VåÒÒW6U7FFRƒ“°¢6öç7B¶'&÷w6W$66†U&VG’Â6WD'&÷w6W$66†U&VG•ÒÒW6U7FFR†fÇ6R“°¢6öç7B¶7F—fU–Æ÷D&öö²Â6WD7F—fU–Æ÷D&ööµÒÒW6U7FFSÅ–Æ÷D&öö²ÂçVÆÃâ€¢çVÆÂÀ¢“°¢6öç7B·&VFW$&öö²Â6WE&VFW$&ööµÒÒW6U7FFSÅ6fVD&ööµ&VbÂçVÆÃâ†çVÆÂ“°¢6öç7B·&ö6W76–ærÂ6WE&ö6W76–æuÒÒW6U7FFR†fÇ6R“°¢6öç7B·W&6VçBÂ6WEW&6VçEÒÒW6U7FFRƒ“°¢6öç7B¶æ÷F–6RÂ6WDæ÷F–6UÒÒW6U7FFR‚""“°¢6öç7B¶7F—fF–ærÂ6WD7F—fF–æuÒÒW6U7FFR†fÇ6R“°¢6öç7B·6V&6…VW'’Â6WE6V&6…VW'•ÒÒW6U7FFR‚""“°¢6öç7B¶WF…7FFRÂ6WDWF…7FFUÒÒW6U7FFSÂ&ÆöF–ær"Â'6–væVEö÷WB"Â&WF†VçF–6FVB#â‚&ÆöF–ær"“°¢6öç7B¶66÷VçDVÖ–ÂÂ6WD66÷VçDVÖ–ÅÒÒW6U7FFR‚""“°¢6öç7B·&VÖ–æFW$6÷VçBÂ6WE&VÖ–æFW$6÷VçEÒÒW6U7FFRƒ“°¢6öç7BBÒFW‡E¶ÆæuÓ°¢6öç7B'FÂÒÆærÓÓÒ&"#°¢W6TVffV7B‚‚’Óâ°¢6öç7B6fVBÒÆö6Å7F÷&vRævWD—FVÒ‚'7ÂÖÆær"“°¢–b‡6fVBÓÓÒ&""ÇÂ6fVBÓÓÒ&Vâ"’6WDÆær‡6fVB“°¢ÒÂµÒ“°¢W6TVffV7B‚‚’Óâ°¢6öç7B6Æ–VçBÒ7W&6S°¢–b‚6Æ–VçB’°¢6WDWF…7FFR‚'6–væVEö÷WB"“°¢&WGW&ã°¢Ğ¢6öç7BÇ•6W76–öâÒ‡6W76–öã¢v—FVCÅ&WGW&åG—SÇG—Vöb6Æ–VçBæWF‚ævWE6W76–öããå²&FF%Õ²'6W76–öâ%Ò’Óâ°¢6öç7BW&ÖæVçBÒ&ööÆVâ‡6W76–öâbb‡6W76–öâçW6W"2²—5öæöç–Ö÷W3ó¢&ööÆVâÒ’æ—5öæöç–Ö÷W2“°¢6WDWF…7FFR‡W&ÖæVçBò&WF†VçF–6FVB"¢'6–væVEö÷WB"“°¢6WD66÷VçDVÖ–Â‡W&ÖæVçBò6W76–öãòçW6W"æVÖ–Âóò""¢""“°¢–b‚W&ÖæVçB’°¢6WE–Æ÷D&öö·2…µÒ“°¢6WDÆ–'&'•7FG2‡²æÇ—6VD&öö·3¢ÂVW7F–öç3¢ÂVF–õ'G3¢Ò“°¢Ğ¢Ó°¢6Æ–VçBæWF‚ævWE6W76–öâ‚’çF†Vâ‚‡²FFÒ’ÓâÇ•6W76–öâ†FFç6W76–öâ’“°¢6öç7B²FFÒÒ6Æ–VçBæWF‚æöäWF…7FFT6†ævR‚…öWfVçBÂ6W76–öâ’ÓâÇ•6W76–öâ‡6W76–öâ’“°¢&WGW&â‚’ÓâFFç7V'67&—F–öâçVç7V'67&–&R‚“°¢ÒÂµÒ“°¢W6TVffV7B‚‚’Óâ°¢ÆWB6æ6VÆÆVBÒfÇ6S°¢6öç7B&W&T7W'&VçEv÷&¶W"Ò7–æ2‚’Óâ°¢–b‚‚'6W'f–6Uv÷&¶W""–âæf–vF÷"’’°¢–b‚6æ6VÆÆVB’6WD'&÷w6W$66†U&VG’‡G'VR“°¢&WGW&ã°¢Ğ¢–b‡6W76–öå7F÷&vRævWD—FVÒ‚'7Â×v÷&¶W"×&W&VB×c2Ó2"’ÓÒ#"’°¢6öç7B&Vv—7G&F–öç2Òv—Bæf–vF÷"ç6W'f–6Uv÷&¶W"ævWE&Vv—7G&F–öç2‚“°¢6öç7B66†TæÖW2Ò&66†W2"–âv–æF÷ròv—B66†W2æ¶W—2‚’¢µÓ°¢v—B&öÖ—6RæÆÂ…°¢ââç&Vv—7G&F–öç2æÖ‚‡&Vv—7G&F–öâ’Óâ&Vv—7G&F–öâçVç&Vv—7FW"‚’’À¢ââæ66†TæÖW0¢æf–ÇFW"‚†æÖR’ÓâæÖRç7F'G5v—F‚‚'6Ö'B×W'6öæÂÖÆ–'&'’Ò"’¢æÖ‚†æÖR’Óâ66†W2æFVÆWFR†æÖR’’À¢Ò“°¢6W76–öå7F÷&vRç6WD—FVÒ‚'7Â×v÷&¶W"×&W&VB×c2Ó2"Â#"“°¢Ğ¢v—Bæf–vF÷"ç6W'f–6Uv÷&¶W"ç&Vv—7FW"‚"â÷7ræ§2"“°¢–b‚6æ6VÆÆVB’6WD'&÷w6W$66†U&VG’‡G'VR“°¢Ó°¢&W&T7W'&VçEv÷&¶W"‚’æ6F6‚‚‚’Óâ°¢–b‚6æ6VÆÆVB’6WD'&÷w6W$66†U&VG’‡G'VR“°¢Ò“°¢&WGW&â‚’Óâ°¢6æ6VÆÆVBÒG'VS°¢Ó°¢ÒÂµÒ“°¢W6TVffV7B‚‚’Óâ°¢6öç7B&WVW7FVD&öö²ÒæWrU$Å6V&6…&×2‡v–æF÷ræÆö6F–öâç6V&6‚’ævWB‚&&öö²"“°¢–b‚&WVW7FVD&öö²ÇÂ–Æ÷D&öö·2æÆVæwF‚ÓÓÒ’&WGW&ã°¢6öç7B&öö²Ò–Æ÷D&öö·2æf–æB‚†—FVÒ’Óâ—FVÒæ–BÓÓÒ&WVW7FVD&öö²“°¢–b†&öö²’°¢6WD7F—fU–Æ÷D&öö²†&öö²“°¢6WEf–Wr‚'–Æ÷B"“°¢Ğ¢ÒÂ·–Æ÷D&öö·5Ò“°¢W6TVffV7B‚‚’Óâ°¢–b‚'&÷w6W$66†U&VG’ÇÂWF…7FFRÓÒ&WF†VçF–6FVB"’&WGW&ã°¢–b‚7W&6T6öæf–wW&VB’°¢6WD&öö·4ÆöF–ær†fÇ6R“°¢&WGW&ã°¢Ğ¢ÆWB6æ6VÆÆVBÒfÇ6S°¢6WD&öö·4ÆöF–ær‡G'VR“°¢òòæWfW"ÆVfR&W7F÷&VBö&f66†VBF"6†÷v–ærÆ–'&'’6æ6†÷BF†BÖ¢òò†fR&VVâFVÆWFVB÷"6†ævVB–âæ÷F†W"F"â†–FRF†RöÆB6æ6†÷Bv†–ÆP¢òò7W&6R—2&V–ær&VBv–âà¢6WE–Æ÷D&öö·2…µÒ“°¢6WDÆ–'&'•7FG2‡²æÇ—6VD&öö·3¢ÂVW7F–öç3¢ÂVF–õ'G3¢Ò“°¢6WD&öö·4W'&÷"‚""“°¢Æ—7E–Æ÷D&öö·2‚¢çF†Vâ†7–æ2†&öö·2’Óâ°¢–b†6æ6VÆÆVB’&WGW&ã°¢6WE–Æ÷D&öö·2†&öö·2“°¢òò7FF—7F–72&R6V6öæF'’âÖ—76–ær÷F–öæÂF&ÆR×W7BæWfW"†–FP¢òòF†RW6W"w2&öö·2÷"Ö¶RF†RÆ–'&'’V"V×G’à¢6öç7B7FG2Òv—BvWDÆ–'&'•7FG2‚’æ6F6‚‚‚’ÓâçVÆÂ“°¢–b‚6æ6VÆÆVBbb7FG2’6WDÆ–'&'•7FG2‡7FG2“°¢Ò¢æ6F6‚‚†ÆöDW'&÷"’Óâ°¢–b†6æ6VÆÆVB’&WGW&ã°¢6WD&öö·4W'&÷"€¢'FÀ¢òŠ­‹‹‹Š­Šİ˜]˜­˜B˜]˜=Š­ŠŠ­˜3¢G¶ÆöDW'&÷"–ç7Fæ6VöbW'&÷"òÆöDW'&÷"æÖW76vR¢-Ší‹}Š2‹­˜­‹˜]‹‹˜˜'Ö ¢¢6÷VÆBæ÷BÆöB–÷W"Æ–'&'“¢G¶ÆöDW'&÷"–ç7Fæ6VöbW'&÷"òÆöDW'&÷"æÖW76vR¢%Væ¶æ÷vâW'&÷"'ÖÀ¢“°¢Ò¢æf–æÆÇ’‚‚’Óâ°¢–b‚6æ6VÆÆVB’6WD&öö·4ÆöF–ær†fÇ6R“°¢Ò“°¢&WGW&â‚’Óâ°¢6æ6VÆÆVBÒG'VS°¢Ó°¢òòW6Æ–çBÖF—6&ÆRÖæW‡BÖÆ–æR&V7BÖ†öö·2öW††W7F—fRÖFW0¢ÒÂ¶&öö·4ÆöEFö¶VâÂ'&÷w6W$66†U&VG’ÂWF…7FFUÒ“°¢W6TVffV7B‚‚’Óâ°¢–b†WF…7FFRÓÒ&WF†VçF–6FVB"’&WGW&ã°¢Æ—7D&ööµ&VÖ–æFW'2‚¢çF†Vâ‚†—FV×2’Óâ6WE&VÖ–æFW$6÷VçB†—FV×2æÆVæwF‚’¢æ6F6‚‚‚’Óâ6WE&VÖ–æFW$6÷VçBƒ’“°¢ÒÂ¶WF…7FFRÂ&öö·4ÆöEFö¶VâÂf–WuÒ“°¢W6TVffV7B‚‚’Óâ°¢6öç7B&Vg&W6„g&öÕ7W&6RÒ‚’Óâ6WD&öö·4ÆöEFö¶Vâ‚†â’Óââ²“°¢6öç7B&Vg&W6…v†Våf—6–&ÆRÒ‚’Óâ°¢–b†Fö7VÖVçBçf—6–&–Æ—G•7FFRÓÓÒ'f—6–&ÆR"’&Vg&W6„g&öÕ7W&6R‚“°¢Ó°¢òòÖö&–ÆR6‡&öÖRæB6f&’Ö’&W7F÷&R6ö×ÆWFR&V7BvRg&öÒF†P¢òò&6²Öf÷'v&B66†Râ&WfÆ–FFRF†RÆ–'&'’v†VæWfW"F†BvR&V6öÖW0¢òò7F—fR–ç7FVBöbG'W7F–ærF†R&W7F÷&VB–âÖÖVÖ÷'’Æ—7Bà¢v–æF÷ræFDWfVçDÆ—7FVæW"‚'vW6†÷r"Â&Vg&W6„g&öÕ7W&6R“°¢v–æF÷ræFDWfVçDÆ—7FVæW"‚&fö7W2"Â&Vg&W6„g&öÕ7W&6R“°¢Fö7VÖVçBæFDWfVçDÆ—7FVæW"‚'f—6–&–Æ—G–6†ævR"Â&Vg&W6…v†Våf—6–&ÆR“°¢&WGW&â‚’Óâ°¢v–æF÷rç&VÖ÷fTWfVçDÆ—7FVæW"‚'vW6†÷r"Â&Vg&W6„g&öÕ7W&6R“°¢v–æF÷rç&VÖ÷fTWfVçDÆ—7FVæW"‚&fö7W2"Â&Vg&W6„g&öÕ7W&6R“°¢Fö7VÖVçBç&VÖ÷fTWfVçDÆ—7FVæW"‚'f—6–&–Æ—G–6†ævR"Â&Vg&W6…v†Våf—6–&ÆR“°¢Ó°¢ÒÂµÒ“°¢6öç7B&VÆöE–Æ÷D&öö·2Ò‚’Óâ6WD&öö·4ÆöEFö¶Vâ‚†â’Óââ²“°¢6öç7BF6…–Æ÷D&öö²Ò†&öö´–C¢7G&–ærÂF6ƒ¢'F–ÃÅ–Æ÷D&öö³â’Óâ°¢6WE–Æ÷D&öö·2‚‡&Wb’Óâ&WbæÖ‚†"’Óâ†"æ–BÓÓÒ&öö´–Bò²ââæ"ÂââçF6‚Ò¢"’’“°¢6WD7F—fU–Æ÷D&öö²‚‡&Wb’Óâ‡&Wbbb&Wbæ–BÓÓÒ&öö´–Bò²ââç&WbÂââçF6‚Ò¢&Wb’“°¢Ó°¢6öç7B7v—F6„ÆærÒ‚’Óâ°¢6öç7BæW‡BÒÆærÓÓÒ&""ò&Vâ"¢&"#°¢6WDÆær†æW‡B“°¢Æö6Å7F÷&vRç6WD—FVÒ‚'7ÂÖÆær"ÂæW‡B“°¢Ó°¢6öç7B7F—fFTÆFW7EfW'6–öâÒ7–æ2‚’Óâ°¢6WD7F—fF–ær‡G'VR“°¢6WDæ÷F–6R‡'FÂò-ŠÍŠ}‹˜ÒŠ­˜m‹M˜­‹rŠ=ŠİŠıŠ²˜m‹=ŠíŠ(
+b"¢$7F—fF–ærF†RÆFW7BfW'6–öî(
+b"“°¢G'’°¢–b‚'6W'f–6Uv÷&¶W""–âæf–vF÷"’°¢6öç7B&Vv—7G&F–öç2Òv—Bæf–vF÷"ç6W'f–6Uv÷&¶W"ævWE&Vv—7G&F–öç2‚“°¢v—B&öÖ—6RæÆÂ‡&Vv—7G&F–öç2æÖ‚‡&Vv—7G&F–öâ’Óâ&Vv—7G&F–öâçVç&Vv—7FW"‚’’“°¢Ğ¢–b‚&66†W2"–âv–æF÷r’°¢6öç7BæÖW2Òv—B66†W2æ¶W—2‚“°¢v—B&öÖ—6RæÆÂ†æÖW2æf–ÇFW"‚†æÖR’ÓâæÖRç7F'G5v—F‚‚'6Ö'B×W'6öæÂÖÆ–'&'’Ò"’’æÖ‚†æÖR’Óâ66†W2æFVÆWFR†æÖR’’“°¢Ğ¢6W76–öå7F÷&vRç&VÖ÷fT—FVÒ‚'7Â×v÷&¶W"×&W&VB×c2Ó2"“°¢6öç7B6ÆVåW&ÂÒæWrU$Â‡v–æF÷ræÆö6F–öâæ‡&Vb“°¢6ÆVåW&Âç6V&6…&×2ç6WB‚'&Vg&W6‚"ÂFFRææ÷r‚’çFõ7G&–ær‚’“°¢v–æF÷ræÆö6F–öâç&WÆ6R†6ÆVåW&ÂçFõ7G&–ær‚’“°¢Ò6F6‚°¢v–æF÷ræÆö6F–öâç&VÆöB‚“°¢Ğ¢Ó°¢6öç7BvUF—FÆRÒW6TÖVÖò€¢‚’Óâæf–vF–öå¶ÆæuÒæf–æB‚‡‚’Óâ…³ÒÓÓÒf–Wr“òå³ÒÇÂBææÖRÀ¢¶ÆærÂf–WrÂBææÖUÒÀ¢“°¢6öç7B÷Vå&VFW$f÷"Ò†&öö³¢–Æ÷D&öö²Â–æ—F–ÅvSó¢çVÖ&W"’Óâ°¢6WE&VFW$&öö²‡²–C¢&öö²æ–BÂF—FÆS¢&öö²çF—FÆRÂ7F÷&vUFƒ¢&öö²ç7F÷&vU÷F‚Â–æ—F–ÅvRÒ“°¢6WEf–Wr‚'&VFW""“°¢Ó°¢6öç7B÷Vå&VFW%7FæFÆöæRÒ‚’Óâ°¢6WE&VFW$&öö²†çVÆÂ“°¢6WEf–Wr‚'&VFW""“°¢Ó°¢6öç7B7F'E&ö6W76–ærÒ7–æ2‚’Óâ°¢–b‚f–ÆRÇÂ&–v‡G3ÇÂ&–v‡G3"’&WGW&ã°¢–b‚7W&6T6öæf–wW&VB’°¢6WDæ÷F–6R€¢'FÀ¢ò-˜M˜RŠ­˜ı‹m˜Š]‹ŠıŠ}ŠıŠ}Š¢7W&6RŠ]˜M˜’Š˜­ŠmŠ’Š}˜M˜m‹M‹Š‹Šòâ ¢¢%7W&6RFWÆ÷–ÖVçB6WGF–æw2&RÖ—76–ærâ"À¢“°¢&WGW&ã°¢Ğ¢6WE&ö6W76–ær‡G'VR“°¢6WEW&6VçBƒ"“°¢G'’°¢6WEW&6VçBƒ3R“°¢6öç7B²&öö²ÂFVGWVBÒÒv—BWÆöE–Æ÷D&öö²†f–ÆRÂ÷WGWDÆæwVvR“°¢6WEW&6VçBƒsR“°¢–b†FVGWVB’°¢6öç7B6öç6VçBÒv—BvWDÆVvÄ6öç6VçE7FGW2†&öö²æ–B“°¢–b‚6öç6VçBç&V6÷&FVB’v—B6fTÆVvÄ6öç6VçB†&öö²æ–BÂ&–v‡G3Â&–v‡G3"“°¢ÒVÇ6R°¢G'’°¢v—B6fTÆVvÄ6öç6VçB†&öö²æ–BÂ&–v‡G3Â&–v‡G3"“°¢Ò6F6‚†6öç6VçDW'&÷"’°¢v—B&öÆÆ&6µ–Æ÷D&öö²†&öö²“°¢F‡&÷r6öç6VçDW'&÷#°¢Ğ¢Ğ¢6WEW&6VçBƒ“°¢6öç7BÆÂÒv—BÆ—7E–Æ÷D&öö·2‚“°¢6öç7B&Vg&W6†VBÒÆÂæf–æB‚†—FVÒ’Óâ—FVÒæ–BÓÓÒ&öö²æ–B’óò&öö³°¢6WE–Æ÷D&öö·2†ÆÂ“°¢6WD7F—fU–Æ÷D&öö²‡&Vg&W6†VB“°¢6WEWÆöB†fÇ6R“°¢6WEf–Wr‚'–Æ÷B"“°¢6WDæ÷F–6R€¢FVGWV@¢ò'FÀ¢ò-˜}‹ŠrŠ}˜M˜=Š­Š}Š‚˜]˜ŠÍ˜ŠòŠŠ}˜M˜‹˜B˜˜¢˜]˜=Š­ŠŠ­˜2(	B˜Š­Šİ˜mŠr˜m‹=ŠíŠ­˜2Š}˜M˜]Šİ˜˜‹Š’Šı˜˜b‹˜‹’˜m‹=ŠíŠ’Š½Š}˜m˜­Š’â ¢¢%F†—2&öö²—2Ç&VG’–â–÷W"Æ–'&'’(	B÷VæVB–÷W"6fVB6÷’–ç7FVBöbWÆöF–ærGWÆ–6FRâ ¢¢'FÀ¢ò-Šİ˜ı˜‹‚Š}˜M˜=Š­Š}Š‚˜˜-‹râ˜M˜R˜­˜ı‹‹=˜BŠ]˜M˜’÷Vä’˜˜M˜R˜­˜ıŠí‹]˜R˜]˜b‹‹]˜­Šı˜2â ¢¢$&öö²6fVBöæÇ’âæ÷F†–ærv26VçBFò÷Vä’æBæò’7&VF—Bv2W6VBâ"À¢“°¢6WDf–ÆR†çVÆÂ“°¢6WE&–v‡G3†fÇ6R“°¢6WE&–v‡G3"†fÇ6R“°¢Ò6F6‚†W'&÷"’°¢6öç7B&rÒW'&÷"–ç7Fæ6VöbW'&÷"òW'&÷"æÖW76vR¢%Væ¶æ÷vâW'&÷"#°¢6öç7Bg&–VæFÇ’Ò&rÓÓÒ$d”ÄUõDôõôÄ$tUó#Ô" ¢ò‡'FÂò-Š}˜MŠİŠòŠ}˜MŠ=˜-‹]˜’#˜]˜­ŠÍŠ}ŠŠ}˜­Š¢˜M˜}‹˜rŠ}˜MŠ­ŠÍ‹ŠŠ’â"¢%F†R66WFæ6R–Æ÷BÆ–Ö—B—2#Ô"â"¢¢&rÓÓÒ%DôõôÔå•õtU5óS ¢ò‡'FÂò-Š}˜MŠİŠòŠ}˜MŠ=˜-‹]˜’S‹]˜ŠİŠ’˜˜¢˜m‹=ŠíŠ’Š}˜M˜-Š˜˜BŠ}˜MŠİŠ}˜M˜­Š’â"¢%F†R7W'&VçB66WFæ6R'V–ÆB7W÷'G2WFòSvW2â"¢¢&rÓÓÒ%DeôôäÅ’ ¢ò‡'FÂò-˜}‹˜rŠ}˜MŠ­ŠÍ‹ŠŠ’Š­˜-Š˜B˜]˜M˜Db˜˜-‹râ"¢%F†—2–Æ÷B66WG2Dbf–ÆW2öæÇ’â"¢¢&s°¢6WDæ÷F–6R€¢G·'FÂò-Š­‹‹‹Šİ˜‹‚Š}˜M˜=Š­Š}Š‚"¢$6÷VÆBæ÷B6fRF†R&öö²'Ó¢G¶g&–VæFÇ—ÖÀ¢“°¢Òf–æÆÇ’°¢6WE&ö6W76–ær†fÇ6R“°¢6WEF–ÖV÷WB‚‚’Óâ6WDæ÷F–6R‚""’Âs“°¢Ğ¢Ó°¢6öç7BvòÒ†–C¢7G&–ær’Óâ°¢–b†–BÓÓÒ'WÆöB"’°¢6WEWÆöB‡G'VR“°¢ÒVÇ6R–b†–BÓÓÒ'&VFW""’°¢÷Vå&VFW%7FæFÆöæR‚“°¢ÒVÇ6R°¢6WEf–Wr†–B2f–Wr“°¢Ğ¢Ó°¢–b†WF…7FFRÓÒ&WF†VçF–6FVB"’°¢&WGW&â€¢ÄÆ–'&'”Æöv–à¢'FÃ×·'FÇĞ¢ÆöF–æs×¶WF…7FFRÓÓÒ&ÆöF–ær'Ğ¢öäÆæwVvS×·7v—F6„ÆæwĞ¢öå6–væVD–ã×²‚’Óâ6WDWF…7FFR‚&WF†VçF–6FVB"—Ğ¢óà¢“°¢Ğ¢&WGW&â€¢ÆF—`¢6Æ74æÖS×¶F&²ò&F&²"¢&'Ğ¢F—#×·'FÂò''FÂ"¢&ÇG"'Ğ¢Ææs×¶ÆæwĞ¢à¢Æ6–FR6Æ74æÖSÒ'6–FV&"#à¢ÆF—b6Æ74æÖSÒ&'&æB#à¢ÆF—b6Æ74æÖSÒ&'&æBÖÖ&²#í˜3ÂöF—cà¢ÆF—cà¢Æƒç·BææÖWÓÂöƒà¢Ç7ãç·BçfW'6–öçÓÂ÷7ãà¢ÂöF—cà¢ÂöF—cà¢Ææb6Æ74æÖSÒ&Ö–âÖæb#à¢¶æf–vF–öå¶ÆæuÒæÖ‚…¶–BÂÆ&VÂÂ–6öåÒ’Óâ€¢Æ'WGFöà¢¶W“×¶–GĞ¢6Æ74æÖS×·f–WrÓÓÒ–Bò&7F—fR"¢"'Ğ¢F—6&ÆVC×¶–BÓÓÒ&Æ–'&&–â'Ğ¢F—FÆS×¶–BÓÓÒ&Æ–'&&–â"ò‡'FÂò-‹­˜­‹˜]‹Š­˜]ŠòŠ‹Šò˜˜¢˜m‹=ŠíŠ’Š}˜M˜-Š˜˜B"¢$æ÷B–WB66WFVB–âF†—2'V–ÆB"’¢VæFVf–æVGĞ¢öä6Æ–6³×²‚’Óâvò†–B—Ğ¢à¢Æ“ç¶–6öçÓÂö“à¢Ç7ãç¶Æ&VÇÓÂ÷7ãà¢Âö'WGFöãà¢’—Ğ¢Âöæcà¢ÆF—b6Æ74æÖSÒ'&÷F÷G—RÖæ÷FR#à¢Ç7G&öæsà¢·'FÂò-Šİ‹=Š}Š‚˜]˜ŠİŠò˜Š-˜]˜bcããB"¢%6V7W&RVæ–f–VB66÷VçBcããB'Ğ¢Â÷7G&öæsà¢Çà¢·'FÀ¢ò-˜]˜=Š­ŠŠ­˜2˜-Š}Š˜MŠ’˜M˜M˜m˜]˜‚â˜MŠr˜­ŠŠıŠ2Š}˜MŠ­Šİ˜M˜­˜BŠ=˜‚Š}˜M‹=ŠMŠ}˜BŠ=˜‚Š}˜M‹]˜Š¢Š}˜MŠ}ŠİŠ­‹Š}˜˜¢Š]˜MŠrŠ‹ŠòŠ­Š=˜=˜­Šı˜2â ¢¢%–÷W"Æ–'&'’6âw&÷râæÇ—6—2ÂVW7F–öç2ÂæB&öfW76–öæÂVF–ò7F'BöæÇ’gFW"–÷W"6öæf—&ÖF–öââ'Ğ¢Â÷à¢ÂöF—cà¢ÆF—b6Æ74æÖSÒ'&öf–ÆR#à¢Ç7ãí‹“Â÷7ãà¢ÆF—cà¢Ç7G&öæsç¶66÷VçDVÖ–ÂÇÂ‡'FÂò-Šİ‹=Š}Š‚Š}˜M˜]˜=Š­ŠŠ’"¢$Æ–'&'’66÷VçB"—ÓÂ÷7G&öæsà¢Ç6ÖÆÃç·'FÂò-˜]Šİ˜˜‹‚‹˜M˜’Š=ŠÍ˜}‹-Š­˜2"¢%7–æ6VB7&÷72–÷W"FWf–6W2'ÓÂ÷6ÖÆÃà¢ÂöF—cà¢Æ'WGFöâöä6Æ–6³×²‚’Óâ6–vä÷WDÆ–'&'”66÷VçB‚—ÒF—FÆS×·'FÂò-Š­‹=ŠÍ˜­˜BŠ}˜MŠí‹˜ŠÂ"¢%6–vâ÷WB'Óî(j£Âö'WGFöãà¢ÂöF—cà¢Âö6–FSà¢ÆÖ–ãà¢Æ†VFW"6Æ74æÖSÒ'F÷&"#à¢Æ'WGFöâ6Æ74æÖSÒ&Öö&–ÆRÖ'&æB"öä6Æ–6³×²‚’Óâ6WEf–Wr‚&†öÖR"—Óà¢˜0¢Âö'WGFöãà¢Æf÷&Ğ¢6Æ74æÖSÒ'6V&6‚ ¢öå7V&Ö—C×²†R’Óâ°¢Rç&WfVçDFVfVÇB‚“°¢–b‡6V&6…VW'’çG&–Ò‚’’6WEf–Wr‚&Æ–'&'’"“°¢×Ğ¢à¢Æ–çW@¢Æ6V†öÆFW#×·Bç6V&6‡Ğ¢fÇVS×·6V&6…VW'—Ğ¢öä6†ævS×²†R’Óâ6WE6V&6…VW'’†RçF&vWBçfÇVR—Ğ¢óà¢Æ'WGFöâG—SÒ'7V&Ö—B"&–ÖÆ&VÃ×·'FÂò-Š­˜m˜˜­‹Š}˜MŠŠİŠ²"¢%'Vâ6V&6‚'ÒF—FÆS×·'FÂò-ŠŠİŠ²"¢%6V&6‚'Óî(ÉSÂö'WGFöãà¢Âöf÷&Óà¢ÆF—b6Æ74æÖSÒ'F÷Ö7F–öç2#à¢Æ'WGFöâöä6Æ–6³×²‚’Óâ6WEf–Wr‚&wV–FR"—ÒF—FÆS×·'FÂò-Šı˜M˜­˜BŠ}˜MŠ}‹=Š­ŠíŠıŠ}˜R"¢%W6W"wV–FR'Óí‰óÂö'WGFöãà¢Æ'WGFöâöä6Æ–6³×¶7F—fFTÆFW7EfW'6–öçÒF—6&ÆVC×¶7F—fF–æwÒF—FÆS×·'FÂò-Š­˜m‹M˜­‹rŠ=ŠİŠıŠ²˜m‹=ŠíŠ’"¢$7F—fFRÆFW7BfW'6–öâ'Óî(k³Âö'WGFöãà¢Æ'WGFöâöä6Æ–6³×·7v—F6„ÆæwÒ6Æ74æÖSÒ&Æær×7v—F6‚#à¢·'FÂò$Tâ"¢-‹’'Ğ¢Âö'WGFöãà¢Æ'WGFöâöä6Æ–6³×²‚’Óâ6WDF&²‚F&²—Óç¶F&²ò.)ˆ"¢.)y'ÓÂö'WGFöãà¢Æ'WGFöà¢6Æ74æÖS×¶&VÆÂG·&VÖ–æFW$6÷VçBâò&†2ÖÆW'G2"¢"'ÖĞ¢F—FÆS×·'FÂò-Š}˜MŠ­˜mŠ˜­˜}Š}Š¢"¢$æ÷F–f–6F–öç2'Ğ¢&–ÖÆ&VÃ×·'FÂòŠ}˜MŠ­˜mŠ˜­˜}Š}Š£¢G·&VÖ–æFW$6÷VçGÖ¢æ÷F–f–6F–öç3¢G·&VÖ–æFW$6÷VçGÖĞ¢öä6Æ–6³×²‚’Óâ6WEf–Wr‚'&öw&W72"—Ğ¢à¢	ùI@¢·&VÖ–æFW$6÷VçBâbbÆ#ç·&VÖ–æFW$6÷VçBâ’ò#’²"¢&VÖ–æFW$6÷VçGÓÂö#çĞ¢Âö'WGFöãà¢ÂöF—cà¢Âö†VFW#à¢·f–WrÓÓÒ&†öÖR"bb€¢ÄF6†&ö&@¢'FÃ×·'FÇĞ¢C×·GĞ¢öåWÆöC×²‚’Óâ6WEWÆöB‡G'VR—Ğ¢6WEf–Ws×·6WEf–WwĞ¢öä÷Vå&VFW#×¶÷Vå&VFW%7FæFÆöæWĞ¢–Æ÷D&öö·3×·–Æ÷D&öö·7Ğ¢Æ–'&'•7FG3×¶Æ–'&'•7FG7Ğ¢öä÷Vå–Æ÷C×²†&öö²’Óâ²6WD7F—fU–Æ÷D&öö²†&öö²“²6WEf–Wr‚'–Æ÷B"“²×Ğ¢óà¢—Ğ¢·f–WrÓÓÒ&Æ–'&'’"bb€¢ÄÆ–'&'¢'FÃ×·'FÇĞ¢F—FÆS×·vUF—FÆWĞ¢öåWÆöC×²‚’Óâ6WEWÆöB‡G'VR—Ğ¢–Æ÷D&öö·3×·–Æ÷D&öö·7Ğ¢&öö·4ÆöF–æs×¶&öö·4ÆöF–æwĞ¢&öö·4W'&÷#×¶&öö·4W'&÷'Ğ¢öå&WG'“×·&VÆöE–Æ÷D&öö·7Ğ¢öä&öö·46†ævVC×·&VÆöE–Æ÷D&öö·7Ğ¢6V&6…VW'“×·6V&6…VW'—Ğ¢öä÷Vå–Æ÷C×²†&öö²’Óâ°¢6WD7F—fU–Æ÷D&öö²†&öö²“°¢6WEf–Wr‚'–Æ÷B"“°¢×Ğ¢óà¢—Ğ¢·f–WrÓÓÒ&&öö²"bb€¢Ä&öö´FWF–Â'FÃ×·'FÇÒöä&6³×²‚’Óâ6WEf–Wr‚&Æ–'&'’"—Òóà¢—Ğ¢·f–WrÓÓÒ'–Æ÷B"bb7F—fU–Æ÷D&öö²bb€¢Å–Æ÷Ev÷&·76P¢'FÃ×·'FÇĞ¢&öö³×¶7F—fU–Æ÷D&öö·Ğ¢öä&6³×²‚’Óâ6WEf–Wr‚&Æ–'&'’"—Ğ¢öä÷Vå&VFW#×²‡vR’Óâ÷Vå&VFW$f÷"†7F—fU–Æ÷D&öö²ÂvR—Ğ¢öä&ööµF6†VC×·F6…–Æ÷D&öö·Ğ¢óà¢—Ğ¢·f–WrÓÓÒ'&VFW""bb€¢Å&VFW ¢'FÃ×·'FÇĞ¢6fVD&öö³×·&VFW$&öö·Ğ¢öäW†—E6fVD&öö³×²‚’Óâ°¢6WE&VFW$&öö²†çVÆÂ“°¢6WEf–Wr†7F—fU–Æ÷D&öö²ò'–Æ÷B"¢&Æ–'&'’"“°¢×Ğ¢óà¢—Ğ¢·f–WrÓÓÒ'&öw&W72"bbÅ&öw&W72'FÃ×·'FÇÒF—FÆS×·vUF—FÆWÒ&öö·3×·–Æ÷D&öö·7ÒóçĞ¢·f–WrÓÓÒ&Æ–'&&–â"bbÄÆ–'&&–â'FÃ×·'FÇÒF—FÆS×·vUF—FÆWÒóçĞ¢·f–WrÓÓÒ&fVVF&6²"bbÄfVVF&6²'FÃ×·'FÇÒC×·GÒóçĞ¢·f–WrÓÓÒ&wV–FR"bbÅW6W$wV–FR'FÃ×·'FÇÒöåWÆöC×²‚’Óâ6WEWÆöB‡G'VR—ÒöäÆ–'&'“×²‚’Óâ6WEf–Wr‚&Æ–'&'’"—Òöä7F—fFS×¶7F—fFTÆFW7EfW'6–öçÒ7F—fF–æs×¶7F—fF–æwÒóçĞ¢ÂöÖ–ãà¢Ææb6Æ74æÖSÒ&Öö&–ÆRÖæb#à¢¶æf–vF–öå¶ÆæuÒç6Æ–6RƒÂR’æÖ‚…¶–BÂÆ&VÂÂ–6öåÒ’Óâ€¢Æ'WGFöà¢¶W“×¶–GĞ¢6Æ74æÖS×·f–WrÓÓÒ–Bò&7F—fR"¢"'Ğ¢öä6Æ–6³×²‚’Óâvò†–B—Ğ¢à¢Æ“ç¶–6öçÓÂö“à¢Ç7ãç¶Æ&VÇÓÂ÷7ãà¢Âö'WGFöãà¢’—Ğ¢Âöæcà¢·WÆöBbb€¢ÅWÆö@¢'FÃ×·'FÇĞ¢C×·GĞ¢f–ÆS×¶f–ÆWĞ¢6WDf–ÆS×·6WDf–ÆWĞ¢÷WGWDÆæwVvS×¶÷WGWDÆæwVvWĞ¢6WD÷WGWDÆæwVvS×·6WD÷WGWDÆæwVvWĞ¢&–v‡G3×·&–v‡G3Ğ¢&–v‡G3#×·&–v‡G3'Ğ¢6WE&–v‡G3×·6WE&–v‡G3Ğ¢6WE&–v‡G3#×·6WE&–v‡G3'Ğ¢&ö6W76–æs×·&ö6W76–æwĞ¢W&6VçC×·W&6VçGĞ¢6Æ÷6S×²‚’Óâ&ö6W76–ærbb6WEWÆöB†fÇ6R—Ğ¢7F'C×·7F'E&ö6W76–æwĞ¢óà¢—Ğ¢¶æ÷F–6RbbÆF—b6Æ74æÖSÒ'Fö7B#î)É2¶æ÷F–6WÓÂöF—cçĞ¢ÂöF—cà¢“°§Ğ ¦gVæ7F–öâÆ–'&'”Æöv–â‡°¢'FÂÀ¢ÆöF–ærÀ¢öäÆæwVvRÀ¢öå6–væVD–âÀ§Ó¢°¢'FÃ¢&ööÆVã°¢ÆöF–æs¢&ööÆVã°¢öäÆæwVvS¢‚’Óâfö–C°¢öå6–væVD–ã¢‚’Óâfö–C°§Ò’°¢6öç7B¶VÖ–ÂÂ6WDVÖ–ÅÒÒW6U7FFR‚&&†ÖãsvÖ–Âæ6öÒ"“°¢6öç7B·77v÷&BÂ6WE77v÷&EÒÒW6U7FFR‚""“°¢6öç7B¶ÖöFRÂ6WDÖöFUÒÒW6U7FFSÂ'6–væ–â"Â'6–vçW#â‚'6–væ–â"“°¢6öç7B¶'W7’Â6WD'W7•ÒÒW6U7FFR†fÇ6R“°¢6öç7B¶W'&÷"Â6WDW'&÷%ÒÒW6U7FFR‚""“°¢6öç7B·7V66W72Â6WE7V66W75ÒÒW6U7FFR‚""“°¢6öç7B7V&Ö—BÒ7–æ2†WfVçC¢f÷&ÔWfVçB’Óâ°¢WfVçBç&WfVçDFVfVÇB‚“°¢6WD'W7’‡G'VR“°¢6WDW'&÷"‚""“°¢6WE7V66W72‚""“°¢G'’°¢–b†ÖöFRÓÓÒ'6–vçW"’°¢6öç7BFFÒv—B6–våWÆ–'&'”66÷VçB†VÖ–ÂÂ77v÷&B“°¢–b†FFç6W76–öâ’°¢öå6–væVD–â‚“°¢ÒVÇ6R°¢6WE7V66W72‡'FÂò-Š­˜RŠ]˜m‹MŠ}ŠŠ}˜MŠİ‹=Š}Š‚âŠ}˜Š­ŠÒ‹‹=Š}˜MŠ’Š}˜MŠ­Š=˜=˜­Šò˜˜¢Š‹˜­Šı˜2˜]‹Š’˜Š}ŠİŠıŠˆÂŠ½˜RŠ}‹ŠÍ‹’˜‹=ŠÍ™˜BŠ}˜MŠıŠí˜˜Bâ"¢$66÷VçB7&VFVBâ6öæf—&ÒF†RVÖ–Âöæ6RÂF†Vâ&WGW&âæB6–vâ–ââ"“°¢6WDÖöFR‚'6–væ–â"“°¢6WE77v÷&B‚""“°¢Ğ¢ÒVÇ6R°¢v—B6–vä–äÆ–'&'”66÷VçB†VÖ–ÂÂ77v÷&B“°¢öå6–væVD–â‚“°¢Ğ¢Ò6F6‚†Æöv–äW'&÷"’°¢6öç7B&rÒÆöv–äW'&÷"–ç7Fæ6VöbW'&÷"òÆöv–äW'&÷"æÖW76vR¢$Äôt”åôd”ÄTB#°¢6WDW'&÷"€¢&rçFôÆ÷vW$66R‚’æ–æ6ÇVFW2‚&–çfÆ–BÆöv–â7&VFVçF–Ç2"¢ò'FÀ¢ò-Š}˜MŠ‹˜­ŠòŠ=˜‚˜=˜M˜]Š’Š}˜M˜]‹˜‹‹­˜­‹‹]Šİ˜­ŠİŠ’â ¢¢$–æ6÷'&V7BVÖ–Â÷"77v÷&Bâ ¢¢&rÓÓÒ%55tõ$EõDôõõ4„õ%B ¢ò'FÀ¢ò˜=˜M˜]Š’Š}˜M˜]‹˜‹˜­ŠÍŠ‚Š=˜MŠrŠ­˜-˜B‹˜bG¶ÖöFRÓÓÒ'6–vçW"ò#‚"¢#b'ÒŠ=Šİ‹˜æ ¢¢77v÷&B×W7B&RBÆV7BG¶ÖöFRÓÓÒ'6–vçW"ò#‚"¢#b'Ò6†&7FW'2æ ¢¢&rÀ¢“°¢Òf–æÆÇ’°¢6WD'W7’†fÇ6R“°¢Ğ¢Ó°¢&WGW&â€¢ÆF—b6Æ74æÖSÒ&Æöv–â×vR"F—#×·'FÂò''FÂ"¢&ÇG"'ÒÆæs×·'FÂò&""¢&Vâ'Óà¢Æ'WGFöâ6Æ74æÖSÒ&Æöv–âÖÆæwVvR"öä6Æ–6³×¶öäÆæwVvWÓç·'FÂò$Tâ"¢-‹’'ÓÂö'WGFöãà¢Ç6V7F–öâ6Æ74æÖSÒ&Æöv–âÖ6&B#à¢ÆF—b6Æ74æÖSÒ&'&æBÖÖ&²#í˜3ÂöF—cà¢Ç7â6Æ74æÖSÒ&W–V'&÷r#ç·'FÂò-Š}˜M˜]˜=Š­ŠŠ’Š}˜M‹MŠí‹]˜­Š’Š}˜M‹˜=˜­Š’"¢%6Ö'BW'6öæÂÆ–'&'’'ÓÂ÷7ãà¢Æƒç¶ÖöFRÓÓÒ'6–vçW"ò‡'FÂò-Š=˜m‹MŠbŠİ‹=Š}Š‚˜]˜=Š­ŠŠ­˜2"¢$7&VFR–÷W"Æ–'&'’66÷VçB"’¢‡'FÂò-Š}ŠıŠí˜BŠ]˜M˜’˜]˜=Š­ŠŠ­˜2"¢%6–vâ–âFò–÷W"Æ–'&'’"—ÓÂöƒà¢Çà¢·'FÀ¢ò-Šİ‹=Š}Š‚˜Š}ŠİŠò˜˜]˜=Š­ŠŠ’˜Š}ŠİŠıŠ’‹˜M˜’˜=‹˜˜R˜„VFvR˜Š}˜MŠ-˜­˜˜˜b˜‹=Š}˜]‹=˜˜mŠÂ˜Š}˜MŠ­Š}Š˜MŠ¢â‹=ŠÍ™˜B˜]‹Š’˜Š}ŠİŠıŠ’˜˜¢˜=˜BŠÍ˜}Š}‹-ˆÂŠ½˜R˜­Š˜-˜’Š}˜MŠıŠí˜˜B˜]Šİ˜˜‹˜½Šrâ ¢¢$öæR66÷VçBæBöæRÆ–'&'’7&÷726‡&öÖRÂVFvRÂ•†öæRÂ6×7VæræBF&ÆWG2â6–vâ–âöæ6RW"FWf–6RæBF†R6W76–öâ7F—26fVBâ'Ğ¢Â÷à¢¶ÆöF–ærò€¢ÆF—b6Æ74æÖSÒ&Æöv–âÖÆöF–ær#ç·'FÂò-ŠÍŠ}‹˜Ò˜Šİ‹RŠ}˜MŠİ‹=Š}Š(
+b"¢$6†V6¶–ær66÷VçN(
+b'ÓÂöF—cà¢’¢€¢Æf÷&Òöå7V&Ö—C×·7V&Ö—GÓà¢ÆÆ&VÃà¢·'FÂò-Š}˜MŠ‹˜­ŠòŠ}˜MŠ]˜M˜=Š­‹˜˜m˜¢"¢$VÖ–Â'Ğ¢Æ–çWBG—SÒ&VÖ–Â"fÇVS×¶VÖ–ÇÒöä6†ævS×²†WfVçB’Óâ6WDVÖ–Â†WfVçBçF&vWBçfÇVR—ÒWFô6ö×ÆWFSÒ'W6W&æÖR"&WV—&VBóà¢ÂöÆ&VÃà¢ÆÆ&VÃà¢·'FÂò-˜=˜M˜]Š’Š}˜M˜]‹˜‹"¢%77v÷&B'Ğ¢Æ–çWBG—SÒ'77v÷&B"fÇVS×·77v÷&GÒöä6†ævS×²†WfVçB’Óâ6WE77v÷&B†WfVçBçF&vWBçfÇVR—ÒWFô6ö×ÆWFS×¶ÖöFRÓÓÒ'6–vçW"ò&æWr×77v÷&B"¢&7W'&VçB×77v÷&B'ÒÖ–äÆVæwFƒ×¶ÖöFRÓÓÒ'6–vçW"ò‚¢gÒ&WV—&VBóà¢ÂöÆ&VÃà¢Æ'WGFöâ6Æ74æÖSÒ'&–Ö'’"G—SÒ'7V&Ö—B"F—6&ÆVC×¶'W7—Óà¢¶'W7¢òÖöFRÓÓÒ'6–vçW"ò‡'FÂò-ŠÍŠ}‹˜ÒŠ]˜m‹MŠ}ŠŠ}˜MŠİ‹=Š}Š(
+b"¢$7&VF–ær66÷VçN(
+b"’¢‡'FÂò-ŠÍŠ}‹˜ÒŠ}˜MŠıŠí˜˜N(
+b"¢%6–væ–ær–î(
+b"¢¢ÖöFRÓÓÒ'6–vçW"ò‡'FÂò-Š]˜m‹MŠ}ŠŠ}˜MŠİ‹=Š}Š‚"¢$7&VFR66÷VçB"’¢‡'FÂò-ŠıŠí˜˜B"¢%6–vâ–â"—Ğ¢Âö'WGFöãà¢Âöf÷&Óà¢—Ğ¢¶W'&÷"bbÆF—b6Æ74æÖSÒ'&VFW"ÖW'&÷"–æÆ–æR#ç¶W'&÷'ÓÂöF—cçĞ¢·7V66W72bbÆF—b6Æ74æÖSÒ&Æöv–â×7V66W72#ç·7V66W77ÓÂöF—cçĞ¢²ÆöF–ærbb€¢Æ'WGFöâ6Æ74æÖSÒ&Æöv–âÖÖöFR"G—SÒ&'WGFöâ"öä6Æ–6³×²‚’Óâ²6WDÖöFR†ÖöFRÓÓÒ'6–væ–â"ò'6–vçW"¢'6–væ–â"“²6WDW'&÷"‚""“²6WE7V66W72‚""“²6WE77v÷&B‚""“²×Óà¢¶ÖöFRÓÓÒ'6–væ–â ¢ò‡'FÂò-˜M˜­‹2˜MŠı˜­˜2Šİ‹=Š}Š‰òŠ=˜m‹MŠbŠİ‹=Š}Š˜½Šr"¢$æò66÷VçCò7&VFRöæR"¢¢‡'FÂò-˜MŠı˜­˜2Šİ‹=Š}Š‰ò‹=ŠÍ™˜BŠ}˜MŠıŠí˜˜B"¢$Ç&VG’†fRâ66÷VçCò6–vâ–â"—Ğ¢Âö'WGFöãà¢—Ğ¢Ç6ÖÆÃç·'FÂò-˜MŠrŠ­˜ıŠİ˜‹‚˜=˜M˜]Š’Š}˜M˜]‹˜‹ŠıŠ}Ší˜BŠ}˜M˜]˜m‹]Š‰²˜­Šİ˜]˜­˜}Šr7W&6RŠ‹]˜‹Š’˜]‹M˜™‹Š’â"¢%–÷W"77v÷&B—2&÷FV7FVB'’7W&6RæB—2æWfW"7F÷&VB–âF†Râ'ÓÂ÷6ÖÆÃà¢Â÷6V7F–öãà¢ÂöF—cà¢“°§Ğ ¦gVæ7F–öâF6†&ö&B‡°¢'FÂÀ¢BÀ¢öåWÆöBÀ¢6WEf–WrÀ¢öä÷Vå&VFW"À¢–Æ÷D&öö·2À¢Æ–'&'•7FG2À¢öä÷Vå–Æ÷BÀ§Ó¢°¢'FÃ¢&ööÆVã°¢C¢G—VöbFW‡Bæ#°¢öåWÆöC¢‚’Óâfö–C°¢6WEf–Ws¢‡c¢f–Wr’Óâfö–C°¢öä÷Vå&VFW#¢‚’Óâfö–C°¢–Æ÷D&öö·3¢–Æ÷D&ööµµÓ°¢Æ–'&'•7FG3¢Æ–'&'•7FG3°¢öä÷Vå–Æ÷C¢†&öö³¢–Æ÷D&öö²’Óâfö–C°§Ò’°¢6öç7B7W'&VçBÒ–Æ÷D&öö·5³Ó°¢&WGW&â€¢ÆF—b6Æ74æÖSÒ'vR#à¢Ç6V7F–öâ6Æ74æÖSÒ'vVÆ6öÖR#à¢ÆF—cà¢Ç7â6Æ74æÖSÒ&W–V'&÷r#à¢·'FÀ¢ò-˜]˜=Š­ŠŠ’Š­˜-‹Š2˜]‹˜=ˆÂ˜MŠrŠŠı˜M˜½Šr‹˜m˜2 ¢¢$Æ–'&'’F†B&VG2v—F‚–÷RÂæ÷Bf÷"–÷R'Ğ¢Â÷7ãà¢Æƒ#ç·Bæ†VÆÆ÷ÓÂöƒ#à¢Çç·Bæ–çG&÷ÓÂ÷à¢ÆF—b6Æ74æÖSÒ'vVÆ6öÖRÖ7F–öç2#à¢Æ'WGFöâ6Æ74æÖSÒ'&–Ö'’"öä6Æ–6³×¶öä÷Vå&VFW'Óà¢)z²·'FÂò-Š}˜Š­ŠÒŠ}˜M˜-Š}‹Šb"¢$÷Vâ&VFW"'Ğ¢Âö'WGFöãà¢Æ'WGFöâ6Æ74æÖSÒ'6V6öæF'’"öä6Æ–6³×¶öåWÆöGÓà¢ûÈ²·'FÂò-Š=‹m˜˜=Š­Š}Š˜½Šr"¢$FB&öö²'Ğ¢Âö'WGFöãà¢Æ'WGFöâ6Æ74æÖSÒ'6V6öæF'’"öä6Æ–6³×²‚’Óâ6WEf–Wr‚&Æ–'&'’"—Óà¢)jR·'FÂò-Š}˜Š­ŠÒ˜]˜=Š­ŠŠ­˜¢"¢$÷Vâ×’Æ–'&'’'Ğ¢Âö'WGFöãà¢ÂöF—cà¢ÂöF—cà¢ÆF—b6Æ74æÖSÒ'V÷FRÖÖ&²#à¢Ç7ãì*³Â÷7ãà¢Çà¢·'FÀ¢ò-Š}˜˜}˜RŠí‹˜­‹}Š’Š}˜M˜=Š­Š}ŠˆÂŠ½˜R‹˜ıŠòŠ]˜M˜’Š}˜MŠ=‹]˜BŠ˜‹˜¢â ¢¢%VæFW'7FæBF†RÖÂF†Vâ&WGW&âFòF†R6÷W&6Râ'Ğ¢Â÷à¢ÂöF—cà¢Â÷6V7F–öãà¢Ç6V7F–öâ6Æ74æÖSÒ&ÖWG&–72#à¢ÄÖWG&–0¢–6öãÒ.)jR ¢fÇVS×µ7G&–ær‡–Æ÷D&öö·2æÆVæwF‚—Ğ¢Æ&VÃ×·Bæ&öö·7Ğ¢æ÷FS×·'FÂò-˜=Š­Š˜2Š}˜M˜]Šİ˜˜‹Š’˜‹˜M˜­˜½Šr"¢%–÷W"7GVÆÇ’6fVB&öö·2'Ğ¢óà¢ÄÖWG&–0¢–6öãÒ.)É2 ¢fÇVS×µ7G&–ær†Æ–'&'•7FG2ææÇ—6VD&öö·2—Ğ¢Æ&VÃ×·Bç&VG—Ğ¢æ÷FS×·'FÂò-˜=Š­Š‚˜M˜}ŠrŠ­Šİ˜M˜­˜B’˜]Šİ˜˜‹‚"¢$&öö·2v—F‚6fVB’æÇ—6—2'Ğ¢óà¢ÄÖWG&–0¢–6öãÒ.)yb ¢fÇVS×µ7G&–ær†Æ–'&'•7FG2çVW7F–öç2—Ğ¢Æ&VÃ×·'FÂò-Š=‹=Šm˜MŠ’˜]Šİ˜˜‹Š’"¢%6fVBVW7F–öç2'Ğ¢æ÷FS×·'FÂò-Š]ŠÍŠ}ŠŠ}Š¢˜]‹Š­Š‹}Š’ŠŠ}˜M˜=Š­Š‚"¢$&öö²Öw&÷VæFVBç7vW'2'Ğ¢óà¢ÄÖWG&–0¢–6öãÒ.(ir ¢fÇVS×µ7G&–ær†Æ–'&'•7FG2æVF–õ'G2—Ğ¢Æ&VÃ×·'FÂò-˜]˜-Š}‹}‹’‹]˜Š­˜­Š’"¢$VF–ò'G2'Ğ¢æ÷FS×·'FÂò-Ší˜MŠ}‹]Š}Š¢Š}ŠİŠ­‹Š}˜˜­Š’˜]Šİ˜˜‹Š’"¢%6fVB&öfW76–öæÂ7VÖÖ&–W2'Ğ¢óà¢Â÷6V7F–öãà¢Ç6V7F–öâ6Æ74æÖSÒ'7Æ—BÖw&–B#à¢Æ'F–6ÆR6Æ74æÖSÒ'æVÂ6öçF–çVRÖ6&B#à¢Å6V7F–öä†V@¢÷fW#×·'FÂò-Š}˜M˜-‹Š}ŠŠ’Š}˜MŠİŠ}˜M˜­Š’"¢$7W'&VçB&VF–ær'Ğ¢F—FÆS×·Bæ7W'&VçGĞ¢óà¢¶7W'&VçBòÆF—b6Æ74æÖSÒ&7W'&VçBÖ&öö²#à¢Ä÷&–v–æÅFd6÷fW"&öö³×¶7W'&VçGÒóà¢ÆF—b6Æ74æÖSÒ&&öö²Ö6÷’#à¢Ç7â6Æ74æÖSÒ'7FGW2#à¢·'FÂò-Š=˜-‹Š2Š}˜MŠ-˜b"¢$–â&öw&W72'Ğ¢Â÷7ãà¢ÆƒCç¶7W'&VçBçF—FÆWÓÂöƒCà¢Çç·'FÂò-˜=Š­Š}Š‚˜]Šİ˜˜‹‚˜˜¢˜]˜=Š­ŠŠ­˜2Š}˜MŠíŠ}‹]Š’"¢%6fVB–â–÷W"&—fFRÆ–'&'’'ÓÂ÷à¢Æ'WGFöà¢6Æ74æÖSÒ'&–Ö'’6ö×7B ¢öä6Æ–6³×²‚’Óâöä÷Vå–Æ÷B†7W'&VçB—Ğ¢à¢)kb·'FÂò-Š}˜Š­ŠÒŠ}˜M˜=Š­Š}Š‚˜˜mŠ­Š}ŠmŠÍ˜r"¢$÷Vâ&öö²b&W7VÇG2'Ğ¢Âö'WGFöãà¢ÂöF—cà¢ÂöF—câ¢Ç6Æ74æÖSÒ&F—66Æ÷7W&RÖæ÷FR#ç·'FÂò-˜M˜RŠ­‹m˜˜=Š­Š}Š˜½ŠrŠİ˜-˜­˜-˜­˜½ŠrŠ‹Šòâ"¢$æò&VÂ&öö²†2&VVâFFVB–WBâ'ÓÂ÷çĞ¢Âö'F–6ÆSà¢Æ'F–6ÆR6Æ74æÖSÒ'æVÂÆ–'&&–âÖ6&B#à¢ÆF—b6Æ74æÖSÒ&Æ–'&&–âÖ–6öâ#î)ÊcÂöF—cà¢Ç7â6Æ74æÖSÒ&W–V'&÷r#à¢·'FÂò-Š­˜‹]˜­Š’‹MŠí‹]˜­Š’"¢%W'6öæÂ&V6öÖÖVæFF–öâ'Ğ¢Â÷7ãà¢Æƒ3ç·Bç7VvvW7F–öçÓÂöƒ3à¢Çç¶7W'&Vç@¢ò‡'FÀ¢òŠ}ŠŠıŠ2ŠŠ­Šİ˜M˜­˜B*²G¶7W'&VçBçF—FÆWÜ+²Š½˜RŠ}‹=Š=˜BŠ=˜]˜­˜bŠ}˜M˜]˜=Š­ŠŠ’‹˜bŠ}˜MŠ=˜˜=Š}‹˜Š}˜M˜‹]˜˜BŠ}˜MŠ­˜¢Š­‹=Š­Šİ˜"Š}˜M‹˜ŠıŠ’Š]˜M˜’Š}˜M˜]‹]Šı‹æ ¢¢æÇ—¦R(	ÂG¶7W'&VçBçF—FÆWŞ(	ÒÂF†Vâ6²F†RÆ–'&&–âv†–6‚–FV2æB6†FW'2FW6W'fR&WGW&âFòF†R6÷W&6Ræ¢¢‡'FÂò-Š=‹m˜Š=˜˜B˜=Š­Š}Š‚Šİ˜-˜­˜-˜¢˜M˜­ŠŠıŠ2Š}˜MŠ}˜-Š­‹Š}ŠÒ˜]˜bŠ˜­Š}˜mŠ}Š¢˜]˜=Š­ŠŠ­˜=ˆÂ˜MŠr˜]˜bŠ=˜]Š½˜MŠ’˜˜}˜]˜­Š’â"¢$FB–÷W"f—'7B&VÂ&öö²6ò&V6öÖÖVæFF–öç2W6R–÷W"Æ–'&'(	Fæ÷BÆ6V†öÆFW"W†×ÆW2â"—ÓÂ÷à¢ÆF—b6Æ74æÖSÒ'6÷W&6RÖæ÷FR#à¢Æ#ç·'FÂò-‹=ŠŠ‚Š}˜MŠ}˜-Š­‹Š}ŠÒ"¢%v‡’F†—27VvvW7F–öâ'ÓÂö#à¢Ç7ãà¢·'FÀ¢ò-˜­Š­˜‹™˜B˜]˜bŠ­Šİ˜M˜­˜MŠ}Š¢˜=Š­Š˜2Š}˜M˜]Šİ˜˜‹Š’˜˜-‹r ¢¢$Væ&ÆVBöæÇ’g&öÒ–÷W"6fVB&öö²æÇ—6W2'Ğ¢Â÷7ãà¢ÂöF—cà¢¶7W'&VçBbbÆ'WGFöâ6Æ74æÖSÒ'FW‡BÖ'WGFöâ"öä6Æ–6³×²‚’Óâöä÷Vå–Æ÷B†7W'&VçB—Óà¢·'FÂò-Šİ˜M™˜BŠ}˜M˜=Š­Š}Š‚˜Š}‹=Š=˜M˜r"¢$æÇ—¦RæB6²F†—2&öö²'Ğ¢Âö'WGFöãçĞ¢Âö'F–6ÆSà¢Â÷6V7F–öãà¢Ç6V7F–öâ6Æ74æÖSÒ'æVÂÆ–'&'’×&Wf–Wr#à¢Å6V7F–öä†V@¢÷fW#×·'FÂò-‹˜˜˜˜2Š}˜M‹MŠí‹]˜­Š’"¢%–÷W"6†VÇfW2'Ğ¢F—FÆS×·Bæ×”Æ–'&'—Ğ¢7F–öã×·BæÆÇĞ¢öä7F–öã×²‚’Óâ6WEf–Wr‚&Æ–'&'’"—Ğ¢óà¢ÆF—b6Æ74æÖSÒ&&öö²Öw&–B#à¢·–Æ÷D&öö·2æÆVæwF‚â ¢ò–Æ÷D&öö·2æÖ‚†&öö²’Óâ€¢ÄÆ—fT&öö´6&B¶W“×¶&öö²æ–GÒ&öö³×¶&öö·Ò'FÃ×·'FÇÒöä÷Vã×²‚’Óâöä÷Vå–Æ÷B†&öö²—Òóà¢’¢¢Å6×ÆU6†VÆb'FÃ×·'FÇÒ6ö×7BóçĞ¢Æ'WGFöâ6Æ74æÖSÒ&FBÖ&öö²Ö6&B"öä6Æ–6³×¶öåWÆöGÓà¢Æ“îûÈ³Âö“à¢Ç7G&öæsç·'FÂò-Š=‹m˜˜=Š­Š}Š˜½ŠrŠÍŠı˜­Šı˜½Šr"¢$FBæWr&öö²'ÓÂ÷7G&öæsà¢Ç7ãåDcÂ÷7ãà¢Âö'WGFöãà¢ÂöF—cà¢Â÷6V7F–öãà¢Ç6V7F–öâ6Æ74æÖSÒ&¦÷W&æW’#à¢Å6V7F–öä†V@¢÷fW#×·'FÂò-˜]˜bŠ}˜M˜]˜M˜Š]˜M˜’Š}˜M˜]‹‹˜Š’"¢$g&öÒf–ÆRFò¶æ÷vÆVFvR'Ğ¢F—FÆS×·Bæ¦÷W&æW—Ğ¢óà¢ÆF—b6Æ74æÖSÒ'7FW2#à¢µ°¢°¢#"À¢.(zr"À¢'FÂò-Š}‹˜‹’˜=Š­Š}Š˜2"¢%WÆöB"À¢'FÂò-˜]˜M˜DbŠíŠ}‹RŠ˜2"¢%–÷W"&—fFRDb"À¢ÒÀ¢°¢#""À¢.(ÉR"À¢'FÂò-Š­Šİ˜-˜"˜˜˜}‹‹=Š’"¢%fW&–g’b6FÆöwVR"À¢'FÂò-Šİ˜-˜˜-ˆÂŠ˜­Š}˜mŠ}Š¢˜˜‹]˜˜B"¢%&–v‡G2ÂÖWFFFÂ6†FW'2"À¢ÒÀ¢°¢#2"À¢.)Êb"À¢'FÂò-˜˜}˜R˜Š­Šİ˜M˜­˜B"¢%VæFW'7FæB"À¢'FÂò-Ší˜MŠ}‹]Š’˜˜‹]˜˜B˜Š­˜Š½˜­˜""¢%7VÖÖ'’Â6†FW'2Â6—FF–öç2"À¢ÒÀ¢°¢#B"À¢.)yb"À¢'FÂò-Š}‹=Š­˜]‹’˜Š}‹=Š=˜B"¢$Æ—7FVâb6²"À¢'FÂò-‹]˜Š¢˜Š]ŠÍŠ}ŠŠ}Š¢˜]˜bŠ}˜M˜]‹]Šı‹"¢$VF–òæBw&÷VæFVBç7vW'2"À¢ÒÀ¢°¢#R"À¢.(ir"À¢'FÂò-‹˜ıŠò˜Š­Š}Š‹’"¢%&WGW&âb6öçF–çVR"À¢'FÂò-˜]˜Š}‹m‹’˜-‹Š}ŠŠ’˜Š­˜mŠ˜­˜}Š}Š¢"¢%&VF–ærÆö6F–öç2Â&VÖ–æFW'2"À¢ÒÀ¢ÒæÖ‚…¶âÂ’Â‚ÂÒ’Óâ€¢ÆF—b6Æ74æÖSÒ'7FW"¶W“×¶çÓà¢Æ#ç¶çÓÂö#à¢Æ“ç¶—ÓÂö“à¢ÆƒCç¶‡ÓÂöƒCà¢Çç·ÓÂ÷à¢ÂöF—cà¢’—Ğ¢ÂöF—cà¢Â÷6V7F–öãà¢ÂöF—cà¢“°§Ğ ¦gVæ7F–öâÖWG&–2‡°¢–6öâÀ¢fÇVRÀ¢Æ&VÂÀ¢æ÷FRÀ§Ó¢°¢–6öã¢7G&–æs°¢fÇVS¢7G&–æs°¢Æ&VÃ¢7G&–æs°¢æ÷FS¢7G&–æs°§Ò’°¢&WGW&â€¢Æ'F–6ÆR6Æ74æÖSÒ&ÖWG&–2#à¢Æ“ç¶–6öçÓÂö“à¢ÆF—cà¢Ç7G&öæsç·fÇVWÓÂ÷7G&öæsà¢Ç7ãç¶Æ&VÇÓÂ÷7ãà¢Ç6ÖÆÃç¶æ÷FWÓÂ÷6ÖÆÃà¢ÂöF—cà¢Âö'F–6ÆSà¢“°§Ğ¦gVæ7F–öâ6V7F–öä†VB‡°¢÷fW"À¢F—FÆRÀ¢7F–öâÀ¢öä7F–öâÀ§Ó¢°¢÷fW#¢7G&–æs°¢F—FÆS¢7G&–æs°¢7F–öãó¢7G&–æs°¢öä7F–öãó¢‚’Óâfö–C°§Ò’°¢&WGW&â€¢ÆF—b6Æ74æÖSÒ'6V7F–öâÖ†VB#à¢ÆF—cà¢Ç7ãç¶÷fW'ÓÂ÷7ãà¢Æƒ3ç·F—FÆWÓÂöƒ3à¢ÂöF—cà¢¶7F–öâbb€¢Æ'WGFöâ6Æ74æÖSÒ'FW‡BÖ'WGFöâ"öä6Æ–6³×¶öä7F–öçÓà¢¶7F–öçÒ(i ¢Âö'WGFöãà¢—Ğ¢ÂöF—cà¢“°§Ğ¦gVæ7F–öâ&"‡²fÇVRÓ¢²fÇVS¢çVÖ&W"Ò’°¢&WGW&â€¢ÆF—b6Æ74æÖSÒ'&öw&W72#à¢Æ’7G–ÆS×·²v–GFƒ¢G·fÇVWÒV×Òóà¢ÂöF—cà¢“°§Ğ¦gVæ7F–öâ&öö´6÷fW"‡²FöæRÂF—FÆRÓ¢²FöæS¢7G&–æs²F—FÆS¢7G&–ærÒ’°¢&WGW&â€¢ÆF—b6Æ74æÖS×¶&öö²Ö6÷fW"G·FöæWÖÓà¢Ç7ãíŠ}˜M˜]˜=Š­ŠŠ’Š}˜M‹˜=˜­Š“Â÷7ãà¢Ç7G&öæsç·F—FÆWÓÂ÷7G&öæsà¢Æ“î)xƒÂö“à¢ÂöF—cà¢“°§Ğ¦gVæ7F–öâvUF—FÆR‡°¢F—FÆRÀ¢FW67&—F–öâÀ¢7F–öâÀ¢öä7F–öâÀ§Ó¢°¢F—FÆS¢7G&–æs°¢FW67&—F–öã¢7G&–æs°¢7F–öãó¢7G&–æs°¢öä7F–öãó¢‚’Óâfö–C°§Ò’°¢&WGW&â€¢Æ†VFW"6Æ74æÖSÒ'vR×F—FÆR#à¢ÆF—cà¢Ç7ãíŠ}˜M˜]˜=Š­ŠŠ’Š}˜M‹MŠí‹]˜­Š’Š}˜M‹˜=˜­Š“Â÷7ãà¢Æƒ#ç·F—FÆWÓÂöƒ#à¢Çç¶FW67&—F–öçÓÂ÷à¢ÂöF—cà¢¶7F–öâbb€¢Æ'WGFöâ6Æ74æÖSÒ'&–Ö'’"öä6Æ–6³×¶öä7F–öçÓà¢ûÈ²¶7F–öçĞ¢Âö'WGFöãà¢—Ğ¢Âö†VFW#à¢“°§Ğ ¦6öç7B4õdU%õDôäU2Ò²&VÖW&ÆB"Â&æg’"Â&vöÆB%Ò26öç7C° ¢ò¢¢FWFW&Ö–æ—7F–2‡F—FÆRÖ&6VB’Æö6Â6÷fW"FöæR(	Bæò–ÖvRÂæò–B’Â6ÖRFöæRWfW'’&VæFW"â¢ğ¦gVæ7F–öâ6÷fW%FöæTf÷"‡6VVC¢7G&–ær“¢‡G—Vöb4õdU%õDôäU2•¶çVÖ&W%Ò°¢ÆWB†6‚Ò°¢f÷"†ÆWB’Ò²’Â6VVBæÆVæwFƒ²’²²’†6‚Ò††6‚¢3²6VVBæ6†$6öFTB†’’’ããâ°¢&WGW&â4õdU%õDôäU5¶†6‚R4õdU%õDôäU2æÆVæwF…Ó°§Ğ ¦gVæ7F–öâÆæwVvTÆ&VÂ†Ææs¢7G&–ærÂ'FÃ¢&ööÆVâ“¢7G&–ær°¢&WGW&âÆærÓÓÒ&" ¢ò'FÀ¢ò-Š}˜M‹‹Š˜­Š’ ¢¢$&&–2 ¢¢ÆærÓÓÒ&Vâ ¢ò'FÀ¢ò-Š}˜MŠ]˜mŠÍ˜M˜­‹-˜­Š’ ¢¢$VævÆ—6‚ ¢¢ÆærÓÓÒ&Ö—†VB ¢ò'FÀ¢ò-˜]ŠíŠ­˜M‹}Š’ ¢¢$Ö—†VB ¢¢ÆærÓÓÒ&&–Æ–æwVÂ ¢ò'FÀ¢ò-Š½˜mŠ}Šm˜­Š’Š}˜M˜M‹­Š’ ¢¢$&–Æ–æwVÂ ¢¢'FÀ¢ò-˜M˜RŠ­˜ıŠİŠı˜í™ŠòŠ‹Šò ¢¢$æ÷BFWFV7FVB–WB#°§Ğ ¦6öç7B5DEU5ôÄ$TÅ5ô#¢&V6÷&CÅ–Æ÷D&ööµ²'7FGW2%ÒÂ7G&–æsâÒ°¢WÆöFVC¢-˜]Šİ˜˜‹‚(	BŠŠ}˜mŠ­‹Š}‹Š}˜MŠ­Šİ˜M˜­˜BŠ}˜M˜]Šİ˜M˜¢"À¢&ö6W76–æs¢-˜-˜­ŠòŠ}˜M˜]‹Š}˜MŠÍŠ’"À¢&VG“¢-ŠÍŠ}˜}‹""À¢f–ÆVC¢-˜‹M˜B"À§Ó°¦6öç7B5DEU5ôÄ$TÅ5ôTã¢&V6÷&CÅ–Æ÷D&ööµ²'7FGW2%ÒÂ7G&–æsâÒ°¢WÆöFVC¢%6fVB(	Bv—F–ærÆö6ÂæÇ—6—2"À¢&ö6W76–æs¢%&ö6W76–ær"À¢&VG“¢%&VG’"À¢f–ÆVC¢$f–ÆVB"À§Ó° ¦6öç7B$ôôµô4DTtõ$”U2Ò°¢²&vVæW&Â"Â-‹Š}˜R"Â$vVæW&Â%ÒÀ¢²&†—7F÷'’"Â-Š}˜MŠ­Š}‹˜­Šâ"Â$†—7F÷'’%ÒÀ¢²&vVöw&‡’"Â-Š}˜MŠÍ‹­‹Š}˜˜­Šr"Â$vVöw&‡’%ÒÀ¢²&ÖævVÖVçB"Â-Š}˜MŠ]ŠıŠ}‹Š’˜Š}˜M˜-˜­Š}ŠıŠ’"Â$ÖævVÖVçBbÆVFW'6†—%ÒÀ¢²'FV6†æöÆöw’"Â-Š}˜M‹˜=Š}ŠŠ}˜MŠ}‹]‹}˜mŠ}‹˜¢˜Š}˜MŠ­˜-˜m˜­Š’"Â$’bFV6†æöÆöw’%ÒÀ¢²&Æ—FW&GW&R"Â-Š}˜MŠ=ŠıŠ‚˜Š}˜M˜M‹­Š’"Â$Æ—FW&GW&RbÆæwVvR%ÒÀ¢²'66–Væ6R"Â-Š}˜M‹˜M˜˜R˜Š}˜M‹]ŠİŠ’"Â%66–Væ6Rb†VÇF‚%ÒÀ¢²'F†÷Vv‡B"Â-Š}˜MŠı˜­˜b˜Š}˜M˜˜=‹"Â%&VÆ–v–öâbF†÷Vv‡B%ÒÀ¥Ò26öç7C°§G—R&öö´6FVv÷'”–BÒ‡G—Vöb$ôôµô4DTtõ$”U2•¶çVÖ&W%Õ³Ó° ¦gVæ7F–öâ6FVv÷'”÷F–öç2‡'FÃ¢&ööÆVâ’°¢&WGW&â$ôôµô4DTtõ$”U2æÖ‚…¶–BÂ"ÂVåÒ’Óâ‡²–BÂÆ&VÃ¢'FÂò"¢VâÒ’“°§Ğ ¦gVæ7F–öâ6FVv÷'”–Df÷$&öö²†&öö³¢–Æ÷D&öö²“¢&öö´6FVv÷'”–B°¢6öç7B6fVBÒ7G&–ær†&öö²æÖWFFFòæ6FVv÷'’óò""“°¢–b„$ôôµô4DTtõ$”U2ç6öÖR‚…¶–EÒ’Óâ–BÓÓÒ6fVB’’&WGW&â6fVB2&öö´6FVv÷'”–C°¢6öç7B†—7F6²ÒG¶&öö²çF—FÆWÒGµ7G&–ær†&öö²æÖWFFFòç7V&¦V7Bóò""—ÖçFôÆ÷vW$66R‚“°¢–b‚ıŠ­Š}‹˜­ŠçÆ†—7F÷'—ÍŠİ‹mŠ}‹Í‹=˜­‹Š’òçFW7B††—7F6²’’&WGW&â&†—7F÷'’#°¢–b‚ıŠÍ‹­‹Š}˜ÆvVöw&‡ÍŠı˜˜GÍŠ˜MŠıŠ}˜gÍŠí‹Š}Šm‹ròçFW7B††—7F6²’’&WGW&â&vVöw&‡’#°¢–b‚ıŠ]ŠıŠ}‹Í˜-˜­Š}Š÷ÆÖævVÖVçGÆÆVFW'6†—ÍŠ­Šİ˜˜B‹˜-˜]˜¢òçFW7B††—7F6²’’&WGW&â&ÖævVÖVçB#°¢–b‚ı‹˜=Š}ŠŠ}‹]‹}˜mŠ}‹˜§ÍŠ­˜-˜m˜§Í‹˜-˜]˜§ÍŠ‹˜]ŠÇÆ•Æ'Æ'F–f–6–ÇÇFV6†æöÆöw—Æ6ÆVFWÆ6öÖ–ærvfRòçFW7B††—7F6²’’&WGW&â'FV6†æöÆöw’#°¢–b‚ıŠ=ŠıŠ‡Í‹˜Š}˜§Í‹M‹‹Í˜M‹§ÆÆ—FW&GW&WÆæ÷fVÇÇöWG'—ÆÆæwVvRòçFW7B††—7F6²’’&WGW&â&Æ—FW&GW&R#°¢–b‚ı‹˜M˜˜WÍ‹]ŠİŠ—Í‹}Š‡Ç66–Væ6WÆ†VÇF‡ÆÖVF–6–æRòçFW7B††—7F6²’’&WGW&â'66–Væ6R#°¢–b‚ıŠı˜­˜gÍ˜˜=‹Í˜˜M‹=˜Ç&VÆ–wÇF†÷Vv‡GÇ†–Æ÷6÷‚òçFW7B††—7F6²’’&WGW&â'F†÷Vv‡B#°¢&WGW&â&vVæW&Â#°§Ğ ¦gVæ7F–öâ6FVv÷'”Æ&VÂ†6FVv÷'“¢&öö´6FVv÷'”–BÂ'FÃ¢&ööÆVâ’°¢6öç7B—FVÒÒ$ôôµô4DTtõ$”U2æf–æB‚…¶–EÒ’Óâ–BÓÓÒ6FVv÷'’’óò$ôôµô4DTtõ$”U5³Ó°¢&WGW&â'FÂò—FVÕ³Ò¢—FVÕ³%Ó°§Ğ ¦gVæ7F–öâ÷&–v–æÅFd6÷fW"‡²&öö²Ó¢²&öö³¢–Æ÷D&öö²Ò’°¢6öç7B6çf5&VbÒW6U&VcÄ…DÔÄ6çf4VÆVÖVçCâ†çVÆÂ“°¢6öç7B¶f–ÆVBÂ6WDf–ÆVEÒÒW6U7FFR†fÇ6R“°¢W6TVffV7B‚‚’Óâ°¢ÆWB6æ6VÆÆVBÒfÇ6S°¢6WDf–ÆVB†fÇ6R“°¢6öç7B&VæFW"Ò7–æ2‚’Óâ°¢òòF÷væÆöBF‡&÷Vv‚F†RWF†VçF–6FVB7F÷&vR6Æ–VçB–ç7FVBöb6¶–æp¢òòDbæ§2Fò&ævRÖfWF6‚6†÷'BÖÆ—fVB6–væVBU$Ââ6×7Vær–çFW&æWBæ@¢òò6öÖRæG&ö–BvV%f–Ww26â&V¦V7BF†÷6R7&÷72Ö÷&–v–â&ævR&WVW7G2æ@¢òòÆVfRâV×G’6çf2WfVâF†÷Vv‚F†R&öö²—G6VÆb—2f–Æ&ÆRà¢6öç7Bf–ÆT&Æö"Òv—BF÷væÆöD&öö´f–ÆR†&öö²ç7F÷&vU÷F‚“°¢6öç7BFf§2Òv—B–×÷'B‚'Ff§2ÖF—7B"“°¢Ff§2ävÆö&Åv÷&¶W$÷F–öç2çv÷&¶W%7&2ÒFev÷&¶W%W&Ã°¢6öç7BFbÒv—BFf§2ævWDFö7VÖVçB‡²FF¢æWrV–çC„'&’†v—Bf–ÆT&Æö"æ'&”'VffW"‚’’ÂF—6&ÆTföçDf6S¢G'VRÒ’ç&öÖ—6S°¢6öç7Bf—'7BÒv—BFbævWEvRƒ“°¢6öç7B&6RÒf—'7BævWEf–Ww÷'B‡²66ÆS¢Ò“°¢6öç7Bf–Ww÷'BÒf—'7BævWEf–Ww÷'B‡²66ÆS¢ÖF‚æÖ‚ƒã3BÂÖF‚æÖ–âƒã"ÂC#ò&6Rçv–GF‚’’Ò“°¢–b†6æ6VÆÆVBÇÂ6çf5&Vbæ7W'&VçB’&WGW&ã°¢6öç7B6çf2Ò6çf5&Vbæ7W'&VçC°¢6öç7B6öçFW‡BÒ6çf2ævWD6öçFW‡B‚#&B"Â²Ç†¢fÇ6RÒ“°¢–b‚6öçFW‡B’F‡&÷ræWrW'&÷"‚$4õdU%ô4åd5õTäd”Ä$ÄR"“°¢6çf2çv–GF‚ÒÖF‚æfÆö÷"‡f–Ww÷'Bçv–GF‚“°¢6çf2æ†V–v‡BÒÖF‚æfÆö÷"‡f–Ww÷'Bæ†V–v‡B“°¢v—Bf—'7Bç&VæFW"‡²6çf46öçFW‡C¢6öçFW‡BÂf–Ww÷'BÂ6çf2Ò’ç&öÖ—6S°¢6çf2æFF6WBç&VG’Ò'G'VR#°¢Ó°¢&VæFW"‚’æ6F6‚‚‚’Óâ6æ6VÆÆVBbb6WDf–ÆVB‡G'VR’“°¢&WGW&â‚’Óâ²6æ6VÆÆVBÒG'VS²Ó°¢ÒÂ¶&öö²æ–BÂ&öö²ç7F÷&vU÷F…Ò“°¢–b†f–ÆVB’&WGW&âÄ&öö´6÷fW"FöæS×¶6÷fW%FöæTf÷"†&öö²çF—FÆR—ÒF—FÆS×¶&öö²çF—FÆRç7Æ—B‚""’ç6Æ–6RƒÂ2’æ¦ö–â‚""—Òóã°¢&WGW&âÆF—b6Æ74æÖSÒ&&öö²Ö6÷fW"÷&–v–æÂ×FbÖ6÷fW"#ãÆ6çf2&Vc×¶6çf5&VgÒ&–ÖÆ&VÃ×¶&öö²çF—FÆWÒóãÂöF—cã°§Ğ ¢ò¢¢&VÂ6fVB&öö³²vRöæR—2&VæFW&VB2—G26÷fW"v—F‚6fRfÆÆ&6²â¢ğ¦gVæ7F–öâÆ—fT&öö´6&B‡°¢&öö²À¢'FÂÀ¢öä÷VâÀ¢öäFVÆWFRÀ¢öä6FVv÷'”6†ævRÀ§Ó¢°¢&öö³¢–Æ÷D&öö³°¢'FÃ¢&ööÆVã°¢öä÷Vã¢‚’Óâfö–C°¢öäFVÆWFSó¢‚’Óâfö–C°¢öä6FVv÷'”6†ævSó¢†6FVv÷'“¢7G&–ær’Óâfö–C°§Ò’°¢6öç7B7V'F—FÆRÒÆæwVvTÆ&VÂ†&öö²ç6÷W&6UöÆæwVvRÂ'FÂ“°¢6öç7B7FGW2Ò'FÂò5DEU5ôÄ$TÅ5ô%¶&öö²ç7FGW5Ò¢5DEU5ôÄ$TÅ5ôTå¶&öö²ç7FGW5Ó°¢6öç7B6FVv÷'’Ò6FVv÷'”–Df÷$&öö²†&öö²“°¢&WGW&â€¢Æ'F–6ÆR6Æ74æÖSÒ&&öö²Ö6&BÆ—fRÖ&öö²Ö6&B#à¢Æ'WGFöâ6Æ74æÖSÒ&&öö²Ö6&BÖ÷Vâ"öä6Æ–6³×¶öä÷VçÒ&–ÖÆ&VÃ×¶G·'FÂò-˜Š­ŠÒ"¢$÷Vâ'ÒG¶&öö²çF—FÆWÖÓà¢Ä÷&–v–æÅFd6÷fW"&öö³×¶&öö·Òóà¢Âö'WGFöãà¢ÆF—b6Æ74æÖSÒ&Æ—fRÖ&öö²Ö6÷’#à¢Ç7â6Æ74æÖSÒ'Fr#ç·'FÂò-˜=Š­Š}Š˜2"¢%–÷W"&öö²'ÓÂ÷7ãà¢Æ'WGFöâ6Æ74æÖSÒ&&öö²×F—FÆRÖ'WGFöâ"öä6Æ–6³×¶öä÷VçÓãÆƒCç¶&öö²çF—FÆWÓÂöƒCãÂö'WGFöãà¢Çç·7V'F—FÆWÓÂ÷à¢Ç6ÖÆÃç·7FGW7ÓÂ÷6ÖÆÃà¢¶öä6FVv÷'”6†ævRò€¢Ç6VÆV7@¢6Æ74æÖSÒ&&öö²Ö6FVv÷'’×6VÆV7B ¢fÇVS×¶6FVv÷'—Ğ¢öä6†ævS×²†WfVçB’Óâöä6FVv÷'”6†ævR†WfVçBçF&vWBçfÇVR—Ğ¢&–ÖÆ&VÃ×·'FÂò-Š­‹]˜m˜­˜Š}˜M˜=Š­Š}Š‚"¢$&öö²6FVv÷'’'Ğ¢à¢¶6FVv÷'”÷F–öç2‡'FÂ’æÖ‚†—FVÒ’ÓâÆ÷F–öâ¶W“×¶—FVÒæ–GÒf}ÛŸm¢G§²ÚîÆ­yØM‹˜­˜mŠ’˜]‹Š’˜Š}ŠİŠıŠ’ŠŠ­˜=˜M˜Š’‹mŠm˜­˜MŠ’ŠÍŠı˜½Š}ˆÂŠ½˜R˜­‹Š}ŠòŠ­‹M‹­˜­˜M˜}ŠrŠı˜˜bŠ­˜=˜M˜Š’â ¢¢$Æ—7FVâFò6†÷'B6×ÆRf—'7Bâ—B†2F–ç’öæR×F–ÖRvVæW&F–öâ6÷7BÂF†Vâ&WÆ—2Bæò6÷7Bâ'Ğ¢Â÷à¢ÆF—b6Æ74æÖSÒ'fö–6RÖ6†ö–6RÖw&–B#à¢²…²&Ö&–â"Â&6VF"%Ò26öç7B’æÖ‚‡fö–6R’Óâ€¢ÆF—b6Æ74æÖS×¶fö–6RÖ6†ö–6RG·&öfW76–öæÅfö–6RÓÓÒfö–6Rò'6VÆV7FVB"¢"'ÖÒ¶W“×·fö–6WÓà¢Æ'WGFöà¢6Æ74æÖSÒ'fö–6R×6VÆV7B ¢&–×&W76VC×·&öfW76–öæÅfö–6RÓÓÒfö–6WĞ¢öä6Æ–6³×²‚’Óâ6VÆV7E&öfW76–öæÅfö–6R‡fö–6R—Ğ¢à¢Ç7â6Æ74æÖSÒ'fö–6R×&F–ò"&–Ö†–FFVãÒ'G'VR#ç·&öfW76–öæÅfö–6RÓÓÒfö–6Rò.)xò"¢.)x²'ÓÂ÷7ãà¢Ç7G&öæsç·fö–6RÓÓÒ&Ö&–â"ò‡'FÂò-‹]˜Š¢Š=˜mŠ½˜˜¢(	BÖ&–â"¢$fVÖÆRfö–6R(	BÖ&–â"’¢‡'FÂò-‹]˜Š¢‹ŠÍŠ}˜M˜¢(	B6VF""¢$ÖÆRfö–6R(	B6VF""—ÓÂ÷7G&öæsà¢Ç7ãç·'FÂò-˜}Š}ŠıŠmˆÂŠıŠ}˜ŠmˆÂ˜˜-‹Š}ŠŠ’˜]Š­‹-˜mŠ’"¢$6ÆÒÂv&ÒÂ&Ææ6VBæ'&F–öâ'ÓÂ÷7ãà¢·&öfW76–öæÅfö–6RÓÓÒfö–6RbbÆ"6Æ74æÖSÒ'fö–6R×6VÆV7FVBÖÆ&VÂ#ç·'FÂò-˜]ŠíŠ­Š}‹˜MŠ]˜m‹MŠ}ŠŠ}˜M‹]˜Š¢Š}˜M˜=Š}˜]˜B"¢%6VÆV7FVBf÷"gVÆÂVF–ò'ÓÂö#çĞ¢Âö'WGFöãà¢Æ'WGFöâ6Æ74æÖSÒ'6V6öæF'’fö–6R×&Wf–WrÖ'WGFöâ"F—6&ÆVC×¶'W7’ÓÓÒ&Wf–WrÒG·fö–6WÖÒöä6Æ–6³×²‚’Óâ&Wf–Wufö–6R‡fö–6R—Óà¢¶'W7’ÓÓÒ&Wf–WrÒG·fö–6WÖò.(
+b"¢'FÂò-Š=˜m‹MŠbı‹M‹­™˜BŠ}˜M‹˜­˜mŠ’"¢$7&VFR÷Æ’6×ÆR'Ğ¢Âö'WGFöãà¢·fö–6U&Wf–WuW&Ç5·fö–6UÒbbÆVF–ò6öçG&öÇ2&VÆöCÒ&ÖWFFF"7&3×·fö–6U&Wf–WuW&Ç5·fö–6U×ÒóçĞ¢ÂöF—cà¢’—Ğ¢ÂöF—cà¢Ç6Æ74æÖSÒ'6VÆV7FVB×fö–6R×7VÖÖ'’#à¢·'FÂò-Š}˜M‹]˜Š¢Š}˜M˜]ŠíŠ­Š}‹˜M˜M‹M‹Š}Š¢"¢%fö–6R6VÆV7FVBf÷"W&6†6S¢'Ğ¢Ç7G&öæsç·&öfW76–öæÅfö–6RÓÓÒ&Ö&–â"ò‡'FÂò-Š}˜MŠ=˜mŠ½˜˜¢(	BÖ&–â"¢$fVÖÆR(	BÖ&–â"’¢‡'FÂò-Š}˜M‹ŠÍŠ}˜M˜¢(	B6VF""¢$ÖÆR(	B6VF""—ÓÂ÷7G&öæsà¢Â÷à¢¶6öæf—&Ö–ærÓÒ&VF–ò"ò€¢Æ'WGFöà¢6Æ74æÖSÒ'6V6öæF'’ ¢F—6&ÆVC×²&W7VÇG7Ğ¢öä6Æ–6³×²‚’Óâ6WD6öæf—&Ö–ær‚&VF–ò"—Ğ¢à¢·'FÂò-‹Š}ŠÍ‹’Š}˜MŠ­˜=˜M˜Š’"¢%&Wf–Wr6÷7B'Ğ¢Âö'WGFöãà¢’¢€¢ÆF—b6Æ74æÖSÒ&6÷7BÖ6öæf—&Ò#à¢Ç7G&öær6Æ74æÖSÒ&6öæf—&Ò×fö–6RÖæÖR#à¢·'FÂò-‹=˜­˜ı˜m‹MŠ2Š}˜M‹]˜Š¢Š}˜M˜=Š}˜]˜BŠŠ}‹=Š­ŠíŠıŠ}˜S¢"¢$gVÆÂVF–òv–ÆÂW6S¢'Ğ¢·&öfW76–öæÅfö–6RÓÓÒ&Ö&–â"ò‡'FÂò-Š}˜M‹]˜Š¢Š}˜MŠ=˜mŠ½˜˜¢(	BÖ&–â"¢$fVÖÆR(	BÖ&–â"’¢‡'FÂò-Š}˜M‹]˜Š¢Š}˜M‹ŠÍŠ}˜M˜¢(	B6VF""¢$ÖÆR(	B6VF""—Ğ¢Â÷7G&öæsà¢Æ'WGFöà¢6Æ74æÖSÒ'&–Ö'’ ¢F—6&ÆVC×¶'W7’ÓÓÒ&VF–ò'Ğ¢öä6Æ–6³×¶VF–÷Ğ¢à¢¶'W7’ÓÓÒ&VF–ò ¢ò.(
+b ¢¢'FÀ¢ò-Š=˜Š}˜˜"˜Š=˜m‹MŠbŠ}˜M‹]˜Š¢ ¢¢$6öæf—&ÒbvVæW&FR'Ğ¢Âö'WGFöãà¢Æ'WGFöà¢6Æ74æÖSÒ'6V6öæF'’ ¢öä6Æ–6³×²‚’Óâ6WD6öæf—&Ö–ær‚""—Ğ¢à¢·'FÂò-Š­‹Š}ŠÍ‹’"¢$vò&6²'Ğ¢Âö'WGFöãà¢ÂöF—cà¢—Ğ¢¶VF–õW&Ç2æÆVæwF‚âbbÆF—b6Æ74æÖSÒ'&öfW76–öæÂÖVF–òÖÆ—7B#ç¶VF–õW&Ç2æÖ‚‡W&ÂÂ–æFW‚’ÓâÆÆ&VÂ¶W“×·W&ÇÓãÇ7ãç·'FÂòŠ}˜MŠÍ‹-ŠG¶–æFW‚²Ö¢'BG¶–æFW‚²ÖÓÂ÷7ããÆVF–ò6öçG&öÇ2&VÆöCÒ&ÖWFFF"7&3×·W&ÇÒóãÂöÆ&VÃâ—ÓÇ6ÖÆÃç·'FÂò-˜}‹˜rŠ}˜MŠ=‹]˜Š}Š¢˜]˜˜MŠıŠ’ŠŠ}˜M‹˜=Š}ŠŠ}˜MŠ}‹]‹}˜mŠ}‹˜¢â"¢%F†W6Rfö–6W2&R’ÖvVæW&FVBâ'ÓÂ÷6ÖÆÃãÂöF—cçĞ¢Âóà¢—Ğ¢Â÷6V7F–öãà¢¶W'&÷"bbÆF—b6Æ74æÖSÒ'&VFW"ÖW'&÷"–æÆ–æR#ç¶W'&÷'ÓÂöF—cçĞ¢Âö6–FSà¢ÂöF—cà¢—Ğ¢ÂöF—cà¢“°§Ğ ¦gVæ7F–öâ&öö´FWF–Â‡²'FÂÂöä&6²Ó¢²'FÃ¢&ööÆVã²öä&6³¢‚’Óâfö–BÒ’°¢6öç7B·F"Â6WEF%ÒÒW6U7FFR‚'7VÖÖ'’"“°¢6öç7B·Æ––æuÒÒW6U7FFR†fÇ6R“°¢6öç7BF'2Ò'FÀ¢ò°¢²'7VÖÖ'’"Â-Š}˜MŠí˜MŠ}‹]Š’%ÒÀ¢²&6†FW'2"Â-Š}˜M˜‹]˜˜B%ÒÀ¢²&æÇ—6—2"Â-Š}˜MŠ­Šİ˜M˜­˜B%ÒÀ¢²'&WGW&â"Â-Š}˜M‹˜ŠıŠ’˜M˜M˜=Š­Š}Š‚%ÒÀ¢²&VF–ò"Â-Š}˜MŠ}‹=Š­˜]Š}‹’%ÒÀ¢Ğ¢¢°¢²'7VÖÖ'’"Â$÷fW'f–Wr%ÒÀ¢²&6†FW'2"Â$6†FW'2%ÒÀ¢²&æÇ—6—2"Â$æÇ—6—2%ÒÀ¢²'&WGW&â"Â%&WGW&âFò6÷W&6R%ÒÀ¢²&VF–ò"Â$Æ—7FVâ%ÒÀ¢Ó°¢&WGW&â€¢ÆF—b6Æ74æÖSÒ'vR&öö²ÖFWF–Â#à¢Æ'WGFöâ6Æ74æÖSÒ&&6²"öä6Æ–6³×¶öä&6·Óà¢(i"·'FÂò-Š}˜M‹˜ŠıŠ’Š]˜M˜’˜]˜=Š­ŠŠ­˜¢"¢$&6²Fò×’Æ–'&'’'Ğ¢Âö'WGFöãà¢Ç6V7F–öâ6Æ74æÖSÒ&&öö²Ö†W&òæVÂ#à¢Ä&öö´6÷fW ¢FöæSÒ&VÖW&ÆB ¢F—FÆS×·'FÂò-Š]ŠıŠ}‹Š’Š}˜M˜]‹‹˜Š’"¢$¶æ÷vÆVFvRÖævVÖVçB'Ğ¢óà¢ÆF—b6Æ74æÖSÒ&&öö²Ö–FVçF—G’#à¢Ç7â6Æ74æÖSÒ'Fr#à¢·'FÂò-Š]ŠıŠ}‹Š’Š}˜M˜]‹‹˜Š’"¢$¶æ÷vÆVFvRÖævVÖVçB'Ğ¢Â÷7ãà¢Æƒ#à¢·'FÀ¢ò-˜]ŠıŠí˜BŠ]˜M˜’Š]ŠıŠ}‹Š’Š}˜M˜]‹‹˜Š’ ¢¢$–çG&öGV7F–öâFò¶æ÷vÆVFvRÖævVÖVçB'Ğ¢Âöƒ#à¢Çà¢·'FÀ¢ò-˜m˜]˜‹ŠÂŠ­ŠÍ‹˜­Š˜¢(
+"#ƒB‹]˜ŠİŠ’(
+"Š}˜M‹‹Š˜­Š’ ¢¢$FVÖòVF—F–öâ(
+"#ƒBvW2(
+"&&–2'Ğ¢Â÷à¢ÆF—b6Æ74æÖSÒ&&öö²Ö&FvW2#à¢Ç7ãî)É2·'FÂò-Š}˜MŠ­Šİ˜M˜­˜BŠÍŠ}˜}‹""¢$æÇ—6—2&VG’'ÓÂ÷7ãà¢Ç7ãî(È·'FÂò#"˜‹]˜M˜½Šr"¢#"6†FW'2'ÓÂ÷7ãà¢Ç7ãî)ybƒ£C#Â÷7ãà¢Ç7ãî)xâ·'FÂò-˜]˜Š½˜"ŠŠ}˜M‹]˜ŠİŠ}Š¢"¢%vR6—FVB'ÓÂ÷7ãà¢ÂöF—cà¢ÂöF—cà¢ÆF—b6Æ74æÖSÒ'G'W7B×66÷&R#à¢Ç7G&öæsã“"SÂ÷7G&öæsà¢Ç7ãç·'FÂò-Š½˜-Š’Š}˜M˜]Ší‹ŠÍŠ}Š¢"¢$÷WGWB6öæf–FVæ6R'ÓÂ÷7ãà¢Ç6ÖÆÃà¢·'FÀ¢ò-˜­ŠİŠ­Š}ŠÂŠ]˜M˜’˜]‹Š}ŠÍ‹Š’Š‹M‹˜­Š’˜-Š˜BŠ}˜MŠ}‹=Š­‹M˜}Š}ŠòŠ}˜MŠ=˜=Š}Šı˜­˜]˜¢ ¢¢$‡VÖâ&Wf–Wr&WV—&VB&Vf÷&R6FVÖ–26—FF–öâ'Ğ¢Â÷6ÖÆÃà¢ÂöF—cà¢Â÷6V7F–öãà¢Ææb6Æ74æÖSÒ&&öö²×F'2#à¢·F'2æÖ‚…¶–BÂÆ&VÅÒ’Óâ€¢Æ'WGFöà¢¶W“×¶–GĞ¢6Æ74æÖS×·F"ÓÓÒ–Bò&7F—fR"¢"'Ğ¢öä6Æ–6³×²‚’Óâ6WEF"†–B—Ğ¢à¢¶Æ&VÇĞ¢Âö'WGFöãà¢’—Ğ¢Âöæcà¢ÆF—b6Æ74æÖSÒ&&öö²Ö6öçFVçB#à¢Æ'F–6ÆR6Æ74æÖSÒ'æVÂ&VF–ær×7W&f6R#à¢·F"ÓÓÒ'7VÖÖ'’"bb€¢Ãà¢Ä6öçFVçEF—FÆP¢ãÒ# ¢÷fW#×·'FÂò-Ší˜MŠ}‹]Š’‚Šı˜-˜­˜-Š’"¢#‚ÖÖ–çWFR÷fW'f–Wr'Ğ¢F—FÆS×°¢'FÀ¢ò-Ší‹˜­‹}Š’Š}˜M˜=Š­Š}Š‚˜˜¢˜-‹Š}ŠŠ’˜Š}ŠİŠıŠ’ ¢¢%F†R&öö²Ö–âöæR&VF–ær ¢Ğ¢óà¢ÅG'W7DÆ&VÂ'FÃ×·'FÇÒóà¢Ç6Æ74æÖSÒ&ÆVBÖ6÷’#à¢·'FÀ¢ò-˜­˜m‹}˜M˜"Š}˜M˜=Š­Š}Š‚˜]˜bŠ=˜bŠ}˜M˜]‹‹˜Š’˜M˜­‹=Š¢˜]ŠÍ‹Šò˜]‹˜M˜˜]Š}Š¢˜]Šİ˜˜‹ŠˆÂŠ˜B˜-Šı‹Š’Š}˜M˜]ŠM‹=‹=Š’‹˜M˜’Š­Šİ˜˜­˜BŠíŠ‹Š}Š¢Š}˜MŠ=˜‹Š}ŠòŠ]˜M˜’˜]˜‹Šò˜­˜]˜=˜b˜]‹MŠ}‹˜=Š­˜r˜Š­‹}˜˜­‹˜r˜Š}‹=Š­ŠíŠıŠ}˜]˜r˜˜¢Š}Š­ŠíŠ}‹Š}˜M˜-‹Š}‹â˜˜­‹‹‹bŠ}˜M˜‹˜"Š˜­˜bŠ}˜M˜]‹‹˜Š’Š}˜M‹]‹˜­ŠİŠ’Š}˜M˜-Š}Š˜MŠ’˜M˜MŠ­˜Š½˜­˜"˜Š}˜M˜]‹‹˜Š’Š}˜M‹m˜]˜m˜­Š’Š}˜M˜]‹Š­Š‹}Š’ŠŠ}˜MŠ­ŠÍ‹ŠŠ’â ¢¢%F†R&öö²&wVW2F†B¶æ÷vÆVFvR—2Ö÷&RF†â7F÷&VB–æf÷&ÖF–öã¢—B—2â÷&væ—¦F–öî(	—2&–Æ—G’FòGW&â–æF—f–GVÂW‡W&–Væ6R–çFò&W6÷W&6RF†B6â&R6†&VBÂFWfVÆ÷VBÂæBW6VB–âFV6—6–öç2â'Ğ¢Â÷à¢Æƒ3ç·'FÂò-Š}˜MŠ=˜˜=Š}‹Š}˜M˜]Šİ˜‹˜­Š’"¢$6÷&R–FV2'ÓÂöƒ3à¢ÆF—b6Æ74æÖSÒ&¶W’Ö–FV2#à¢Ä–FV¢ãÒ# ¢F—FÆS×·'FÂò-Š}˜M˜]‹‹˜Š’Š=‹]˜B˜]Š­ŠÍŠıŠò"¢$¶æ÷vÆVFvR—2&VæWv&ÆR'Ğ¢FW‡C×°¢'FÀ¢ò-Š­‹-ŠıŠ}Šò˜-˜­˜]Š­˜}ŠrŠŠ}˜M˜]‹MŠ}‹˜=Š’Š}˜M˜]˜m‹˜]ŠˆÂ˜MŠrŠŠ}˜MŠ}ŠİŠ­˜Š}‹‚Š}˜M˜‹Šı˜¢â ¢¢$—G2fÇVRw&÷w2F‡&÷Vv‚7G'V7GW&VB6†&–ærâ ¢Ğ¢óà¢Ä–FV¢ãÒ#" ¢F—FÆS×°¢'FÂò-Š}˜MŠ­˜-˜m˜­Š’˜M˜­‹=Š¢˜=Š}˜˜­Š’"¢%FV6†æöÆöw’—2æ÷BVæ÷Vv‚ ¢Ğ¢FW‡C×°¢'FÀ¢ò-˜mŠÍŠ}ŠÒŠ}˜M˜m‹Š}˜R˜­‹Š­˜]Šò‹˜M˜’Š}˜MŠ½˜-Š}˜Š’˜Š}˜MŠİ˜Š}˜‹"˜Š}˜MŠ½˜-Š’â ¢¢%7V66W72FWVæG2öâ7VÇGW&RÂ–æ6VçF—fW2ÂæBG'W7Bâ ¢Ğ¢óà¢Ä–FV¢ãÒ#2 ¢F—FÆS×°¢'FÀ¢ò-Š}˜M˜˜}‹‹=Š’ŠÍ‹=‹Š}˜MŠ}‹=Š­‹ŠÍŠ}‹’ ¢¢$6FÆöwV–ærVæ&ÆW2&WG&–WfÂ ¢Ğ¢FW‡C×°¢'FÀ¢ò-˜]Šr˜MŠr˜­˜‹]˜˜˜­˜m‹˜R˜­‹]‹Š‚Š}˜M‹Š½˜‹‹˜M˜­˜r˜Š]‹Š}ŠıŠ’Š}‹=Š­ŠíŠıŠ}˜]˜râ ¢¢%v†B—2æ÷BFW67&–&VBæB÷&væ—¦VB—2†&BFò&WW6Râ ¢Ğ¢óà¢ÂöF—cà¢Æ&Æö6·V÷FSà¢·'FÀ¢ò-˜}‹˜r‹]˜­Š}‹­Š’Š­˜MŠí˜­‹]˜­Š’˜M˜M˜]˜m‹]Š’˜˜M˜­‹=Š¢Š}˜-Š­ŠŠ}‹=˜½ŠrŠİ‹˜˜­˜½Šr˜]˜bŠ}˜M˜]ŠM˜M˜â ¢¢%F†—2—2ÆFf÷&ÒÖvVæW&FVB7VÖÖ'’Âæ÷BfW&&F–ÒV÷FF–öâg&öÒF†RWF†÷"â'Ğ¢Âö&Æö6·V÷FSà¢Âóà¢—Ğ¢·F"ÓÓÒ&6†FW'2"bb€¢Ãà¢Ä6öçFVçEF—FÆP¢ãÒ#" ¢÷fW#×·'FÂò#"˜‹]˜M˜½Šr˜]˜=Š­‹M˜˜½Šr"¢#"FWFV7FVB6†FW'2'Ğ¢F—FÆS×°¢'FÀ¢ò-˜]‹˜‹Š=‹˜]˜"‹˜M˜’Š˜m˜­Š’Š}˜M˜=Š­Š}Š‚ ¢¢$FVWW"72F‡&÷Vv‚F†R&öö² ¢Ğ¢óà¢ÆF—b6Æ74æÖSÒ&6†FW'2#à¢µ³Â"Â2ÂBÂUÒæÖ‚†â’Óâ€¢ÆFWF–Ç2¶W“×¶çÒ÷Vã×¶âÓÓÒÓà¢Ç7VÖÖ'“à¢Æ#çµ7G&–ær†â’çE7F'Bƒ"Â#"—ÓÂö#à¢Ç7ãà¢·'FÀ¢ò°¢-˜]˜bŠ}˜MŠ˜­Š}˜mŠ}Š¢Š]˜M˜’Š}˜M˜]‹‹˜Š’"À¢-Š}˜M˜]‹‹˜Š’Š}˜M‹]‹˜­ŠİŠ’˜Š}˜M‹m˜]˜m˜­Š’"À¢-Š½˜-Š}˜Š’Š}˜M˜]‹MŠ}‹˜=Š’"À¢-Šı˜‹Š’Šİ˜­Š}Š’Š}˜M˜]‹‹˜Š’"À¢-˜-˜­Š}‹2Š}˜MŠ=Š½‹"À¢Õ¶âÒĞ¢¢°¢$g&öÒFFFò¶æ÷vÆVFvR"À¢$W‡Æ–6—BæBF6—B¶æ÷vÆVFvR"À¢$7VÇGW&Röb6†&–ær"À¢%F†R¶æ÷vÆVFvRÆ–fV7–6ÆR"À¢$ÖV7W&–ær–×7B"À¢Õ¶âÒ×Ğ¢Â÷7ãà¢ÆVÓà¢³b²çÒ·'FÂò-Šı˜-Š}Šm˜""¢&Ö–â'Ğ¢ÂöVÓà¢Â÷7VÖÖ'“à¢ÆF—cà¢ÅG'W7DÆ&VÂ'FÃ×·'FÇÒóà¢Çà¢·'FÀ¢ò-˜­‹‹‹bŠ}˜M˜‹]˜BŠ}˜M˜]˜Š}˜}˜­˜RŠ}˜MŠ=‹=Š}‹=˜­Š’˜Š}˜MŠİŠÍŠÂ˜Š}˜MŠ=˜]Š½˜MŠˆÂ˜]‹’˜‹]˜B˜Š}‹mŠÒŠ˜­˜b˜]Šr˜‹Šò˜˜¢Š}˜M˜m‹R˜˜]ŠrŠ}‹=Š­˜mŠ­ŠÍŠ­˜rŠ}˜M˜]˜m‹]Š’â ¢¢%F†R6†FW"&W6VçG2—G2Ö–â6öæ6WG2Â&wVÖVçG2ÂæBW†×ÆW2Â6ÆV&Ç’6W&F–ær6÷W&6R6öçFVçBg&öÒÆFf÷&Ò–æfW&Væ6Râ'Ğ¢Â÷à¢Æ'WGFöâ6Æ74æÖSÒ'FW‡BÖ'WGFöâF—6&ÆVB×6ööâ"F—6&ÆVBF—FÆS×·'FÂò-˜m˜]˜‹ŠÂ‹‹‹b"¢$F—7Æ’6×ÆR'Óà¢·'FÀ¢òŠ}˜Š­ŠÒŠ}˜M˜‹]˜B‹˜mŠòŠ}˜M‹]˜ŠİŠ’G³‚²â¢'Ö ¢¢÷Vâ6†FW"BvRG³‚²â¢'Ö×²"'Ğ¢(i ¢Âö'WGFöãà¢ÂöF—cà¢ÂöFWF–Ç3à¢’—Ğ¢ÂöF—cà¢Âóà¢—Ğ¢·F"ÓÓÒ&æÇ—6—2"bb€¢Ãà¢Ä6öçFVçEF—FÆP¢ãÒ#2 ¢÷fW#×·'FÂò-˜-‹Š}ŠŠ’˜m˜-Šı˜­Š’"¢$7&—F–6Â&VF–ær'Ğ¢F—FÆS×°¢'FÀ¢ò-˜]ŠrŠ}˜M‹˜¢˜­‹m˜­˜˜rŠ}˜M˜=Š­Š}Š‚˜˜]ŠrŠİŠı˜Šı˜}‰ò ¢¢%v†BF†R&öö²FG2(	BæBv†W&R—B7F÷2 ¢Ğ¢óà¢ÆF—b6Æ74æÖSÒ&æÇ—6—2Öw&–B#à¢ÆF—cà¢Æƒ3î)É2·'FÂò-˜m˜-Š}‹rŠ}˜M˜-˜Š’"¢%7G&VæwF‡2'ÓÂöƒ3à¢ÇVÃà¢ÆÆ“à¢·'FÀ¢ò-˜­‹Š‹rŠ]ŠıŠ}‹Š’Š}˜M˜]‹‹˜Š’ŠŠ}˜M‹˜]˜BŠ}˜M˜­˜˜]˜¢â ¢¢$6öææV7G2¶æ÷vÆVFvRÖævVÖVçBFòF–Ç’v÷&²â'Ğ¢ÂöÆ“à¢ÆÆ“à¢·'FÀ¢ò-˜­˜-Šı˜RŠ]‹}Š}‹˜½Šr˜Š}‹mŠİ˜½Šr˜M˜MŠ­Šİ˜˜­˜B˜Š}˜M˜]‹MŠ}‹˜=Š’â ¢¢$öffW'26ÆV"6†&–ærg&ÖWv÷&²â'Ğ¢ÂöÆ“à¢ÆÆ“à¢·'FÀ¢ò-Š=˜]Š½˜MŠ­˜r˜-Š}Š˜MŠ’˜M˜MŠ­‹}Š˜­˜"Š}˜M˜]ŠM‹=‹=˜¢â ¢¢$W†×ÆW2G&ç6fW"vVÆÂFò–ç7F—GWF–öç2â'Ğ¢ÂöÆ“à¢Â÷VÃà¢ÂöF—cà¢ÆF—cà¢Æƒ3î)k2·'FÂò-Š}˜MŠİŠı˜Šò"¢$Æ–Ö—FF–öç2'ÓÂöƒ3à¢ÇVÃà¢ÆÆ“à¢·'FÀ¢ò-˜MŠr˜­˜mŠ}˜-‹BŠ}˜M‹˜=Š}ŠŠ}˜MŠ}‹]‹}˜mŠ}‹˜¢Š}˜MŠİŠı˜­Š²Š‹˜]˜"â ¢¢$ÖöFW&â’—2æ÷BW‡Æ÷&VBFVWÇ’â'Ğ¢ÂöÆ“à¢ÆÆ“à¢·'FÀ¢ò-Š‹‹bŠ}˜MŠ=˜]Š½˜MŠ’Š­ŠİŠ­Š}ŠÂŠ­ŠİŠı˜­Š½˜½Šrâ ¢¢%6öÖRW†×ÆW2æVVBWFF–ærâ'Ğ¢ÂöÆ“à¢ÆÆ“à¢·'FÀ¢ò-Š}˜M˜-˜­Š}‹2Š}˜M‹˜]˜M˜¢˜]ŠíŠ­‹]‹â ¢¢%&7F–6ÂÖV7W&VÖVçB—2'&–Vbâ'Ğ¢ÂöÆ“à¢Â÷VÃà¢ÂöF—cà¢ÂöF—cà¢ÆF—b6Æ74æÖSÒ&–æfW&Væ6R#à¢Æ#ç·'FÂò-Š­Šİ˜M˜­˜BŠ}˜M˜]˜m‹]Š’"¢%ÆFf÷&ÒæÇ—6—2'ÓÂö#à¢Çà¢·'FÀ¢ò-˜­˜]˜=˜bŠ­‹}Š˜­˜"Š}˜MŠ]‹}Š}‹‹˜M˜’Š}˜M˜]˜=Š­ŠŠ}Š¢Š}˜M˜]Š­Ší‹]‹]ŠˆÂ˜M˜=˜b‹˜M˜2Š}‹=Š­˜mŠ­Š}ŠÂŠ­‹}Š˜­˜-˜¢˜˜M˜­‹2‹Š=˜­˜½Šr˜]˜m‹=˜Š˜½ŠrŠ]˜M˜’Š}˜M˜]ŠM˜M˜â ¢¢%F†Rg&ÖWv÷&²6â&RÆ–VBFò7V6–Æ—7BÆ–'&&–W2Â'WBF†—2—2ÆFf÷&Ò–æfW&Væ6^(	Fæ÷Bf–WrGG&–'WFVBFòF†RWF†÷"â'Ğ¢Â÷à¢ÂöF—cà¢Âóà¢—Ğ¢·F"ÓÓÒ'&WGW&â"bb€¢Ãà¢Ä6öçFVçEF—FÆP¢ãÒ#B ¢÷fW#×·'FÂò-ŠÍ‹=‹Š}˜M‹˜ŠıŠ’Š]˜M˜’Š}˜MŠ=‹]˜B"¢$'&–FvR&6²Fò6÷W&6R'Ğ¢F—FÆS×°¢'FÀ¢ò-Ší˜]‹=Š’˜]˜Š}‹m‹’Š­‹=Š­Šİ˜"Š}˜M˜-‹Š}ŠŠ’Š˜m˜‹=˜2 ¢¢$f—fR76vW2v÷'F‚&VF–ær–÷W'6VÆb ¢Ğ¢óà¢Ç6Æ74æÖSÒ&ÆVBÖ6÷’#à¢·'FÀ¢ò-Š}˜MŠí˜MŠ}‹]Š’˜MŠrŠ­˜=˜˜¢˜M˜˜}˜R˜}‹˜rŠ}˜M˜]˜Š}‹m‹‰²Š}˜Š­Šİ˜}Šr˜˜¢‹=˜­Š}˜-˜}ŠrŠ}˜MŠ=‹]˜M˜¢â ¢¢%F†R÷fW'f–Wr—2æ÷BVæ÷Vv‚f÷"F†W6R76vW3²&VBF†VÒ–âF†V—"÷&–v–æÂ6öçFW‡Bâ'Ğ¢Â÷à¢ÆF—b6Æ74æÖSÒ'&WGW&âÖÆ—7B#à¢µ°¢³C"Â-Š­‹‹˜­˜Š}˜M˜]‹‹˜Š’Š}˜M‹m˜]˜m˜­Š’%ÒÀ¢³sBÂ-˜m˜]˜‹ŠÂŠ­Šİ˜˜­˜BŠ}˜M˜]‹‹˜Š’%ÒÀ¢³#Â-˜]˜-Š}˜˜]Š’Š}˜M˜]‹MŠ}‹˜=Š’ŠıŠ}Ší˜BŠ}˜M˜]ŠM‹=‹=Š}Š¢%ÒÀ¢³cbÂ-Š˜mŠ}Š‹Š}˜=‹Š’˜]ŠM‹=‹=˜­Š’%ÒÀ¢³#3Â-˜]ŠM‹M‹Š}Š¢˜-˜­Š}‹2Š}˜MŠ=Š½‹%ÒÀ¢ÒæÖ‚…·Â5ÒÂ’’Óâ€¢Æ'WGFöâ¶W“×·ÒF—6&ÆVBF—FÆS×·'FÂò-˜m˜]˜‹ŠÂ‹‹‹b"¢$F—7Æ’6×ÆR'Óà¢Æ#ç¶’²ÓÂö#à¢Ç7ãà¢·'FÀ¢ò0¢¢°¢$FVf–æ–ærF6—B¶æ÷vÆVFvR"À¢%F†R¶æ÷vÆVFvR6öçfW'6–öâÖöFVÂ"À¢%&W6—7Fæ6RFò÷&væ—¦F–öæÂ6†&–ær"À¢$'V–ÆF–ær–ç7F—GWF–öæÂÖVÖ÷'’"À¢$–×7B–æF–6F÷'2"À¢Õ¶•×Ğ¢Â÷7ãà¢ÆVÓç·'FÂò‹]˜ŠİŠ’G·Ö¢vRG·ÖÒ(iÂöVÓà¢Âö'WGFöãà¢’—Ğ¢ÂöF—cà¢Âóà¢—Ğ¢·F"ÓÓÒ&VF–ò"bb€¢Ãà¢Ä6öçFVçEF—FÆP¢ãÒ#R ¢÷fW#×·'FÂò-Š}˜M˜m‹=ŠíŠ’Š}˜M‹]˜Š­˜­Š’˜M˜MŠí˜MŠ}‹]Š’"¢$VF–ò÷fW'f–Wr'Ğ¢F—FÆS×°¢'FÂò-Š}‹=Š­˜]‹’Š]˜M˜’Ší‹˜­‹}Š’Š}˜M˜=Š­Š}Š‚"¢$Æ—7FVâFòF†R&öö²Ö ¢Ğ¢óà¢ÆF—b6Æ74æÖSÒ&VF–ò×Æ–W"#à¢Æ'WGFöâF—6&ÆVBF—FÆS×·'FÂò-˜]‹M‹­™˜B˜m˜]˜‹ŠÍ˜¢‹­˜­‹˜]Š­‹]˜BŠ˜]˜M˜‹]˜Š¢"¢%6×ÆRÆ–W"v—F†÷WBâVF–òf–ÆR'Óà¢·Æ––ærò.(Z"¢.)kb'Ğ¢Âö'WGFöãà¢ÆF—cà¢Ç7G&öæsà¢·'FÀ¢ò-Ší˜MŠ}‹]Š’Š}˜M˜=Š­Š}Š‚(	B‹]˜Š¢‹‹Š˜¢ ¢¢$&öö²÷fW'f–Wr(	B&&–2fö–6R'Ğ¢Â÷7G&öæsà¢Ä&"fÇVS×·Æ––ærò3‚¢Òóà¢Ç7ããc£S‚òƒ£C#Â÷7ãà¢ÂöF—cà¢Ç6VÆV7B&–ÖÆ&VÃÒ%7VVB#à¢Æ÷F–öãã9sÂö÷F–öãà¢Æ÷F–öããã#\9sÂö÷F–öãà¢Æ÷F–öããã\9sÂö÷F–öãà¢Â÷6VÆV7Cà¢ÂöF—cà¢ÆF—b6Æ74æÖSÒ&VF–òÖæ÷FR#à¢Æ#î)x’·'FÂò-˜]ŠrŠ}˜M‹˜¢˜­˜ı˜-‹Š=‰ò"¢%v†B—2æ'&FVCò'ÓÂö#à¢Çà¢·'FÀ¢ò-Š}˜MŠí˜MŠ}‹]Š’˜˜]˜MŠí‹]Š}Š¢Š}˜M˜‹]˜˜BŠ}˜MŠ­˜¢Š=˜m‹MŠ=Š­˜}ŠrŠ}˜M˜]˜m‹]Š’˜˜-‹}‰²˜˜M˜­‹=Š¢˜-‹Š}ŠŠ’Šİ‹˜˜­Š’˜=Š}˜]˜MŠ’˜M˜M˜=Š­Š}Š‚Š}˜M˜]Šİ˜]˜¢â ¢¢$öæÇ’ÆFf÷&ÒÖvVæW&FVB÷fW'f–WræB6†FW"7VÖÖ&–W>(	Fæ÷B6ö×ÆWFRfW&&F–Òæ'&F–öâöb&÷FV7FVB&öö²â'Ğ¢Â÷à¢ÂöF—cà¢Âóà¢—Ğ¢Âö'F–6ÆSà¢Æ6–FR6Æ74æÖSÒ&FWF–ÂÖ6–FR#à¢ÆF—b6Æ74æÖSÒ'æVÂ#à¢Æƒ3ç·'FÂò-Š‹}Š}˜-Š’Š}˜MŠ½˜-Š’"¢%G'W7B6&B'ÓÂöƒ3à¢Ç6Æ74æÖSÒ'G'W7B×&÷r#à¢Æ"6Æ74æÖSÒ&F÷B6÷W&6R"óà¢Ç7ãç·'FÂò-˜]‹˜M˜˜]Š’˜]˜bŠ}˜M˜=Š­Š}Š‚"¢$g&öÒF†R&öö²'ÓÂ÷7ãà¢ÆVÓãƒÂöVÓà¢Â÷à¢Ç6Æ74æÖSÒ'G'W7B×&÷r#à¢Æ"6Æ74æÖSÒ&F÷BæÇ—6—2"óà¢Ç7ãç·'FÂò-Š­Šİ˜M˜­˜BŠ}˜M˜]˜m‹]Š’"¢%ÆFf÷&ÒæÇ—6—2'ÓÂ÷7ãà¢ÆVÓã3ÂöVÓà¢Â÷à¢Ç6Æ74æÖSÒ'G'W7B×&÷r#à¢Æ"6Æ74æÖSÒ&F÷BfW&–g’"óà¢Ç7ãç·'FÂò-˜­ŠİŠ­Š}ŠÂŠ­Šİ˜-˜-˜½Šr"¢$æVVG2fW&–f–6F–öâ'ÓÂ÷7ãà¢ÆVÓãÂöVÓà¢Â÷à¢ÂöF—cà¢ÆF—b6Æ74æÖSÒ'æVÂ#à¢Æƒ3ç·'FÂò-˜M‹­Š}Š¢Š}˜M˜]Ší‹ŠÍŠ}Š¢"¢$÷WGWBÆæwVvW2'ÓÂöƒ3à¢ÆÆ&VÂ6Æ74æÖSÒ'6VÆV7BÖÆ&VÂ#à¢·'FÂò-˜M‹­Š’Š}˜MŠ­Šİ˜M˜­˜B"¢$æÇ—6—2ÆæwVvR'Ğ¢Ç6VÆV7Cà¢Æ÷F–öãç·'FÂò-Š}˜M‹‹Š˜­Š’"¢$&&–2'ÓÂö÷F–öãà¢Æ÷F–öãäVævÆ—6ƒÂö÷F–öãà¢Æ÷F–öãç·'FÂò-‹‹‹bŠ½˜mŠ}Šm˜¢"¢$&–Æ–æwVÂ'ÓÂö÷F–öãà¢Â÷6VÆV7Cà¢ÂöÆ&VÃà¢ÆÆ&VÂ6Æ74æÖSÒ'6VÆV7BÖÆ&VÂ#à¢·'FÂò-˜M‹­Š’Š}˜M‹]˜Š¢"¢$VF–òÆæwVvR'Ğ¢Ç6VÆV7Cà¢Æ÷F–öãç·'FÂò-Š}˜M‹‹Š˜­Š’"¢$&&–2'ÓÂö÷F–öãà¢Æ÷F–öãäVævÆ—6ƒÂö÷F–öãà¢Â÷6VÆV7Cà¢ÂöÆ&VÃà¢ÂöF—cà¢Æ'WGFöâ6Æ74æÖSÒ&fVVF&6²ÖÖ–æ’F—6&ÆVB×6ööâ"F—6&ÆVCà¢)Èâ·'FÂò-‹=ŠÍ™˜B˜]˜MŠ}Šİ‹Š­˜2‹˜b˜}‹ŠrŠ}˜M˜=Š­Š}Š‚"¢$ÆörfVVF&6²öâF†—2&öö²'Ğ¢Âö'WGFöãà¢Âö6–FSà¢ÂöF—cà¢ÂöF—cà¢“°§Ğ ¦gVæ7F–öâ6öçFVçEF—FÆR‡°¢âÀ¢÷fW"À¢F—FÆRÀ§Ó¢°¢ã¢7G&–æs°¢÷fW#¢7G&–æs°¢F—FÆS¢7G&–æs°§Ò’°¢&WGW&â€¢Æ†VFW"6Æ74æÖSÒ&6öçFVçB×F—FÆR#à¢Æ#ç¶çÓÂö#à¢ÆF—cà¢Ç7ãç¶÷fW'ÓÂ÷7ãà¢Æƒ#ç·F—FÆWÓÂöƒ#à¢ÂöF—cà¢Âö†VFW#à¢“°§Ğ¦gVæ7F–öâG'W7DÆ&VÂ‡²'FÂÓ¢²'FÃ¢&ööÆVâÒ’°¢&WGW&â€¢Ç7â6Æ74æÖSÒ'G'W7BÖÆ&VÂ#à¢Æ"6Æ74æÖSÒ&F÷B6÷W&6R"óç²"'Ğ¢·'FÀ¢ò-˜]‹=Š­˜mŠòŠ]˜M˜’Š}˜M˜=Š­Š}Š‚˜]‹’Š]ŠİŠ}˜MŠ}Š¢ ¢¢$w&÷VæFVB–âF†R&öö²v—F‚6—FF–öç2'Ğ¢Â÷7ãà¢“°§Ğ¦gVæ7F–öâ–FV‡²âÂF—FÆRÂFW‡BÓ¢²ã¢7G&–æs²F—FÆS¢7G&–æs²FW‡C¢7G&–ærÒ’°¢&WGW&â€¢ÆF—b6Æ74æÖSÒ&–FV#à¢Æ#ç¶çÓÂö#à¢ÆF—cà¢ÆƒCç·F—FÆWÓÂöƒCà¢Çç·FW‡GÓÂ÷à¢ÂöF—cà¢ÂöF—cà¢“°§Ğ ¦gVæ7F–öâW6W$wV–FR‡²'FÂÂöåWÆöBÂöäÆ–'&'’Âöä7F—fFRÂ7F—fF–ærÓ¢²'FÃ¢&ööÆVã²öåWÆöC¢‚’Óâfö–C²öäÆ–'&'“¢‚’Óâfö–C²öä7F—fFS¢‚’Óâfö–C²7F—fF–æs¢&ööÆVâÒ’°¢6öç7BF÷–72Ò'FÂò°¢²#âŠ]‹mŠ}˜Š’Š}˜M˜=Š­Š}Š‚"Â-Š}ŠíŠ­‹Db˜ŠİŠıŠò˜M‹­Š’Š}˜M˜]Ší‹ŠÍŠ}Š¢˜Š=˜-‹ŠŠİ˜"Š}˜MŠ}‹=Š­ŠíŠıŠ}˜RâŠ}˜M‹˜‹’˜ŠİŠı˜r˜MŠr˜­‹M‹­™˜BŠíŠı˜]Š’˜]Šı˜˜‹Š’â%ÒÀ¢²#"â‹]˜ŠİŠ’Š}˜M˜=Š­Š}Š‚"Â-‹]˜ŠİŠ’Š}˜M˜=Š­Š}Š‚Š}˜MŠİŠ}˜M˜­Š’˜}˜¢Š}˜M˜-Š}‹ŠıŠ’Š}˜MŠ½Š}ŠŠ­Š’˜M˜=˜B˜=Š­Š}Š‚ŠÍŠı˜­ŠıˆÂ˜Š˜}ŠrŠ}˜M˜-‹Š}ŠŠ’˜Š}˜MŠ­Šİ˜M˜­˜B˜Š}˜M˜mŠ­Š}ŠmŠÂ˜Š}˜M‹]˜Š¢˜Š}˜MŠ=‹=Šm˜MŠ’â%ÒÀ¢²#2âŠ}˜M‹­˜MŠ}˜Š}˜MŠ=‹]˜M˜¢"Â-Š­Š=Ší‹Š}˜M˜]˜=Š­ŠŠ’Š}˜M‹­˜MŠ}˜˜]˜bŠ}˜M‹]˜ŠİŠ’Š}˜MŠ=˜˜M˜’˜M˜M˜=Š­Š}Š‚˜m˜‹=˜}ˆÂ˜]‹’ŠŠı˜­˜BŠ-˜]˜b˜˜-‹rŠ]‹ŠrŠ­‹‹‹˜Š­ŠÒŠ}˜M˜]˜M˜â%ÒÀ¢²#BâŠ}˜M˜-‹Š}ŠŠ’˜˜]˜‹m‹’Š}˜MŠ­˜˜-˜"Â-Š­˜ıŠİ˜‹‚Š}˜M‹]˜ŠİŠ’˜Š}˜M‹˜MŠ}˜]Š}Š¢˜MŠ­‹˜ŠòŠ]˜M˜’Š}˜M˜]˜‹m‹’˜m˜‹=˜r˜]˜bŠ}˜M˜=˜]Š˜­˜Š­‹Š=˜‚Š}˜M˜}Š}Š­˜â%ÒÀ¢²#RâŠ}˜MŠ­Šİ˜M˜­˜BŠ}˜M˜]ŠÍŠ}˜m˜¢"Â-˜­˜Šİ‹RŠ˜m˜­Š’Š}˜M˜=Š­Š}Š‚ŠıŠ}Ší˜BŠ}˜M˜]Š­‹]˜ŠÒŠı˜˜bŠ­˜=˜M˜Š’’˜Šı˜˜bŠ]‹‹=Š}˜BŠ}˜M˜]˜M˜Š]˜M˜’÷Vä’â%ÒÀ¢²#bâŠ}˜MŠ­Šİ˜M˜­˜BŠ}˜M˜]Šı˜˜‹’"Â-˜­ŠİŠ}˜‹‚‹˜M˜’Š}˜MŠí˜MŠ}‹]Š’˜Š}˜MŠ=˜˜=Š}‹Š}˜M˜]Šİ˜‹˜­Š’˜Š}˜M˜‹]˜˜B˜˜m˜-Š}‹rŠ}˜M˜-˜Š’˜Š}˜MŠİŠı˜Šò˜Š}˜MŠ}‹=Š­˜mŠ­Š}ŠÍŠ}Š¢˜˜]˜Š}‹m‹’Š}˜M‹˜ŠıŠˆÂ˜˜MŠr˜­ŠŠıŠ2˜-Š˜BŠ­Š=˜=˜­ŠòŠ}˜MŠ­˜=˜M˜Š’â%ÒÀ¢²#râŠ­ŠÍ‹ŠŠ’Š}˜M‹]˜Š¢"Â-Š}‹=Š­˜]‹’Š]˜M˜’‹]˜Š¢Š}˜M˜]‹Š=Š’˜‹]˜Š¢Š}˜M‹ŠÍ˜M‰²Š­˜ı˜m‹MŠ2Š}˜M‹˜­˜mŠ’˜]‹Š’˜Š}ŠİŠıŠ’Š½˜R˜­‹Š}ŠòŠ­‹M‹­˜­˜M˜}ŠrŠı˜˜bŠ­˜=˜M˜Š’ŠÍŠı˜­ŠıŠ’â%ÒÀ¢²#‚âŠ}ŠíŠ­˜­Š}‹Š}˜M‹]˜Š¢"Â-Š}‹m‹­‹r‹˜M˜’Š}˜M‹]˜Š¢Š}˜M‹˜¢Š­‹˜­Šı˜}‰²˜­‹˜}‹Š}˜MŠ}ŠíŠ­˜­Š}‹Š˜‹m˜ŠÒ˜˜­˜ıŠİ˜‹‚˜M˜}‹ŠrŠ}˜M˜=Š­Š}Š‚˜-Š˜BŠ­Š=˜=˜­Šò‹M‹Š}ŠŠ}˜M‹]˜Š¢Š}˜M˜=Š}˜]˜Bâ%ÒÀ¢²#’âŠ=‹=Šm˜MŠ’Š}˜M˜=Š­Š}Š‚"Â-Š‹ŠòŠ}˜=Š­˜]Š}˜BŠ}˜MŠ­Šİ˜M˜­˜MˆÂŠ}˜=Š­Š‚‹=ŠMŠ}˜M˜½ŠrŠ=˜‚Š}‹=Š­ŠíŠı˜RŠ}˜M‹=ŠMŠ}˜BŠ}˜M˜m˜]˜‹ŠÍ˜­ˆÂŠ½˜R‹Š}ŠÍ‹’Š}˜MŠ­˜=˜M˜Š’˜-Š˜BŠ}˜MŠ]‹‹=Š}˜Bâ%ÒÀ¢²#âŠ}˜MŠ­˜mŠ˜­˜}Š}Š¢"Â-Š}ŠíŠ­‹Š}˜M˜=Š­Š}Š‚˜Š}˜M˜]˜‹ŠıˆÂ˜‹™˜BŠ]‹M‹Š}‹Š}Š¢Š}˜MŠÍ˜}Š}‹-ˆÂŠ½˜RŠ}‹=Š­ŠíŠı˜RŠ}ŠíŠ­ŠŠ}‹Š}˜MŠ-˜b˜M˜MŠ­Š=˜=Šò˜]˜b‹˜}˜‹Š}˜MŠ­˜mŠ˜­˜râ%ÒÀ¢²#âŠ}˜M˜}Š}Š­˜"Â-‹˜M˜’•†öæRŠ}˜Š­ŠÒŠ}˜M˜]˜m‹]Š’˜]˜bŠ}˜M‹MŠ}‹MŠ’Š}˜M‹Šm˜­‹=˜­Š’â˜‹˜M˜’6×7VærŠ}‹=Š­ŠíŠı˜R6‡&öÖR˜Š}‹=˜]ŠÒŠŠ}˜MŠ]‹M‹Š}‹Š}Š¢Š½˜RŠİŠı™Š²Š}˜M‹]˜ŠİŠ’‹˜mŠò‹˜}˜‹˜m‹=ŠíŠ’˜-Šı˜­˜]Š’â%ÒÀ¢²#"âŠ}˜M˜‹m‹’Š}˜M˜M˜­˜M˜¢"Â-˜­‹­˜­™‹Š=˜M˜Š}˜bŠ}˜M˜Š}ŠÍ˜}Š’Š}˜M˜]Šİ˜­‹}Š’˜MŠ­‹]ŠŠÒŠ}˜MŠİ‹˜˜˜Š}‹mŠİŠˆÂŠ˜­˜m˜]ŠrŠ­Š˜-˜’‹]˜ŠİŠ’Db˜Ší‹}˜}Šr˜Š=˜M˜Š}˜m˜}ŠrŠ}˜MŠ=‹]˜M˜­Š’Šı˜˜bŠ­‹­˜­˜­‹â%ÒÀ¢²#2âŠ­˜m‹M˜­‹rŠ=ŠİŠıŠ²˜m‹=ŠíŠ’"Â-Š]‹ŠrŠ˜-˜¢Š}˜M˜}Š}Š­˜Š=˜‚Š}˜M˜=˜]Š˜­˜Š­‹‹˜M˜’˜m‹=ŠíŠ’˜-Šı˜­˜]ŠˆÂŠ}‹m‹­‹rŠ­˜m‹M˜­‹rŠ}˜M˜m‹=ŠíŠ‰²Š­˜ı˜]‹=ŠÒ‹Š}˜=‹Š’Š}˜M˜]˜m‹]Š’Š}˜M˜-Šı˜­˜]Š’˜Š­˜ı˜Š­ŠÒŠ=ŠİŠıŠ²˜]‹Š}˜­˜mŠ’Š­˜M˜-Š}Šm˜­˜½Šrâ%ÒÀ¢Ò¢°¢²#âFB&öö²"Â$6†ö÷6RDbÂ÷WGWBÆæwVvRÂæBÆvgVÂ×W6R6öæf—&ÖF–öââWÆöF–ærFöW2æ÷B7F'B–B’â%ÒÀ¢²#"â&öö²vR"Â%F†R7W'&VçB&öö²vR&VÖ–ç2F†Rf—†VBFV×ÆFRf÷"WfW'’æWr&öö²â%ÒÀ¢²#2â÷&–v–æÂ6÷fW""Â%F†R6÷fW"6öÖW2g&öÒF†RDbw2f—'7BvRÂv—F‚6fRfÆÆ&6²öæÇ’–bF†Rf–ÆR6ææ÷B&R÷VæVBâ%ÒÀ¢²#Bâ&VF–ær÷6—F–öâ"Â%vRæB&öö¶Ö&·2&R6fVB7&÷726ö×WFW"æB†öæRâ%ÒÀ¢²#Râg&VRæÇ—6—2"Â$W†Ö–æW27G'V7GW&RÆö6ÆÇ’v—F†÷WB’6÷7B÷"6VæF–ærF†Rf–ÆRFò÷Vä’â%ÒÀ¢²#bâ–BæÇ—6—2"Â%&W6W'fW2ÆÂ7W'&VçB7VÖÖ'’Â–FV2Â6†FW'2Â7&—F–6Â&VF–æræB&WGW&âö–çG2gFW"6÷7B6öæf—&ÖF–öââ%ÒÀ¢²#râfö–6R&Wf–Wr"Â%&Wf–WrfVÖÆRæBÖÆR6×ÆW3²vVæW&FVB6×ÆW2&R&WW6VBâ%ÒÀ¢²#‚âfö–6R6VÆV7F–öâ"Â%6VÆV7BæB6fRöæRfö–6RW"&öö²&Vf÷&R'W––ærgVÆÂVF–òâ%ÒÀ¢²#’â6²F†R&öö²"Â$gFW"æÇ—6—2ÂVçFW"VW7F–öâ÷"W6RF†R6×ÆRÂF†Vâ&Wf–Wr6÷7Bâ%ÒÀ¢²#âæ÷F–f–6F–öç2"Â$6†ö÷6RF†R&öö²æBF–ÖRÂVæ&ÆRFWf–6Ræ÷F–f–6F–öç2ÂF†Vâ'VâF†RFW7Bâ%ÒÀ¢²#â†öæW2"Â%W6R†öÖR67&VVâÖöFRöâ•†öæRæB6‡&öÖRv—F‚æ÷F–f–6F–öâW&Ö—76–öâöâ6×7Værâ%ÒÀ¢²#"âæ–v‡BÖöFR"Â$–×&÷fW2–çFW&f6R6öçG&7Bv†–ÆR&W6W'f–ærF†R÷&–v–æÂDbvRâ%ÒÀ¢²#2â7F—fFRÆFW7BfW'6–öâ"Â$6ÆV'2F†RÆFf÷&Òw2öÆB66†RæB&VÆöG2F†RÆFW7B'V–ÆBöâ†öæR÷"6ö×WFW"â%ÒÀ¢Ó°¢&WGW&âÆF—b6Æ74æÖSÒ'vRW6W"ÖwV–FR×vR#ãÅvUF—FÆRF—FÆS×·'FÂò-Šı˜M˜­˜BŠ}‹=Š­ŠíŠıŠ}˜RŠ}˜M˜]˜=Š­ŠŠ’"¢$Æ–'&'’W6W"wV–FR'ÒFW67&—F–öã×·'FÂò-Ší‹}˜Š}Š¢‹˜]˜M˜­Š’Š­‹M‹ŠÒŠ}˜M˜]˜ŠÍ˜Šò˜Š­˜‹™˜M˜rŠı˜˜bŠ­‹­˜­˜­‹‹]˜ŠİŠ’Š}˜M˜=Š­Š}Š‚Š}˜M˜mŠ}ŠÍŠİŠ’â"¢%&7F–6Â7FW2F†B7F—fFRF†R7W'&VçBW‡W&–Væ6Rv—F†÷WB6†æv–ærF†R7V66W76gVÂ&öö²vRâ'ÒóãÆF—b6Æ74æÖSÒ&wV–FRÖ7F–öç2#ãÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’"öä6Æ–6³×¶öåWÆöGÓîûÈ²·'FÂò-Š=‹m˜˜=Š­Š}Š˜½Šr"¢$FB&öö²'ÓÂö'WGFöããÆ'WGFöâ6Æ74æÖSÒ'6V6öæF'’"öä6Æ–6³×¶öäÆ–'&'—Óî)jR·'FÂò-Š}˜Š­ŠÒ˜]˜=Š­ŠŠ­˜¢"¢$÷Vâ×’Æ–'&'’'ÓÂö'WGFöããÆ'WGFöâ6Æ74æÖSÒ'6V6öæF'’7F—fFR×fW'6–öâÖ'WGFöâ"F—6&ÆVC×¶7F—fF–æwÒöä6Æ–6³×¶öä7F—fFWÓî(k²¶7F—fF–ærò‡'FÂò-ŠÍŠ}‹˜ÒŠ}˜MŠ­˜m‹M˜­‹~(
+b"¢$7F—fF–æ~(
+b"’¢‡'FÂò-Š­˜m‹M˜­‹rŠ=ŠİŠıŠ²˜m‹=ŠíŠ’"¢$7F—fFRÆFW7BfW'6–öâ"—ÓÂö'WGFöããÂöF—cãÇ6V7F–öâ6Æ74æÖSÒ'æVÂwV–FR×F÷–72#ç·F÷–72æÖ‚…·F—FÆRÂ&öG•Ò’ÓâÆFWF–Ç2¶W“×·F—FÆWÓãÇ7VÖÖ'“ç·F—FÆWÓÂ÷7VÖÖ'“ãÇç¶&öG—ÓÂ÷ãÂöFWF–Ç3â—ÓÂ÷6V7F–öããÂöF—cã°§Ğ ¦gVæ7F–öâ&öw&W72‡²'FÂÂF—FÆRÂ&öö·2Ó¢²'FÃ¢&ööÆVã²F—FÆS¢7G&–æs²&öö·3¢–Æ÷D&ööµµÒÒ’°¢6öç7B·&VÖ–æFW'2Â6WE&VÖ–æFW'5ÒÒW6U7FFSÄ&ööµ&VÖ–æFW%µÓâ…µÒ“°¢6öç7B¶&öö´–BÂ6WD&öö´–EÒÒW6U7FFR†&öö·5³Óòæ–Bóò""“°¢6öç7B·v†VâÂ6WEv†VåÒÒW6U7FFR‚‚’Óâ°¢6öç7BfÇVRÒæWrFFR„FFRææ÷r‚’²#B¢c¢c¢“°¢fÇVRç6WE6V6öæG2ƒÂ“°¢&WGW&âæWrFFR‡fÇVRævWEF–ÖR‚’ÒfÇVRævWEF–ÖW¦öæTöfg6WB‚’¢c’çFô•4õ7G&–ær‚’ç6Æ–6RƒÂb“°¢Ò“°¢6öç7B¶ÖW76vRÂ6WDÖW76vUÒÒW6U7FFR‚""“°¢6öç7B¶'W7’Â6WD'W7•ÒÒW6U7FFR†fÇ6R“°¢6öç7B·W6…&VG’Â6WEW6…&VG•ÒÒW6U7FFR†fÇ6R“°¢6öç7B&VÆöBÒ‚’ÓâÆ—7D&ööµ&VÖ–æFW'2‚’çF†Vâ‡6WE&VÖ–æFW'2’æ6F6‚‚†W'&÷"’Óâ6WDÖW76vR†FW67&–&U&VÖ–æFW$W'&÷"†W'&÷"Â'FÂ’’“°¢W6TVffV7B‚‚’Óâ²&VÆöB‚“²ÒÂµÒ“°¢W6TVffV7B‚‚’Óâ²–b‚&öö´–Bbb&öö·5³Ò’6WD&öö´–B†&öö·5³Òæ–B“²ÒÂ¶&öö·2Â&öö´–EÒ“°¢6öç7B6fRÒ7–æ2‚’Óâ°¢6WD'W7’‡G'VR“²6WDÖW76vR‚""“°¢G'’°¢v—BVæ&ÆUW6„f÷%F†—4FWf–6R‚“°¢v—B6fT&ööµ&VÖ–æFW"†&öö´–BÂæWrFFR‡v†Vâ’“°¢v—B&VÆöB‚“°¢6WDÖW76vR‡'FÂò-Šİ˜ı˜‹‚Š}˜MŠ­˜mŠ˜­˜r˜‹=˜­‹]˜BŠ]˜M˜’Š=ŠÍ˜}‹-Š­˜2Š}˜M˜]˜‹™˜MŠ’â"¢%F†R&VÖ–æFW"v26fVBf÷"–÷W"Væ&ÆVBFWf–6W2â"“°¢Ò6F6‚†W'&÷"’²6WDÖW76vR†FW67&–&U&VÖ–æFW$W'&÷"†W'&÷"Â'FÂ’“²Ğ¢f–æÆÇ’²6WD'W7’†fÇ6R“²Ğ¢Ó°¢&WGW&â€¢ÆF—b6Æ74æÖSÒ'vR#à¢ÅvUF—FÆP¢F—FÆS×·F—FÆWĞ¢FW67&—F–öã×°¢'FÀ¢ò-Š­‹˜=˜­‹Š}Š¢˜}Š}ŠıŠmŠ’Š­‹˜­Šı˜2Š]˜M˜’˜]ŠrŠŠıŠ=Š­ˆÂŠı˜˜bŠ]‹-‹Š}ŠÂâ ¢¢$vVçFÆR&VÖ–æFW'2F†B'&–ær–÷R&6²v—F†÷WB&V6öÖ–æræö—6Râ ¢Ğ¢óà¢ÆF—b6Æ74æÖSÒ'&öw&W72ÖÆ–÷WB#à¢Æ'F–6ÆR6Æ74æÖSÒ'æVÂ#à¢Æƒ3ç·'FÂò-Ší‹}Š’˜}‹ŠrŠ}˜MŠ=‹=Š˜‹’"¢%F†—2vVV¾(	—2Æâ'ÓÂöƒ3à¢ÆF—b6Æ74æÖSÒ'vVV²#à¢µ²-‹2"Â-ŠÒ"Â-˜b"Â-Š²"Â-‹"Â-Šâ"Â-ŠÂ%ÒæÖ‚†BÂ’’Óâ€¢Ç7â6Æ74æÖS×¶’ÂBò&FöæR"¢’ÓÓÒBò'FöF’"¢"'Ò¶W“×¶—Óà¢¶GĞ¢Æ#ç¶’ÂBò.)É2"¢’ÓÓÒBò.(
+""¢"'ÓÂö#à¢Â÷7ãà¢’—Ğ¢ÂöF—cà¢ÆF—b6Æ74æÖSÒ&vöÂ#à¢Ç7G&öæsãCrò“Â÷7G&öæsà¢Ç7ãà¢·'FÂò-Šı˜-˜­˜-Š’˜-‹Š}ŠŠ’˜Š}‹=Š­˜]Š}‹’"¢'&VF–ærbÆ—7FVæ–ærÖ–çWFW2'Ğ¢Â÷7ãà¢Ä&"fÇVS×³S'Òóà¢ÂöF—cà¢Âö'F–6ÆSà¢Æ'F–6ÆR6Æ74æÖSÒ'æVÂ&VÖ–æFW'2#à¢Æƒ3ç·'FÂò-Š­˜mŠ˜­˜}Š}Š¢˜-Š}Šı˜]Š’"¢%W6öÖ–ær&VÖ–æFW'2'ÓÂöƒ3à¢ÆF—b6Æ74æÖSÒ'c2×&VÖ–æFW"Öf÷&Ò#à¢ÆF—b6Æ74æÖS×¶æ÷F–f–6F–öâÖ7F—fF–öâG·W6…&VG’ò'&VG’"¢"'ÖÓà¢ÆF—cãÇ7G&öæsç·'FÂò-Š­˜‹˜­˜BŠ­˜mŠ˜­˜}Š}Š¢˜}‹ŠrŠ}˜MŠÍ˜}Š}‹""¢$Væ&ÆRæ÷F–f–6F–öç2öâF†—2FWf–6R'ÓÂ÷7G&öæsãÇ6ÖÆÃç·W6…&VG’ò‡'FÂò.)É2Š­˜RŠ­˜‹˜­˜BŠ}˜MŠÍ˜}Š}‹""¢.)É2FWf–6RVæ&ÆVB"’¢‡'FÂò-Ší‹}˜Š’˜]‹}˜M˜ŠŠ’˜]‹Š’˜Š}ŠİŠıŠ’‹˜M˜’˜=˜B˜}Š}Š­˜Š=˜‚˜=˜]Š˜­˜Š­‹â"¢%&WV—&VBöæ6RöâV6‚†öæR÷"6ö×WFW"â"—ÓÂ÷6ÖÆÃãÂöF—cà¢Æ'WGFöâ6Æ74æÖSÒ'6V6öæF'’"F—6&ÆVC×¶'W7’ÇÂW6…&VG—Òöä6Æ–6³×¶7–æ2‚’Óâ²6WD'W7’‡G'VR“²6WDÖW76vR‚""“²G'’²v—BVæ&ÆUW6„f÷%F†—4FWf–6R‚“²6WEW6…&VG’‡G'VR“²6WDÖW76vR‡'FÂò-Š­˜RŠ­˜‹˜­˜BŠ­˜mŠ˜­˜}Š}Š¢˜}‹ŠrŠ}˜MŠÍ˜}Š}‹"âŠ}ŠíŠ­Š‹˜}ŠrŠ}˜MŠ-˜bâ"¢$æ÷F–f–6F–öç2Væ&ÆVBöâF†—2FWf–6RâFW7BF†VÒæ÷râ"“²Ò6F6‚†W'&÷"’²6WDÖW76vR†FW67&–&U&VÖ–æFW$W'&÷"†W'&÷"Â'FÂ’“²Òf–æÆÇ’²6WD'W7’†fÇ6R“²Ò×Óç·W6…&VG’ò‡'FÂò-˜]˜‹™˜B"¢$Væ&ÆVB"’¢‡'FÂò-Š­˜‹˜­˜BŠ}˜MŠÍ˜}Š}‹""¢$Væ&ÆRFWf–6R"—ÓÂö'WGFöãà¢ÂöF—cà¢Ç6VÆV7BfÇVS×¶&öö´–GÒöä6†ævS×²†WfVçB’Óâ6WD&öö´–B†WfVçBçF&vWBçfÇVR—ÒF—6&ÆVC×²&öö·2æÆVæwF‡Óà¢²&öö·2æÆVæwF‚bbÆ÷F–öâfÇVSÒ"#ç·'FÂò-Š=‹m˜˜=Š­Š}Š˜½ŠrŠ=˜˜M˜½Šr"¢$FB&öö²f—'7B'ÓÂö÷F–öãçĞ¢¶&öö·2æÖ‚†&öö²’ÓâÆ÷F–öâ¶W“×¶&öö²æ–GÒfÇVS×¶&öö²æ–GÓç¶&öö²çF—FÆWÓÂö÷F–öãâ—Ğ¢Â÷6VÆV7Cà¢Æ–çWBG—SÒ&FFWF–ÖRÖÆö6Â"fÇVS×·v†VçÒöä6†ævS×²†WfVçB’Óâ6WEv†Vâ†WfVçBçF&vWBçfÇVR—Òóà¢Æ'WGFöâ6Æ74æÖSÒ'&–Ö'’"F—6&ÆVC×¶'W7’ÇÂ&öö´–GÒöä6Æ–6³×·6fWÓç¶'W7’ò‡'FÂò-ŠÍŠ}‹˜ÒŠ}˜MŠİ˜‹(
+b"¢%6f–æ~(
+b"’¢‡'FÂò-Šİ˜‹‚Š}˜MŠ­˜mŠ˜­˜r"¢%6fR&VÖ–æFW""—ÓÂö'WGFöãà¢Æ'WGFöâ6Æ74æÖSÒ'6V6öæF'’"F—6&ÆVC×¶'W7—Òöä6Æ–6³×¶7–æ2‚’Óâ°¢G'’²v—B6†÷u&VÖ–æFW%FW7B‡'FÂò-Š}ŠíŠ­ŠŠ}‹Š­˜mŠ˜­˜rŠ}˜M˜]˜=Š­ŠŠ’"¢$Æ–'&'’&VÖ–æFW"FW7B"Â'FÂò-Š}˜MŠ­˜mŠ˜­˜}Š}Š¢Š­‹˜]˜B‹˜M˜’˜}‹ŠrŠ}˜MŠÍ˜}Š}‹"â"¢$æ÷F–f–6F–öç2v÷&²öâF†—2FWf–6Râ"“²Ğ¢6F6‚†W'&÷"’²6WDÖW76vR†FW67&–&U&VÖ–æFW$W'&÷"†W'&÷"Â'FÂ’“²Ğ¢×Óç·'FÂò-Š}ŠíŠ­ŠŠ}‹Š}˜MŠ-˜b"¢%FW7Bæ÷r'ÓÂö'WGFöãà¢ÂöF—cà¢¶ÖW76vRbbÇ6Æ74æÖSÒ'c2×&VÖ–æFW"ÖÖW76vR#ç¶ÖW76vWÓÂ÷çĞ¢·&VÖ–æFW'2æÆVæwF‚ÓÓÒbbÇç·'FÂò-˜MŠrŠ­˜ŠÍŠòŠ­˜mŠ˜­˜}Š}Š¢˜]Šİ˜˜‹Š’â"¢$æò6fVB&VÖ–æFW'2â'ÓÂ÷çĞ¢·&VÖ–æFW'2æÖ‚‡&VÖ–æFW"’ÓâÅ&VÖ–æFW ¢¶W“×·&VÖ–æFW"æ–GĞ¢F–ÖS×¶æWrFFR‡&VÖ–æFW"ç&VÖ–æEöB’çFôÆö6ÆU7G&–ær‡'FÂò&""¢&Vâ"—Ğ¢fÇVS×¶&öö·2æf–æB‚†&öö²’Óâ&öö²æ–BÓÓÒ&VÖ–æFW"æ&ööµö–B“òçF—FÆRóò‡'FÂò-˜=Š­Š}Š˜2"¢%–÷W"&öö²"—Ğ¢öä6æ6VÃ×¶7–æ2‚’Óâ²v—BF—6&ÆT&ööµ&VÖ–æFW"‡&VÖ–æFW"æ–B“²v—B&VÆöB‚“²×Ğ¢óâ—Ğ¢Âö'F–6ÆSà¢ÂöF—cà¢ÂöF—cà¢“°§Ğ¦gVæ7F–öâ&VÖ–æFW"‡²F–ÖRÂfÇVRÂöä6æ6VÂÓ¢²F–ÖS¢7G&–æs²fÇVS¢7G&–æs²öä6æ6VÃ¢‚’Óâfö–BÒ’°¢&WGW&â€¢ÆF—b6Æ74æÖSÒ'&VÖ–æFW"#à¢Æ“î){CÂö“à¢ÆF—cà¢Ç7G&öæsç·fÇVWÓÂ÷7G&öæsà¢Ç7ãç·F–ÖWÓÂ÷7ãà¢ÂöF—cà¢Æ'WGFöâöä6Æ–6³×¶öä6æ6VÇÒF—FÆSÒ-Š]˜M‹­Š}Šò6æ6VÂ#ì9sÂö'WGFöãà¢ÂöF—cà¢“°§Ğ ¦gVæ7F–öâÆ–'&&–â‡²'FÂÂF—FÆRÓ¢²'FÃ¢&ööÆVã²F—FÆS¢7G&–ærÒ’°¢6öç7B·Â6WEÒÒW6U7FFR‚""“°¢6öç7B¶Â6WDÒÒW6U7FFR†fÇ6R“°¢&WGW&â€¢ÆF—b6Æ74æÖSÒ'vR#à¢ÅvUF—FÆP¢F—FÆS×·F—FÆWĞ¢FW67&—F–öã×°¢'FÀ¢ò-˜­‹=Š}‹Šı˜2˜]˜bŠıŠ}Ší˜B˜]ŠÍ˜]˜‹Š­˜=ˆÂ˜˜­‹Š‹rŠ}˜MŠ]ŠÍŠ}ŠŠ}Š¢ŠŠ}˜M˜]‹]Š}Šı‹Š}˜MŠ=‹]˜M˜­Š’â ¢¢$â76—7FçBw&÷VæFVB–â–÷W"6öÆÆV7F–öâæBÆ–æ¶VB&6²Fò÷&–v–æÂ6÷W&6W2â ¢Ğ¢óà¢ÆF—b6Æ74æÖSÒ&Æ–'&&–â×v÷&·76R#à¢ÆF—b6Æ74æÖSÒ&6†BæVÂ#à¢ÆF—b6Æ74æÖSÒ&6†BÖ–çG&ò#à¢Æ“î)ÊcÂö“à¢Æƒ3à¢·'FÀ¢ò-˜]Š}‹ŠrŠ­‹˜­ŠòŠ=˜bŠ­˜˜}˜RŠ}˜M˜­˜˜]‰ò ¢¢%v†Bv÷VÆB–÷RÆ–¶RFòVæFW'7FæBFöF“ò'Ğ¢Âöƒ3à¢Çà¢·'FÀ¢ò-Š}‹=Š=˜B˜=Š­Š}Š˜½Šr˜Š}ŠİŠı˜½ŠrŠ=˜‚˜-Š}‹˜b˜˜=‹Š’Š˜­˜b˜=Š­Š˜2â ¢¢$6²öæR&öö²÷"6ö×&Râ–FV7&÷72–÷W"Æ–'&'’â'Ğ¢Â÷à¢ÂöF—cà¢¶bb€¢ÆF—b6Æ74æÖSÒ&ç7vW"#à¢Ç7ãç·'FÂò-Š]ŠÍŠ}ŠŠ’Š­ŠÍ‹˜­Š˜­Š’"¢$FVÖòç7vW"'ÓÂ÷7ãà¢Çà¢·'FÀ¢ò-Š­‹˜}‹Š}˜MŠ]ŠÍŠ}ŠŠ’˜}˜mŠr˜]‹’˜‹]˜BŠ}˜M˜=Š­Š}Š‚˜‹˜-˜RŠ}˜M‹]˜ŠİŠ’˜Š‹}Š}˜-Š’Š­˜‹mŠÒ˜]ŠrŠ]‹Šr˜=Š}˜mŠ¢˜]˜bŠ}˜M˜m‹RŠ=˜‚˜]˜bŠ­Šİ˜M˜­˜BŠ}˜M˜]˜m‹]Š’â ¢¢%F†Rç7vW"V'2v—F‚6†FW"ÂvRÂæBG'W7B6&B–FVçF–g––ær6÷W&6RFW‡BfW'7W2ÆFf÷&ÒæÇ—6—2â'Ğ¢Â÷à¢Æ'WGFöâ6Æ74æÖSÒ&F—6&ÆVB×6ööâ"F—6&ÆVCç·'FÂò-˜m˜]˜‹ŠÂ‹‹‹b(	B‹]˜ŠİŠ’sB"¢$F—7Æ’6×ÆR(	BvRsB'Ò(iÂö'WGFöãà¢ÂöF—cà¢—Ğ¢ÆF—b6Æ74æÖSÒ&6†BÖ–çWB#à¢Æ–çW@¢fÇVS×·Ğ¢öä6†ævS×²†R’Óâ6WE†RçF&vWBçfÇVR—Ğ¢Æ6V†öÆFW#×°¢'FÀ¢ò-˜]Š½Š}˜C¢˜]ŠrŠ}˜M˜‹˜"Š˜­˜bŠ}˜M˜]‹‹˜Š’Š}˜M‹m˜]˜m˜­Š’˜Š}˜M‹]‹˜­ŠİŠ‰ò ¢¢$W†×ÆS¢v†B—2F†RF–ffW&Væ6R&WGvVVâF6—BæBW‡Æ–6—B¶æ÷vÆVFvSò ¢Ğ¢óà¢Æ'WGFöâöä6Æ–6³×²‚’ÓâçG&–Ò‚’bb6WD‡G'VR—Óî(iÂö'WGFöãà¢ÂöF—cà¢ÂöF—cà¢Æ6–FR6Æ74æÖSÒ'æVÂG'W7B#à¢Æƒ3ç·'FÂò-Š‹}Š}˜-Š’Š}˜MŠ½˜-Š’"¢%G'W7B6&B'ÓÂöƒ3à¢Çà¢Æ"6Æ74æÖSÒ&F÷B6÷W&6R"óà¢·'FÂò-˜]˜bŠ}˜M˜=Š­Š}Š‚(	B˜]˜Š½˜"ŠŠ}˜M‹]˜ŠİŠ’"¢$g&öÒF†R&öö²(	BvR6—FVB'Ğ¢Â÷à¢Çà¢Æ"6Æ74æÖSÒ&F÷BæÇ—6—2"óà¢·'FÂò-Š­Šİ˜M˜­˜BŠ}˜M˜]˜m‹]Š’(	BŠ}‹=Š­˜mŠ­Š}ŠÂ"¢%ÆFf÷&ÒæÇ—6—2(	B–æfW&Væ6R'Ğ¢Â÷à¢Çà¢Æ"6Æ74æÖSÒ&F÷BfW&–g’"óà¢·'FÂò-˜­ŠİŠ­Š}ŠÂŠ]˜M˜’Š­Šİ˜-˜""¢$æVVG2fW&–f–6F–öâ'Ğ¢Â÷à¢Ç6ÖÆÃà¢·'FÀ¢ò-˜MŠrŠ­˜ı˜m‹=Š‚Š}‹=Š­˜mŠ­Š}ŠÍŠ}Š¢Š}˜M˜]˜m‹]Š’Š]˜M˜’Š}˜M˜]ŠM˜M˜â ¢¢%ÆFf÷&Ò–æfW&Væ6W2&RæWfW"GG&–'WFVBFòF†RWF†÷"â'Ğ¢Â÷6ÖÆÃà¢Âö6–FSà¢ÂöF—cà¢ÂöF—cà¢“°§Ğ ¦gVæ7F–öâfVVF&6²‡²'FÂÂBÓ¢²'FÃ¢&ööÆVã²C¢G—VöbFW‡Bæ"Ò’°¢6öç7BfVGW&T÷F–öç2Ò'FÀ¢ò°¢-‹˜‹’˜=Š­Š}Š‚˜Š­Šİ˜M˜­˜M˜r"À¢-Š}˜M˜]˜MŠí‹RŠ}˜M‹Š}˜R"À¢-˜]˜MŠí‹]Š}Š¢Š}˜M˜‹]˜˜B"À¢-Š}˜MŠ}‹=Š­˜]Š}‹’"À¢-Š=˜]˜­˜bŠ}˜M˜]˜=Š­ŠŠ’"À¢Ğ¢¢°¢%WÆöBæBæÇ—6R&öö²"À¢$&öö²÷fW'f–Wr"À¢$6†FW"7VÖÖ&–W2"À¢$VF–ò"À¢$’Æ–'&&–â"À¢Ó°¢6öç7B¶fVGW&RÂ6WDfVGW&UÒÒW6U7FFR†fVGW&T÷F–öç5³Ò“°¢6öç7B·&F–ærÂ6WE&F–æuÒÒW6U7FFSÆçVÖ&W"ÂçVÆÃâ†çVÆÂ“°¢6öç7B¶æ÷FRÂ6WDæ÷FUÒÒW6U7FFR‚""“°¢6öç7B·6fVBÂ6WE6fVEÒÒW6U7FFR†fÇ6R“°¢6öç7B·6fTW'&÷"Â6WE6fTW'&÷%ÒÒW6U7FFR‚""“°¢6öç7B¶'W7’Â6WD'W7•ÒÒW6U7FFR†fÇ6R“°¢&WGW&â€¢ÆF—b6Æ74æÖSÒ'vR#à¢ÅvUF—FÆRF—FÆS×·Bæ¦÷W&æÇÒFW67&—F–öã×·Bæ¦÷W&æÅ7V'Òóà¢Æf÷&Ğ¢6Æ74æÖSÒ&fVVF&6²æVÂ ¢öå7V&Ö—C×¶7–æ2†R’Óâ°¢Rç&WfVçDFVfVÇB‚“°¢6WE6fVB†fÇ6R“°¢6WE6fTW'&÷"‚""“°¢6WD'W7’‡G'VR“°¢G'’°¢v—B6fTfVVF&6²†fVGW&RÂ&F–ærÂæ÷FR“°¢6WE6fVB‡G'VR“°¢6WDæ÷FR‚""“°¢6WE&F–ær†çVÆÂ“°¢Ò6F6‚†W'"’°¢6WE6fTW'&÷"€¢W'"–ç7Fæ6VöbW'&÷ ¢òW'"æÖW76vP¢¢'FÀ¢ò-Š­‹‹‹Šİ˜‹‚Š}˜M˜]˜MŠ}Šİ‹Š’ ¢¢$6÷VÆBæ÷B6fRF†Ræ÷FR"À¢“°¢Òf–æÆÇ’°¢6WD'W7’†fÇ6R“°¢Ğ¢×Ğ¢à¢ÆÆ&VÃà¢·'FÂò-˜]ŠrŠ}˜M‹˜¢ŠÍ‹ŠŠ­˜}‰ò"¢%v†BF–B–÷RFW7Cò'Ğ¢Ç6VÆV7BfÇVS×¶fVGW&WÒöä6†ævS×²†R’Óâ6WDfVGW&R†RçF&vWBçfÇVR—Óà¢¶fVGW&T÷F–öç2æÖ‚†÷F–öâ’Óâ€¢Æ÷F–öâ¶W“×¶÷F–öçÓç¶÷F–öçÓÂö÷F–öãà¢’—Ğ¢Â÷6VÆV7Cà¢ÂöÆ&VÃà¢ÆÆ&VÃà¢·'FÂò-˜}˜B‹=Š}‹Šı˜2‹˜M˜’Š}˜M˜˜}˜]‰ò"¢$F–B—B–×&÷fRVæFW'7FæF–æsò'Ğ¢ÆF—b6Æ74æÖSÒ'&F–ær#à¢µ³Â"Â2ÂBÂUÒæÖ‚†â’Óâ€¢Æ'WGFöà¢G—SÒ&'WGFöâ ¢¶W“×¶çĞ¢6Æ74æÖS×·&F–ærÓÓÒâò&7F—fR"¢"'Ğ¢öä6Æ–6³×²‚’Óâ6WE&F–ær†â—Ğ¢&–×&W76VC×·&F–ærÓÓÒçĞ¢à¢¶çĞ¢Âö'WGFöãà¢’—Ğ¢ÂöF—cà¢ÂöÆ&VÃà¢ÆÆ&VÃà¢·'FÂò-˜]˜MŠ}Šİ‹Š­˜2ŠŠ}˜MŠ­˜‹]˜­˜B"¢%–÷W"FWF–ÆVBæ÷FR'Ğ¢ÇFW‡F&V¢fÇVS×¶æ÷FWĞ¢öä6†ævS×²†R’Óâ6WDæ÷FR†RçF&vWBçfÇVR—Ğ¢Æ6V†öÆFW#×°¢'FÀ¢ò-˜]ŠrŠ}˜M‹˜¢˜mŠÍŠİ‰ò˜]ŠrŠ}˜M‹˜¢Š=‹Š˜=˜=‰ò˜˜]ŠrŠ}˜M‹˜¢Š=‹Š}Šı˜2Š]˜M˜’Š}˜M˜=Š­Š}Š‰ò ¢¢%v†Bv÷&¶VBÂv†B6öægW6VB–÷RÂæBv†BÆVB–÷R&6²FòF†R&öö³ò ¢Ğ¢óà¢ÂöÆ&VÃà¢Æ'WGFöâ6Æ74æÖSÒ'&–Ö'’"G—SÒ'7V&Ö—B"F—6&ÆVC×¶'W7—Óà¢¶'W7’ò.(
+b"¢'FÂò-Šİ˜‹‚Š}˜M˜]˜MŠ}Šİ‹Š’"¢%6fRæ÷FR'Ğ¢Âö'WGFöãà¢·6fTW'&÷"bbÆF—b6Æ74æÖSÒ'&VFW"ÖW'&÷"–æÆ–æR#ç·6fTW'&÷'ÓÂöF—cçĞ¢·6fVBbb€¢Ç7â6Æ74æÖSÒ'6fVB#à¢)É7²"'Ğ¢·'FÀ¢ò-Šİ˜ı˜‹Š¢Š}˜M˜]˜MŠ}Šİ‹Š’˜˜¢˜]˜=Š­ŠŠ­˜2Š}˜MŠíŠ}‹]Š’ ¢¢$æ÷FR6fVBFò–÷W"&—fFRÆ–'&'’'Ğ¢Â÷7ãà¢—Ğ¢Âöf÷&Óà¢ÂöF—cà¢“°§Ğ ¦gVæ7F–öâWÆöB‡°¢'FÂÀ¢BÀ¢f–ÆRÀ¢6WDf–ÆRÀ¢÷WGWDÆæwVvRÀ¢6WD÷WGWDÆæwVvRÀ¢&–v‡G3À¢&–v‡G3"À¢6WE&–v‡G3À¢6WE&–v‡G3"À¢&ö6W76–ærÀ¢W&6VçBÀ¢6Æ÷6RÀ¢7F'BÀ§Ó¢°¢'FÃ¢&ööÆVã°¢C¢G—VöbFW‡Bæ#°¢f–ÆS¢f–ÆRÂçVÆÃ°¢6WDf–ÆS¢‡c¢f–ÆRÂçVÆÂ’Óâfö–C°¢÷WGWDÆæwVvS¢÷WGWDÆæwVvS°¢6WD÷WGWDÆæwVvS¢‡c¢÷WGWDÆæwVvR’Óâfö–C°¢&–v‡G3¢&ööÆVã°¢&–v‡G3#¢&ööÆVã°¢6WE&–v‡G3¢‡c¢&ööÆVâ’Óâfö–C°¢6WE&–v‡G3#¢‡c¢&ööÆVâ’Óâfö–C°¢&ö6W76–æs¢&ööÆVã°¢W&6VçC¢çVÖ&W#°¢6Æ÷6S¢‚’Óâfö–C°¢7F'C¢‚’Óâfö–C°§Ò’°¢&WGW&â€¢ÆF—`¢6Æ74æÖSÒ&ÖöFÂÖ&6¶G&÷ ¢öäÖ÷W6TF÷vã×²†R’ÓâRçF&vWBÓÓÒRæ7W'&VçEF&vWBbb6Æ÷6R‚—Ğ¢à¢Ç6V7F–öâ6Æ74æÖSÒ&ÖöFÂ#à¢Æ'WGFöâ6Æ74æÖSÒ&ÖöFÂÖ6Æ÷6R"öä6Æ–6³×¶6Æ÷6WÓà¢9p¢Âö'WGFöãà¢ÆF—b6Æ74æÖSÒ&ÖöFÂÖ–6öâ#î(zsÂöF—cà¢Ç7â6Æ74æÖSÒ&W–V'&÷r#à¢·'FÂò-Š}˜MŠí‹}˜Š’Š}˜MŠ=˜˜M˜’(	B˜]ŠÍŠ}˜m˜­Š’"¢%7FWöæR(	Bg&VR'Ğ¢Â÷7ãà¢Æƒ#ç·BçWÆöEF—FÆWÓÂöƒ#à¢Çç·BçWÆöE7V'ÓÂ÷à¢²&ö6W76–ærò€¢Ãà¢ÆF—b6Æ74æÖSÒ&g&VRÖæ÷F–6R#à¢Æ#à¢)É7²"'Ğ¢·'FÀ¢ò-˜MŠrŠ}‹=Š­ŠíŠıŠ}˜R˜M˜÷Vä’˜˜¢˜}‹˜rŠ}˜MŠí‹}˜Š’ ¢¢$æò÷Vä’W6vR–âF†—27FW'Ğ¢Âö#à¢Ç7ãà¢·'FÀ¢ò-‹=˜mŠİ˜‹‚Š}˜M˜]˜M˜˜˜-‹râŠ}˜MŠ­Šİ˜M˜­˜B˜Š}˜MŠ­‹ŠÍ˜]Š’˜Š}˜M‹]˜Š¢Š}˜MŠ}ŠİŠ­‹Š}˜˜¢Š­Š˜-˜’Ší˜­Š}‹Š}Š¢˜]˜m˜‹]˜MŠ’Š­ŠİŠ­Š}ŠÂŠ­Š=˜=˜­Šı˜½Šrâ ¢¢%vRöæÇ’7F÷&RF†Rf–ÆRâæÇ—6—2ÂG&ç6ÆF–öâæB&öfW76–öæÂVF–ò&VÖ–â6W&FRÂ6öæf—&ÖVB÷F–öç2â'Ğ¢Â÷7ãà¢ÂöF—cà¢ÆÆ&VÂ6Æ74æÖSÒ&G&÷¦öæR#à¢Æ–çW@¢G—SÒ&f–ÆR ¢66WCÒ&Æ–6F–öâ÷FbÂçFb ¢öä6†ævS×²†R’Óâ6WDf–ÆR†RçF&vWBæf–ÆW3òå³ÒóòçVÆÂ—Ğ¢óà¢Æ“î)jCÂö“à¢Ç7G&öæsç¶f–ÆSòææÖRÇÂBæ6†ö÷6WÓÂ÷7G&öæsà¢Ç7ãà¢·'FÀ¢ò-ŠİŠòŠ=˜-‹]˜’#˜]˜­ŠÍŠ}ŠŠ}˜­Š­‰²˜­˜ı˜‹]˜’Š˜=Š­Š}Š‚˜m‹]˜¢˜]˜bSŠ]˜M˜’S‹]˜ŠİŠ’ ¢¢##Ô"Ö†–×VÓ²FW‡BÖ&6VBDböbS(	3SvW2—2&V6öÖÖVæFVB'Ğ¢Â÷7ãà¢ÂöÆ&VÃà¢ÆÆ&VÂ6Æ74æÖSÒ'6VÆV7BÖÆ&VÂ÷WGWBÖÆæwVvR#à¢·'FÀ¢ò-˜M‹­Š’Š}˜M˜]˜MŠí‹R˜Š}˜MŠ­Šİ˜M˜­˜BŠ]‹Šr‹}˜MŠŠ­˜}˜]Šr˜MŠ}Šİ˜-˜½Šr ¢¢%7VÖÖ'’æBæÇ—6—2ÆæwVvRÂ–b&WVW7FVBÆFW"'Ğ¢Ç6VÆV7@¢fÇVS×¶÷WGWDÆæwVvWĞ¢öä6†ævS×²†R’Óà¢6WD÷WGWDÆæwVvR†RçF&vWBçfÇVR2÷WGWDÆæwVvR¢Ğ¢à¢Æ÷F–öâfÇVSÒ&"#à¢·'FÀ¢ò-Š}˜M‹‹Š˜­Š’(	B˜˜]˜m˜}ŠrŠ­‹ŠÍ˜]Š’˜]˜MŠí‹RŠ}˜M˜=Š­Š}Š‚Š}˜MŠ]˜mŠÍ˜M˜­‹-˜¢ ¢¢$&&–2(	B–æ6ÇVF–ær7VÖÖ&–W2öbVævÆ—6‚&öö·2'Ğ¢Âö÷F–öãà¢Æ÷F–öâfÇVSÒ&Vâ#à¢·'FÀ¢ò-Š}˜MŠ]˜mŠÍ˜M˜­‹-˜­Š’(	B˜˜]˜m˜}ŠrŠ­‹ŠÍ˜]Š’˜]˜MŠí‹RŠ}˜M˜=Š­Š}Š‚Š}˜M‹‹Š˜¢ ¢¢$VævÆ—6‚(	B–æ6ÇVF–ær7VÖÖ&–W2öb&&–2&öö·2'Ğ¢Âö÷F–öãà¢Æ÷F–öâfÇVSÒ&&–Æ–æwVÂ#à¢·'FÂò-Š}˜M‹‹Š˜­Š’˜Š}˜MŠ]˜mŠÍ˜M˜­‹-˜­Š’"¢$&&–2æBVævÆ—6‚'Ğ¢Âö÷F–öãà¢Â÷6VÆV7Cà¢ÂöÆ&VÃà¢ÆF—b6Æ74æÖSÒ'&–v‡G2Ö&÷‚#à¢Æƒ3ç·'FÂò-Š˜Š}ŠŠ’Š}˜MŠ½˜-Š’˜Š}˜MŠİ˜-˜˜""¢%G'W7Bb&–v‡G2vFR'ÓÂöƒ3à¢ÆÆ&VÃà¢Æ–çW@¢G—SÒ&6†V6¶&÷‚ ¢6†V6¶VC×·&–v‡G3Ğ¢öä6†ævS×²†R’Óâ6WE&–v‡G3†RçF&vWBæ6†V6¶VB—Ğ¢óà¢Ç7ãç·Bç&–v‡G3ÓÂ÷7ãà¢ÂöÆ&VÃà¢ÆÆ&VÃà¢Æ–çW@¢G—SÒ&6†V6¶&÷‚ ¢6†V6¶VC×·&–v‡G3'Ğ¢öä6†ævS×²†R’Óâ6WE&–v‡G3"†RçF&vWBæ6†V6¶VB—Ğ¢óà¢Ç7ãç·Bç&–v‡G3'ÓÂ÷7ãà¢ÂöÆ&VÃà¢Ç6ÖÆÃà¢·'FÀ¢ò-˜M˜b˜­ŠŠıŠ2Š}˜M‹˜‹’˜-Š˜BŠ}˜MŠ­Š=‹M˜­‹‹˜M˜’Š}˜MŠ]˜-‹Š}‹˜­˜bâ ¢¢%WÆöB6ææ÷B7F'BVçF–Â&÷F‚FV6Æ&F–öç2&R66WFVBâ'Ğ¢Â÷6ÖÆÃà¢ÂöF—cà¢ÆF—b6Æ74æÖSÒ&ÖöFÂÖ7F–öç2#à¢Æ'WGFöâ6Æ74æÖSÒ'6V6öæF'’"öä6Æ–6³×¶6Æ÷6WÓà¢·Bæ6æ6VÇĞ¢Âö'WGFöãà¢Æ'WGFöà¢6Æ74æÖSÒ'&–Ö'’ ¢F—6&ÆVC×²f–ÆRÇÂ&–v‡G3ÇÂ&–v‡G3'Ğ¢öä6Æ–6³×·7F'GĞ¢à¢·Bç7F'GĞ¢Âö'WGFöãà¢ÂöF—cà¢Âóà¢’¢€¢ÆF—b6Æ74æÖSÒ'&ö6W76–ær#à¢ÆF—b6Æ74æÖSÒ'&ö6W76–ær×&–ær#à¢Ç7G&öæsç·W&6VçGÒSÂ÷7G&öæsà¢ÂöF—cà¢Æƒ3ç·'FÂò-˜mŠİ˜‹‚˜=Š­Š}Š˜2ŠŠ=˜]Š}˜n(
+b"¢%6f–ær–÷W"&öö²6V7W&VÇ(
+b'ÓÂöƒ3à¢Çà¢·W&6VçBÂSP¢ò'FÀ¢ò-‹˜‹’Š}˜M˜]˜M˜Š]˜M˜’˜]‹=Š}ŠİŠ­˜2Š}˜MŠíŠ}‹]Š’ ¢¢%WÆöF–ærFò–÷W"&—fFR7F÷&vR ¢¢'FÀ¢ò-Šİ˜‹‚Š}˜MŠ]˜-‹Š}‹˜Š˜­Š}˜mŠ}Š¢Š}˜M˜=Š­Š}Š‚ ¢¢%6f–ær6öç6VçBæB&öö²FWF–Ç2'Ğ¢Â÷à¢Ä&"fÇVS×·W&6VçGÒóà¢Ç6ÖÆÃà¢·'FÀ¢ò-˜MŠr˜­˜ŠÍŠòŠ}Š­‹]Š}˜BŠ˜÷Vä’˜˜MŠrŠí‹]˜R˜]Š}˜M˜¢â ¢¢$æò÷Vä’6ÆÂæBæò’6†&vRâ'Ğ¢Â÷6ÖÆÃà¢ÂöF—cà¢—Ğ¢Â÷6V7F–öãà¢ÂöF—cà¢“°§Ğ

@@ -27,7 +27,6 @@ async function openAI(path: string, init: RequestInit) {
 }
 
 const TEXT_MODEL = () => Deno.env.get("OPENAI_TEXT_MODEL") ?? "gpt-5.6-terra";
-const PILOT_BOOK_LIMIT = () => Math.min(5, Math.max(1, Number(Deno.env.get("SPL_PILOT_MAX_BOOKS") ?? "1") || 1));
 const PILOT_QUESTION_LIMIT = 20;
 
 const bookAnalysisFormat = {
@@ -135,11 +134,9 @@ Deno.serve(async (request) => {
       const requestedLanguage = body.language === "en" ? "en" : "ar";
       const { data: existingAnalysis } = await supabase.from("spl_analyses").select("content").eq("book_id", bookId).eq("kind", "overview").eq("language", requestedLanguage).limit(1).maybeSingle();
       if (existingAnalysis) return json({ ok: true, reused: true, result: existingAnalysis.content });
-      const { data: analysedBooks } = await supabase.from("spl_analyses").select("book_id").eq("user_id", userData.user.id).eq("kind", "overview");
-      const pilotBookLimit = PILOT_BOOK_LIMIT();
-      if (new Set((analysedBooks ?? []).map(item => item.book_id)).size >= pilotBookLimit) {
-        return json({ error: "PAID_PILOT_BOOK_LIMIT_REACHED", limit: pilotBookLimit }, 429);
-      }
+      // A legacy pilot default stopped every new book after the first analysed
+      // title. The library is now allowed to grow; spending remains protected
+      // by explicit per-action confirmation and the daily analysis cap below.
       const dayStart = new Date();dayStart.setUTCHours(0,0,0,0);
       const { data: dailyAnalyses } = await supabase.from("spl_analyses").select("book_id").eq("user_id", userData.user.id).eq("kind", "overview").gte("created_at", dayStart.toISOString());
       if (new Set((dailyAnalyses ?? []).map(item => item.book_id)).size >= 3) return json({ error: "DAILY_ANALYSIS_LIMIT_REACHED", limit: 3 }, 429);
