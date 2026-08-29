@@ -202,6 +202,66 @@ export async function rollbackPilotBook(book: Pick<PilotBook, "id" | "storage_pa
   if (deleteError || storageError) throw deleteError ?? storageError;
 }
 
+/** Permanently deletes one owner-scoped book and its generated private files.
+ * Database children are removed by the existing ON DELETE CASCADE constraints.
+ * Paths are resolved before deleting the row so generated audio can also be
+ * removed without ever widening the operation beyond this exact book folder.
+ */
+export async function deletePilotBook(book: Pick<PilotBook, "id" | "storage_path">) {
+  const session = await ensurePilotSession();
+  const expectedPrefix = `${session.user.id}/${book.id}/`;
+  if (!book.storage_path.startsWith(expectedPrefix)) throw new Error("BOOK_DELETE_PATH_MISMATCH");
+
+  const audioPaths: string[] = [];
+  const { data: rootAudio, error: rootListError } = await supabase!.storage
+    .from("spl-audio")
+    .list(`${session.user.id}/${book.id}`, { limit: 1000 });
+  if (rootListError) throw rootListError;
+  for (const entry of rootAudio ?? []) {
+    if (entry.id) audioPaths.push(`${expectedPrefix}${entry.name}`);
+  }
+  const { data: previews, error: previewListError } = await supabase!.storage
+    .from("spl-audio")
+    .list(`${session.user.id}/${book.id}/voice-previews`, { limit: 20 });
+  if (previewListError) throw previewListError;
+  for (const entry of previews ?? []) {
+    if (entry.id) audioPaths.push(`${expectedPrefix}voice-previews/${entry.name}`);
+  }
+
+  const { error: deleteError } = await supabase!.from("spl_books").delete().eq("id", book.id);
+  if (deleteError) throw deleteError;
+
+  const cleanupErrors: string[] = [];
+  const { error: bookStorageError } = await supabase!.storage.from("spl-books").remove([book.storage_path]);
+  if (bookStorageError) cleanupErrors.push(bookStorageError.message);
+  if (audioPaths.length) {
+    const { error: audioStorageError } = await supabase!.storage.from("spl-audio").remove(audioPaths);
+    if (audioStorageError) cleanupErrors.push(audioStorageError.message);
+  }
+  return { cleanupWarning: cleanupErrors.join("; ") || null };
+}
+
+export async function updateBookCategory(book: PilotBook, category: string): Promise<PilotBook> {
+  await ensurePilotSession();
+  const cleanCategory = category.trim().slice(0, 60);
+  const metadata = { ...(book.metadata ?? {}), category: cleanCategory || undefined };
+  const { data, error } = await supabase!
+    .from("spl_books")
+    .update({ metadata })
+    .eq("id", book.id)
+    .select("id,title,file_name,file_size,storage_path,source_language,output_language,status,content_sha256,metadata,created_at")
+    .single();
+  if (error) throw error;
+  return data as PilotBook;
+}
+
+export async function downloadBookFile(storagePath: string): Promise<Blob> {
+  await ensurePilotSession();
+  const { data, error } = await supabase!.storage.from("spl-books").download(storagePath);
+  if (error || !data) throw error ?? new Error("BOOK_DOWNLOAD_FAILED");
+  return data;
+}
+
 /**
  * A time-limited, owner-scoped URL to read a saved book directly from Supabase
  * Storage — this is what lets Reader open a saved book without asking the user

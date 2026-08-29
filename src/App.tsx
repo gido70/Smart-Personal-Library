@@ -6,7 +6,8 @@ import {
   getLibraryStats,
   getLegalConsentStatus,
   getPrivateAudioUrl,
-  createBookSignedUrl,
+  deletePilotBook,
+  downloadBookFile,
   groupDuplicateBooks,
   invokeBookAI,
   listPilotBooks,
@@ -15,6 +16,7 @@ import {
   saveLegalConsent,
   saveManualImport,
   uploadPilotBook,
+  updateBookCategory,
   type DuplicateGroup,
   type AiUsageEvent,
   type OutputLanguage,
@@ -51,7 +53,7 @@ type View =
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "حساب المكتبة الموحد — V0.10.3",
+    version: "حساب المكتبة الموحد — V0.10.4",
     search: "ابحث في كتبك وأفكارك…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -82,7 +84,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Unified library account — V0.10.3",
+    version: "Unified library account — V0.10.4",
     search: "Search your books and ideas…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -120,7 +122,7 @@ const navigation = {
     ["library", "مكتبتي", "▥"],
     ["reader", "القارئ والصوت المجاني", "◫"],
     ["upload", "أضف كتابًا", "＋"],
-    ["progress", "التقدم والمراجعة", "◴"],
+    ["progress", "التقدم والتنبيهات", "🔔"],
     ["librarian", "أمين المكتبة", "✦"],
     ["feedback", "سجل التجربة", "✎"],
   ],
@@ -129,7 +131,7 @@ const navigation = {
     ["library", "My library", "▥"],
     ["reader", "Free reader & voice", "◫"],
     ["upload", "Add a book", "＋"],
-    ["progress", "Progress & review", "◴"],
+    ["progress", "Progress & alerts", "🔔"],
     ["librarian", "Library assistant", "✦"],
     ["feedback", "Research journal", "✎"],
   ],
@@ -176,6 +178,7 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [authState, setAuthState] = useState<"loading" | "signed_out" | "authenticated">("loading");
   const [accountEmail, setAccountEmail] = useState("");
+  const [reminderCount, setReminderCount] = useState(0);
   const t = text[lang];
   const rtl = lang === "ar";
   useEffect(() => {
@@ -277,6 +280,12 @@ export default function Home() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [booksLoadToken, browserCacheReady, authState]);
+  useEffect(() => {
+    if (authState !== "authenticated") return;
+    listBookReminders()
+      .then((items) => setReminderCount(items.length))
+      .catch(() => setReminderCount(0));
+  }, [authState, booksLoadToken, view]);
   useEffect(() => {
     const refreshFromSupabase = () => setBooksLoadToken((n) => n + 1);
     const refreshWhenVisible = () => {
@@ -448,12 +457,12 @@ export default function Home() {
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "حساب موحد وآمن V0.10.3" : "Secure unified account V0.10.3"}
+            {rtl ? "حساب موحد وآمن V0.10.4" : "Secure unified account V0.10.4"}
           </strong>
           <p>
             {rtl
-              ? "حتى خمسة كتب فقط. لا يبدأ التحليل أو السؤال أو الصوت الاحترافي إلا بعد تأكيدك."
-              : "Limited to five books. Analysis, questions, and professional audio start only after your confirmation."}
+              ? "مكتبتك قابلة للنمو. لا يبدأ التحليل أو السؤال أو الصوت الاحترافي إلا بعد تأكيدك."
+              : "Your library can grow. Analysis, questions, and professional audio start only after your confirmation."}
           </p>
         </div>
         <div className="profile">
@@ -492,19 +501,13 @@ export default function Home() {
             </button>
             <button onClick={() => setDark(!dark)}>{dark ? "☀" : "◐"}</button>
             <button
-              className="bell"
-              title={rtl ? "تفعيل تنبيهات هذا الجهاز" : "Enable notifications on this device"}
-              onClick={async () => {
-                try {
-                  await enablePushForThisDevice();
-                  setNotice(rtl ? "تم تفعيل تنبيهات هذا الجهاز." : "Notifications are enabled on this device.");
-                } catch (error) {
-                  setNotice(describeReminderError(error, rtl));
-                }
-                setTimeout(() => setNotice(""), 7000);
-              }}
+              className={`bell ${reminderCount > 0 ? "has-alerts" : ""}`}
+              title={rtl ? "التنبيهات" : "Notifications"}
+              aria-label={rtl ? `التنبيهات: ${reminderCount}` : `Notifications: ${reminderCount}`}
+              onClick={() => setView("progress")}
             >
-              ♧
+              🔔
+              {reminderCount > 0 && <b>{reminderCount > 9 ? "9+" : reminderCount}</b>}
             </button>
           </div>
         </header>
@@ -569,8 +572,6 @@ export default function Home() {
           <button
             key={id}
             className={view === id ? "active" : ""}
-            disabled={id === "progress"}
-            title={id === "progress" ? (rtl ? "غير معتمد بعد" : "Not yet accepted") : undefined}
             onClick={() => go(id)}
           >
             <i>{icon}</i>
@@ -833,9 +834,11 @@ function Dashboard({
           onAction={() => setView("library")}
         />
         <div className="book-grid">
-          {pilotBooks.map((book) => (
-            <LiveBookCard key={book.id} book={book} rtl={rtl} onOpen={() => onOpenPilot(book)} />
-          ))}
+          {pilotBooks.length > 0
+            ? pilotBooks.map((book) => (
+              <LiveBookCard key={book.id} book={book} rtl={rtl} onOpen={() => onOpenPilot(book)} />
+            ))
+            : <SampleShelf rtl={rtl} compact />}
           <button className="add-book-card" onClick={onUpload}>
             <i>＋</i>
             <strong>{rtl ? "أضف كتابًا جديدًا" : "Add a new book"}</strong>
@@ -1028,6 +1031,41 @@ const STATUS_LABELS_EN: Record<PilotBook["status"], string> = {
   failed: "Failed",
 };
 
+const BOOK_CATEGORIES = [
+  ["general", "عام", "General"],
+  ["history", "التاريخ", "History"],
+  ["geography", "الجغرافيا", "Geography"],
+  ["management", "الإدارة والقيادة", "Management & leadership"],
+  ["technology", "الذكاء الاصطناعي والتقنية", "AI & technology"],
+  ["literature", "الأدب واللغة", "Literature & language"],
+  ["science", "العلوم والصحة", "Science & health"],
+  ["thought", "الدين والفكر", "Religion & thought"],
+] as const;
+type BookCategoryId = (typeof BOOK_CATEGORIES)[number][0];
+
+function categoryOptions(rtl: boolean) {
+  return BOOK_CATEGORIES.map(([id, ar, en]) => ({ id, label: rtl ? ar : en }));
+}
+
+function categoryIdForBook(book: PilotBook): BookCategoryId {
+  const saved = String(book.metadata?.category ?? "");
+  if (BOOK_CATEGORIES.some(([id]) => id === saved)) return saved as BookCategoryId;
+  const haystack = `${book.title} ${String(book.metadata?.subject ?? "")}`.toLowerCase();
+  if (/تاريخ|history|حضار|سيرة/.test(haystack)) return "history";
+  if (/جغراف|geograph|دول|بلدان|خرائط/.test(haystack)) return "geography";
+  if (/إدار|قياد|management|leadership|تحول رقمي/.test(haystack)) return "management";
+  if (/ذكاء اصطناعي|تقني|رقمي|برمج|ai\b|artificial|technology|claude|coming wave/.test(haystack)) return "technology";
+  if (/أدب|رواي|شعر|لغ|literature|novel|poetry|language/.test(haystack)) return "literature";
+  if (/علوم|صحة|طب|science|health|medicine/.test(haystack)) return "science";
+  if (/دين|فكر|فلسف|relig|thought|philosoph/.test(haystack)) return "thought";
+  return "general";
+}
+
+function categoryLabel(category: BookCategoryId, rtl: boolean) {
+  const item = BOOK_CATEGORIES.find(([id]) => id === category) ?? BOOK_CATEGORIES[0];
+  return rtl ? item[1] : item[2];
+}
+
 function OriginalPdfCover({ book }: { book: PilotBook }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [failed, setFailed] = useState(false);
@@ -1035,10 +1073,14 @@ function OriginalPdfCover({ book }: { book: PilotBook }) {
     let cancelled = false;
     setFailed(false);
     const render = async () => {
-      const signed = await createBookSignedUrl(book.storage_path, 900);
+      // Download through the authenticated Storage client instead of asking
+      // PDF.js to range-fetch a short-lived signed URL. Samsung Internet and
+      // some Android WebViews can reject those cross-origin range requests and
+      // leave an empty canvas even though the book itself is available.
+      const fileBlob = await downloadBookFile(book.storage_path);
       const pdfjs = await import("pdfjs-dist");
       pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-      const pdf = await pdfjs.getDocument({ url: signed.url, disableFontFace: true }).promise;
+      const pdf = await pdfjs.getDocument({ data: new Uint8Array(await fileBlob.arrayBuffer()), disableFontFace: true }).promise;
       const first = await pdf.getPage(1);
       const base = first.getViewport({ scale: 1 });
       const viewport = first.getViewport({ scale: Math.max(0.34, Math.min(1.2, 420 / base.width)) });
@@ -1059,19 +1101,75 @@ function OriginalPdfCover({ book }: { book: PilotBook }) {
 }
 
 /** A real saved book; page one is rendered as its cover with a safe fallback. */
-function LiveBookCard({ book, rtl, onOpen }: { book: PilotBook; rtl: boolean; onOpen: () => void }) {
+function LiveBookCard({
+  book,
+  rtl,
+  onOpen,
+  onDelete,
+  onCategoryChange,
+}: {
+  book: PilotBook;
+  rtl: boolean;
+  onOpen: () => void;
+  onDelete?: () => void;
+  onCategoryChange?: (category: string) => void;
+}) {
   const subtitle = languageLabel(book.source_language, rtl);
   const status = rtl ? STATUS_LABELS_AR[book.status] : STATUS_LABELS_EN[book.status];
+  const category = categoryIdForBook(book);
   return (
-    <button className="book-card live-book-card" onClick={onOpen}>
-      <OriginalPdfCover book={book} />
-      <div>
+    <article className="book-card live-book-card">
+      <button className="book-card-open" onClick={onOpen} aria-label={`${rtl ? "فتح" : "Open"} ${book.title}`}>
+        <OriginalPdfCover book={book} />
+      </button>
+      <div className="live-book-copy">
         <span className="tag">{rtl ? "كتابك" : "Your book"}</span>
-        <h4>{book.title}</h4>
+        <button className="book-title-button" onClick={onOpen}><h4>{book.title}</h4></button>
         <p>{subtitle}</p>
         <small>{status}</small>
+        {onCategoryChange ? (
+          <select
+            className="book-category-select"
+            value={category}
+            onChange={(event) => onCategoryChange(event.target.value)}
+            aria-label={rtl ? "تصنيف الكتاب" : "Book category"}
+          >
+            {categoryOptions(rtl).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select>
+        ) : <span className="book-category-chip">{categoryLabel(category, rtl)}</span>}
+        {onDelete && <button className="book-delete-button" onClick={onDelete}>⌫ {rtl ? "حذف" : "Delete"}</button>}
       </div>
-    </button>
+    </article>
+  );
+}
+
+const SAMPLE_BOOKS = [
+  { title: "The Coming Wave", category: "technology", tone: "navy" },
+  { title: "التحول الرقمي في الإدارة والقيادة الحديثة", category: "management", tone: "emerald" },
+  { title: "The Instant AI Agency", category: "technology", tone: "emerald" },
+  { title: "100 خطوة لإتقان Claude", category: "technology", tone: "gold" },
+] as const;
+
+function SampleShelf({ rtl, compact = false }: { rtl: boolean; compact?: boolean }) {
+  return (
+    <div className={compact ? "sample-shelf compact-samples" : "sample-shelf"}>
+      {!compact && <p className="sample-library-intro">{rtl
+        ? "هذه أمثلة توضيحية فقط لتعرف شكل المكتبة ومخرجات كل كتاب. لا تُرسل إلى OpenAI ولا تُحسب ضمن كتبك."
+        : "These are display-only examples of the library and book outputs. They never call OpenAI and do not count as your books."}</p>}
+      <div className="sample-book-grid">
+        {SAMPLE_BOOKS.map((sample) => (
+          <article className="sample-book-card" key={sample.title}>
+            <BookCover tone={sample.tone} title={sample.title} />
+            <div>
+              <span className="sample-badge">{rtl ? "نموذج" : "Sample"}</span>
+              <h4>{sample.title}</h4>
+              <span className="book-category-chip">{categoryLabel(sample.category, rtl)}</span>
+              <small>{rtl ? "خلاصة • أفكار • فصول • صوت • أسئلة" : "Summary • ideas • chapters • audio • questions"}</small>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1093,7 +1191,7 @@ function DuplicateReviewPanel({
     setBusyId(book.id);
     setError("");
     try {
-      await rollbackPilotBook(book);
+      await deletePilotBook(book);
       onBooksChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : rtl ? "تعذر حذف السجل." : "Could not delete this record.");
@@ -1107,7 +1205,7 @@ function DuplicateReviewPanel({
     setBusyId(group.key);
     setError("");
     try {
-      for (const duplicate of ordered.slice(1)) await rollbackPilotBook(duplicate);
+      for (const duplicate of ordered.slice(1)) await deletePilotBook(duplicate);
       onBooksChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : rtl ? "تعذر تنظيف المجموعة." : "Could not clean this group.");
@@ -1268,10 +1366,44 @@ function Library({
   searchQuery: string;
   onOpenPilot: (book: PilotBook) => void;
 }) {
+  const [categoryFilter, setCategoryFilter] = useState<BookCategoryId | "all">("all");
+  const [bookToDelete, setBookToDelete] = useState<PilotBook | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [libraryMessage, setLibraryMessage] = useState("");
   const query = searchQuery.trim().toLowerCase();
-  const filteredPilotBooks = query
-    ? pilotBooks.filter((book) => book.title.toLowerCase().includes(query))
-    : pilotBooks;
+  const visibleCategories = Array.from(new Set(pilotBooks.map(categoryIdForBook)));
+  const filteredPilotBooks = pilotBooks.filter((book) => {
+    const matchesQuery = !query || book.title.toLowerCase().includes(query);
+    const matchesCategory = categoryFilter === "all" || categoryIdForBook(book) === categoryFilter;
+    return matchesQuery && matchesCategory;
+  });
+  const changeCategory = async (book: PilotBook, category: string) => {
+    setLibraryMessage("");
+    try {
+      await updateBookCategory(book, category);
+      onBooksChanged();
+      setLibraryMessage(rtl ? "تم حفظ تصنيف الكتاب." : "Book category saved.");
+    } catch (error) {
+      setLibraryMessage(error instanceof Error ? error.message : rtl ? "تعذر حفظ التصنيف." : "Could not save category.");
+    }
+  };
+  const confirmDelete = async () => {
+    if (!bookToDelete) return;
+    setDeleteBusy(true);
+    setLibraryMessage("");
+    try {
+      const result = await deletePilotBook(bookToDelete);
+      setBookToDelete(null);
+      onBooksChanged();
+      setLibraryMessage(result.cleanupWarning
+        ? (rtl ? "حُذف الكتاب، مع تعذر تنظيف ملف ثانوي واحد." : "Book deleted; one secondary file could not be cleaned up.")
+        : (rtl ? "حُذف الكتاب وملفاته ونتائجه بنجاح." : "Book, files and results deleted successfully."));
+    } catch (error) {
+      setLibraryMessage(error instanceof Error ? error.message : rtl ? "تعذر حذف الكتاب." : "Could not delete the book.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
   return (
     <div className="page">
       <PageTitle
@@ -1291,6 +1423,17 @@ function Library({
             : `Search results for "${searchQuery}": ${filteredPilotBooks.length}`}
         </p>
       )}
+      {!booksLoading && !booksError && pilotBooks.length > 0 && (
+        <div className="category-filter" role="group" aria-label={rtl ? "تصنيفات المكتبة" : "Library categories"}>
+          <button className={categoryFilter === "all" ? "active" : ""} onClick={() => setCategoryFilter("all")}>{rtl ? "الكل" : "All"} <b>{pilotBooks.length}</b></button>
+          {visibleCategories.map((category) => (
+            <button key={category} className={categoryFilter === category ? "active" : ""} onClick={() => setCategoryFilter(category)}>
+              {categoryLabel(category, rtl)} <b>{pilotBooks.filter((book) => categoryIdForBook(book) === category).length}</b>
+            </button>
+          ))}
+        </div>
+      )}
+      {libraryMessage && <p className="library-action-message">{libraryMessage}</p>}
       {booksLoading && (
         <section className="panel state-panel">
           {rtl ? "جارٍ تحميل مكتبتك…" : "Loading your library…"}
@@ -1305,10 +1448,10 @@ function Library({
         </section>
       )}
       {!booksLoading && !booksError && pilotBooks.length === 0 && !query && (
-        <section className="panel state-panel empty">
-          {rtl
-            ? "لم تحفظ أي كتاب بعد. أضف كتابك الأول لتراه هنا بعد كل تحديث للصفحة."
-            : "You haven't saved a book yet. Add your first one to see it here after every refresh."}
+        <section className="panel sample-library-panel">
+          <span className="eyebrow">{rtl ? "ابدأ بصورة واضحة" : "Start with a clear preview"}</span>
+          <h3>{rtl ? "كيف ستبدو مكتبتك" : "How your library will look"}</h3>
+          <SampleShelf rtl={rtl} />
         </section>
       )}
       {!booksLoading && !booksError && filteredPilotBooks.length > 0 && (
@@ -1324,13 +1467,35 @@ function Library({
           </p>
           <div className="library-full live-book-grid">
             {filteredPilotBooks.map((book) => (
-              <LiveBookCard key={book.id} book={book} rtl={rtl} onOpen={() => onOpenPilot(book)} />
+              <LiveBookCard
+                key={book.id}
+                book={book}
+                rtl={rtl}
+                onOpen={() => onOpenPilot(book)}
+                onDelete={() => setBookToDelete(book)}
+                onCategoryChange={(category) => changeCategory(book, category)}
+              />
             ))}
           </div>
         </section>
       )}
       {!booksLoading && !booksError && (
         <DuplicateReviewPanel rtl={rtl} groups={groupDuplicateBooks(pilotBooks)} onBooksChanged={onBooksChanged} />
+      )}
+      {bookToDelete && (
+        <div className="confirm-delete-backdrop" role="presentation" onMouseDown={() => !deleteBusy && setBookToDelete(null)}>
+          <section className="confirm-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-book-title" onMouseDown={(event) => event.stopPropagation()}>
+            <span className="delete-dialog-icon">⌫</span>
+            <h3 id="delete-book-title">{rtl ? "تأكيد حذف الكتاب" : "Confirm book deletion"}</h3>
+            <p>{rtl
+              ? `هل تريد حذف «${bookToDelete.title}»؟ سيُحذف ملف الكتاب وخلاصاته وأصواته وأسئلته وتنبيهاته، ولا يمكن التراجع عن ذلك.`
+              : `Delete “${bookToDelete.title}”? Its file, summaries, audio, questions and reminders will be removed and cannot be restored.`}</p>
+            <div>
+              <button className="danger" disabled={deleteBusy} onClick={confirmDelete}>{deleteBusy ? (rtl ? "جارٍ الحذف…" : "Deleting…") : (rtl ? "نعم، احذف الكتاب" : "Yes, delete book")}</button>
+              <button className="secondary" disabled={deleteBusy} onClick={() => setBookToDelete(null)}>{rtl ? "إلغاء" : "Cancel"}</button>
+            </div>
+          </section>
+        </div>
       )}
     </div>
   );

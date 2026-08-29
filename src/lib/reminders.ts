@@ -1,5 +1,9 @@
 import { ensurePilotSession, supabase } from "./supabase";
 
+// VAPID public keys are designed to be shipped to browsers. The private key
+// remains exclusively in Supabase; an environment value can rotate this one.
+const DEFAULT_SPL_VAPID_PUBLIC_KEY = "BDM6XAowTZ5QAgwlxJBaOH-aJ6dvPzEDfCG6BbKYVAzBNxJF1eqISEnqlR3xvYnrYSPohkyRzB5q18A7EthDjbQ";
+
 export type BookReminder = {
   id: string;
   book_id: string;
@@ -35,7 +39,7 @@ export async function enablePushForThisDevice() {
     || (navigator as Navigator & { standalone?: boolean }).standalone === true;
   if (isiOS && !standalone) throw new Error("IOS_HOME_SCREEN_REQUIRED");
 
-  const vapidKey = String(import.meta.env.VITE_SPL_VAPID_PUBLIC_KEY ?? "").trim();
+  const vapidKey = String(import.meta.env.VITE_SPL_VAPID_PUBLIC_KEY ?? DEFAULT_SPL_VAPID_PUBLIC_KEY).trim();
   if (!vapidKey) throw new Error("VAPID_NOT_CONFIGURED");
 
   const permission = Notification.permission === "granted"
