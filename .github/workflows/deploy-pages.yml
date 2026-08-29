@@ -31,16 +31,13 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
-          VITE_SPL_VAPID_PUBLIC_KEY: ${{ secrets.VITE_SPL_VAPID_PUBLIC_KEY }}
         run: |
           test -n "$VITE_SUPABASE_URL" || { echo "VITE_SUPABASE_URL is missing"; exit 1; }
           test -n "$VITE_SUPABASE_PUBLISHABLE_KEY" || { echo "VITE_SUPABASE_PUBLISHABLE_KEY is missing"; exit 1; }
-          test -n "$VITE_SPL_VAPID_PUBLIC_KEY" || { echo "VITE_SPL_VAPID_PUBLIC_KEY is missing"; exit 1; }
       - run: npm run build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
-          VITE_SPL_VAPID_PUBLIC_KEY: ${{ secrets.VITE_SPL_VAPID_PUBLIC_KEY }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
