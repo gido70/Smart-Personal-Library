@@ -102,6 +102,7 @@ async function recordUsage(
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: cors });
+  let requestReceipt: { client: ReturnType<typeof createClient>; id: string } | null = null;
   try {
     // Fail closed. The paid path stays unavailable unless the project owner
     // explicitly creates this server-side secret with the exact value "true".
@@ -130,16 +131,59 @@ Deno.serve(async (request) => {
     const { data: consent } = await supabase.from("spl_legal_consents").select("id").eq("book_id", bookId).eq("user_id", userData.user.id).maybeSingle();
     if (!consent) return json({ error: "LEGAL_CONSENT_REQUIRED" }, 403);
 
+    // Once additive migration 0005 is applied, only the first request owns an
+    // idempotency key. Repeated taps or a retry after an interrupted response
+    // read the same receipt instead of starting another OpenAI charge. Before
+    // that migration exists, this check degrades to the proven legacy path.
+    const requestId = typeof body.requestId === "string" && /^[a-zA-Z0-9-]{8,80}$/.test(body.requestId) ? body.requestId : null;
+    if (requestId && ["process", "ask", "audio", "audio_preview"].includes(action)) {
+      const { data: previous, error: previousError } = await supabase
+        .from("spl_ai_requests")
+        .select("id,status,http_status,result,error_code")
+        .eq("user_id", userData.user.id)
+        .eq("idempotency_key", requestId)
+        .maybeSingle();
+      if (!previousError && previous) {
+        if (previous.status === "succeeded") return json(previous.result ?? { ok: true, reused: true }, previous.http_status ?? 200);
+        if (previous.status === "failed") return json(previous.result ?? { error: previous.error_code ?? "PREVIOUS_REQUEST_FAILED" }, previous.http_status ?? 409);
+        return json({ ok: false, pending: true, requestId }, 202);
+      }
+      if (!previousError) {
+        const { data: created, error: createError } = await supabase.from("spl_ai_requests").insert({
+          user_id: userData.user.id,
+          book_id: bookId,
+          action,
+          idempotency_key: requestId,
+          status: "processing",
+        }).select("id").single();
+        if (!createError && created) requestReceipt = { client: supabase, id: created.id };
+        else if (createError?.code === "23505") return json({ ok: false, pending: true, requestId }, 202);
+      }
+    }
+    const finish = async (payload: Record<string, unknown>, status = 200) => {
+      if (requestReceipt) {
+        await requestReceipt.client.from("spl_ai_requests").update({
+          status: status < 400 ? "succeeded" : "failed",
+          http_status: status,
+          result: payload,
+          error_code: typeof payload.error === "string" ? payload.error : null,
+          updated_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+        }).eq("id", requestReceipt.id);
+      }
+      return json(payload, status);
+    };
+
     if (action === "process") {
       const requestedLanguage = body.language === "en" ? "en" : "ar";
       const { data: existingAnalysis } = await supabase.from("spl_analyses").select("content").eq("book_id", bookId).eq("kind", "overview").eq("language", requestedLanguage).limit(1).maybeSingle();
-      if (existingAnalysis) return json({ ok: true, reused: true, result: existingAnalysis.content });
+      if (existingAnalysis) return await finish({ ok: true, reused: true, result: existingAnalysis.content });
       // A legacy pilot default stopped every new book after the first analysed
       // title. The library is now allowed to grow; spending remains protected
       // by explicit per-action confirmation and the daily analysis cap below.
       const dayStart = new Date();dayStart.setUTCHours(0,0,0,0);
       const { data: dailyAnalyses } = await supabase.from("spl_analyses").select("book_id").eq("user_id", userData.user.id).eq("kind", "overview").gte("created_at", dayStart.toISOString());
-      if (new Set((dailyAnalyses ?? []).map(item => item.book_id)).size >= 3) return json({ error: "DAILY_ANALYSIS_LIMIT_REACHED", limit: 3 }, 429);
+      if (new Set((dailyAnalyses ?? []).map(item => item.book_id)).size >= 3) return await finish({ error: "DAILY_ANALYSIS_LIMIT_REACHED", limit: 3 }, 429);
       await supabase.from("spl_books").update({ status: "processing", processing_error: null }).eq("id", bookId);
       let openaiFileId = book.openai_file_id as string | null;
       if (!openaiFileId) {
@@ -185,19 +229,19 @@ Deno.serve(async (request) => {
         status: "ready",
         metadata: { ...(book.metadata ?? {}), ...(result.metadata ?? {}) },
       }).eq("id", bookId);
-      return json({ ok: true, result, usage: response.usage ?? null });
+      return await finish({ ok: true, result, usage: response.usage ?? null });
     }
 
     if (action === "ask") {
       const question = String(body.question ?? "").trim();
       const language = body.language === "en" ? "en" : "ar";
-      if (!question) return json({ error: "QUESTION_REQUIRED" }, 400);
-      if (!book.openai_file_id) return json({ error: "BOOK_NOT_PROCESSED" }, 409);
+      if (!question) return await finish({ error: "QUESTION_REQUIRED" }, 400);
+      if (!book.openai_file_id) return await finish({ error: "BOOK_NOT_PROCESSED" }, 409);
       const dayStart = new Date();dayStart.setUTCHours(0,0,0,0);
       const { count: totalQuestions } = await supabase.from("spl_questions").select("id", { count: "exact", head: true }).eq("user_id", userData.user.id);
-      if ((totalQuestions ?? 0) >= PILOT_QUESTION_LIMIT) return json({ error: "PILOT_QUESTION_LIMIT_REACHED", limit: PILOT_QUESTION_LIMIT }, 429);
+      if ((totalQuestions ?? 0) >= PILOT_QUESTION_LIMIT) return await finish({ error: "PILOT_QUESTION_LIMIT_REACHED", limit: PILOT_QUESTION_LIMIT }, 429);
       const { count: dailyQuestions } = await supabase.from("spl_questions").select("id", { count: "exact", head: true }).eq("user_id", userData.user.id).gte("created_at", dayStart.toISOString());
-      if ((dailyQuestions ?? 0) >= 10) return json({ error: "DAILY_QUESTION_LIMIT_REACHED", limit: 10 }, 429);
+      if ((dailyQuestions ?? 0) >= 10) return await finish({ error: "DAILY_QUESTION_LIMIT_REACHED", limit: 10 }, 429);
       const prompt = `${language === "ar" ? "أجب بالعربية" : "Answer in English"}. Answer only from the uploaded book. If the book does not support the answer, say so. Distinguish quotations, paraphrases, and platform inference. Include page or chapter references when reliably available. Return JSON only: {answer, references:[{page,chapter,note}], confidence, inference}. Question: ${question}`;
       const model = TEXT_MODEL();
       const generated = await openAI("responses", {
@@ -210,7 +254,7 @@ Deno.serve(async (request) => {
       const answer = JSON.parse(stripFence(outputText));
       await supabase.from("spl_questions").insert({ user_id: userData.user.id, book_id: bookId, question, answer, language, model });
       await recordUsage(supabase, userData.user.id, bookId, "ask", model, response.usage ?? null, { language });
-      return json({ ok: true, answer, usage: response.usage ?? null });
+      return await finish({ ok: true, answer, usage: response.usage ?? null });
     }
 
     if (action === "audio_preview") {
@@ -221,7 +265,7 @@ Deno.serve(async (request) => {
         : "In this library, we read calmly and give every idea the time it deserves. This short sample helps you choose a voice before creating the full audio summary.";
       const path = `${userData.user.id}/${bookId}/voice-previews/${language}-${voice}.mp3`;
       const { data: cached } = await supabase.storage.from("spl-audio").download(path);
-      if (cached) return json({ ok: true, reused: true, storage_path: path, voice, language });
+      if (cached) return await finish({ ok: true, reused: true, storage_path: path, voice, language });
       const instructions = language === "ar"
         ? "اقرأ كراوٍ لكتاب صوتي: هادئ، دافئ، متزن، بسرعة أبطأ قليلًا، دون مبالغة مسرحية، مع وقفات طبيعية ونطق عربي فصيح واضح."
         : "Read like a calm, warm audiobook narrator at a slightly slower pace, without theatrical exaggeration, using natural pauses and clear pronunciation.";
@@ -233,18 +277,18 @@ Deno.serve(async (request) => {
       const { error: uploadError } = await supabase.storage.from("spl-audio").upload(path, await audioResponse.blob(), { contentType: "audio/mpeg", upsert: true });
       if (uploadError) throw uploadError;
       await recordUsage(supabase, userData.user.id, bookId, "audio_preview", "gpt-4o-mini-tts", null, { language, voice, characters: sample.length });
-      return json({ ok: true, reused: false, storage_path: path, voice, language });
+      return await finish({ ok: true, reused: false, storage_path: path, voice, language });
     }
 
     if (action === "audio") {
       const language = body.language === "en" ? "en" : "ar";
       const voice = body.voice === "cedar" ? "cedar" : "marin";
       const { data: existingAudio } = await supabase.from("spl_audio_outputs").select("id,language,voice,storage_path,part_no,created_at").eq("book_id", bookId).eq("language", language).eq("voice", voice).order("part_no");
-      if (existingAudio?.length) return json({ ok: true, reused: true, audio: existingAudio, disclosure: language === "ar" ? "هذا الصوت مولد بالذكاء الاصطناعي." : "This voice is AI-generated." });
+      if (existingAudio?.length) return await finish({ ok: true, reused: true, audio: existingAudio, disclosure: language === "ar" ? "هذا الصوت مولد بالذكاء الاصطناعي." : "This voice is AI-generated." });
       const { data: analysis } = await supabase.from("spl_analyses").select("id,content").eq("book_id", bookId).eq("kind", "overview").eq("language", language).maybeSingle();
-      if (!analysis) return json({ error: "ANALYSIS_NOT_READY" }, 409);
+      if (!analysis) return await finish({ error: "ANALYSIS_NOT_READY" }, 409);
       const spoken = String(analysis.content?.overview?.summary ?? analysis.content?.summary ?? "").slice(0, 24000);
-      if (!spoken) return json({ error: "SUMMARY_EMPTY" }, 409);
+      if (!spoken) return await finish({ error: "SUMMARY_EMPTY" }, 409);
       const instructions = language === "ar"
         ? "اقرأ كراوٍ لكتاب صوتي: هادئ، دافئ، متزن، بسرعة أبطأ قليلًا، دون مبالغة مسرحية، مع وقفات طبيعية ونطق عربي فصيح واضح، ونطق الكلمات الإنجليزية داخل النص بإنجليزية طبيعية. هذه خلاصة كتاب وليست قراءة حرفية للكتاب."
         : "Read like a calm, warm audiobook narrator at a slightly slower pace, without theatrical exaggeration, using natural pauses and clear English pronunciation. Pronounce any Arabic words carefully. This is a book summary, not a verbatim audiobook.";
@@ -264,12 +308,22 @@ Deno.serve(async (request) => {
         if (rowError) throw rowError;rows.push(row);
       }
       await recordUsage(supabase, userData.user.id, bookId, "audio", "gpt-4o-mini-tts", null, { language, voice, parts: rows.length, characters: spoken.length });
-      return json({ ok: true, audio: rows, disclosure: language === "ar" ? "هذا الصوت مولد بالذكاء الاصطناعي." : "This voice is AI-generated." });
+      return await finish({ ok: true, audio: rows, disclosure: language === "ar" ? "هذا الصوت مولد بالذكاء الاصطناعي." : "This voice is AI-generated." });
     }
 
-    return json({ error: "UNKNOWN_ACTION" }, 400);
+    return await finish({ error: "UNKNOWN_ACTION" }, 400);
   } catch (error) {
     console.error(error);
+    if (requestReceipt) {
+      await requestReceipt.client.from("spl_ai_requests").update({
+        status: "failed",
+        http_status: 500,
+        error_code: error instanceof Error ? error.message.slice(0, 240) : "UNKNOWN_ERROR",
+        result: { error: error instanceof Error ? error.message : "UNKNOWN_ERROR" },
+        updated_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+      }).eq("id", requestReceipt.id);
+    }
     return json({ error: error instanceof Error ? error.message : "UNKNOWN_ERROR" }, 500);
   }
 });

@@ -83,9 +83,15 @@
 ## V0.10.4 — Growing library and mobile reliability
 
 - Remove the retired one-analysed-book server gate while preserving explicit confirmations and daily limits.
-- Add growing library categories stored in existing book metadata without a database migration.
-- Show a four-book display-only sample shelf when a new user's library is empty.
+- Add exactly eleven top-level library gateways: ten Dewey classes plus modern and emerging topics, with second-level subdivisions only after selection.
+- Allow one book to carry both a Dewey shelf and an optional modern topic without duplicating its record.
+- Show a six-book display-only sample shelf when a new user's library is empty.
+- Limit the active shelf to six originals and replace user-facing deletion with reversible archiving that preserves paid outputs.
+- Distinguish awaiting, processing, completed and failed analysis states on book cards.
+- Show daily usage, remaining allowance and the exact reset time before paid actions.
+- Persist a moving paid-task marker across reloads and add an owner-scoped idempotency receipt migration to prevent repeated spending.
+- Raise PDF upload size to 30 MB while preserving the independent 500-page limit and pre-charge validation.
 - Render Android/Samsung covers through authenticated file downloads instead of fragile signed-URL range requests.
 - Add a standard yellow notification bell and enable the mobile notifications destination.
-- Add permanent per-book deletion with explicit confirmation and cleanup of results, reminders, PDFs and generated audio.
+- Expand the user guide for classification, archive, limits, progress, failure and no-charge messages.
 - Improve dark-mode contrast for gold panels and newly added controls.

@@ -14,6 +14,7 @@ type Theme = "linen" | "paper" | "library" | "night";
 type Direction = "auto" | "rtl" | "ltr";
 type Speed = "slow" | "normal" | "fast";
 type Compatibility = "untested" | "passed" | "failed";
+type DeviceSpeechLanguage = "ar-SA" | "en-US";
 
 /** A book already saved in Supabase — passed in by App.tsx when the reader is
  * opened from the library, as opposed to the standalone "pick a local file" entry
@@ -50,6 +51,36 @@ function splitIntoSpeechChunks(text: string, maxChunkLength = 220): string[] {
   }
   if (current) chunks.push(current);
   return chunks.filter(Boolean);
+}
+
+function detectSpeechLanguage(text: string, fallback: DeviceSpeechLanguage = "en-US"): DeviceSpeechLanguage {
+  const arabicLetters = (text.match(/[؀-ۿ]/g) ?? []).length;
+  const latinLetters = (text.match(/[A-Za-z]/g) ?? []).length;
+  if (!arabicLetters && !latinLetters) return fallback;
+  return arabicLetters >= latinLetters ? "ar-SA" : "en-US";
+}
+
+function voiceMatchesLanguage(voice: SpeechSynthesisVoice, language: DeviceSpeechLanguage): boolean {
+  return voice.lang.replace("_", "-").toLowerCase().startsWith(language.slice(0, 2).toLowerCase());
+}
+
+function bestDeviceVoice(
+  availableVoices: SpeechSynthesisVoice[],
+  language: DeviceSpeechLanguage,
+  selectedVoiceURI = "",
+): SpeechSynthesisVoice | null {
+  const selected = availableVoices.find((voice) => voice.voiceURI === selectedVoiceURI);
+  if (selected && voiceMatchesLanguage(selected, language)) return selected;
+  const exact = language.toLowerCase();
+  return [...availableVoices]
+    .filter((voice) => voiceMatchesLanguage(voice, language))
+    .sort((a, b) => {
+      const score = (voice: SpeechSynthesisVoice) =>
+        (voice.lang.replace("_", "-").toLowerCase() === exact ? 8 : 0) +
+        (voice.default ? 4 : 0) +
+        (voice.localService ? 2 : 0);
+      return score(b) - score(a);
+    })[0] ?? null;
 }
 
 export default function Reader({
@@ -95,10 +126,18 @@ export default function Reader({
   const [ambientName, setAmbientName] = useState("");
   const [ambientOn, setAmbientOn] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const [speechLanguage, setSpeechLanguage] = useState<"auto" | "ar-SA" | "en-US">("auto");
-  const [speechRate, setSpeechRate] = useState(1);
+  const [speechLanguage, setSpeechLanguage] = useState<"auto" | DeviceSpeechLanguage>(() => {
+    const saved = localStorage.getItem("spl-device-speech-language");
+    return saved === "ar-SA" || saved === "en-US" ? saved : "auto";
+  });
+  const [speechRate, setSpeechRate] = useState(() => {
+    const saved = Number(localStorage.getItem("spl-device-speech-rate"));
+    return [0.8, 1, 1.2].includes(saved) ? saved : 1;
+  });
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [selectedVoiceURI, setSelectedVoiceURI] = useState("");
+  const [selectedVoiceURI, setSelectedVoiceURI] = useState(() => localStorage.getItem("spl-device-speech-voice") ?? "");
+  const [speechTestBusy, setSpeechTestBusy] = useState(false);
+  const [continuousSpeech, setContinuousSpeech] = useState(false);
   const [speechProgress, setSpeechProgress] = useState<{ index: number; total: number } | null>(null);
   const [savedProgressReady, setSavedProgressReady] = useState(false);
   // Set when the current page has no usable text layer (cover/scanned page):
@@ -109,6 +148,8 @@ export default function Reader({
 
   const speechGenerationRef = useRef(0);
   const speechQueueRef = useRef<string[]>([]);
+  const continueSpeechRef = useRef(false);
+  const speechStartRef = useRef<() => void>(() => undefined);
   const progressSaveTimer = useRef<number | null>(null);
 
   // --- device speech: chunked queue + generation token ------------------------
@@ -117,8 +158,10 @@ export default function Reader({
   const stopSpeech = () => {
     speechGenerationRef.current += 1;
     speechQueueRef.current = [];
+    continueSpeechRef.current = false;
     window.speechSynthesis?.cancel();
     setSpeaking(false);
+    setSpeechTestBusy(false);
     setSpeechProgress(null);
   };
   // Stable ref so effects registered before speakPage is defined (unmount, page-change)
@@ -257,7 +300,16 @@ export default function Reader({
   useEffect(() => () => { if (fileUrl) URL.revokeObjectURL(fileUrl); }, [fileUrl]);
   useEffect(() => () => { if (ambientUrl) URL.revokeObjectURL(ambientUrl); }, [ambientUrl]);
   useEffect(() => () => stopSpeechRef.current(), []);
-  useEffect(() => { stopSpeechRef.current(); setSuggestedTextPage(null); setScanningForText(false); }, [page]);
+  useEffect(() => {
+    setSuggestedTextPage(null);
+    setScanningForText(false);
+    if (continueSpeechRef.current) {
+      continueSpeechRef.current = false;
+      const resume = window.setTimeout(() => speechStartRef.current(), 0);
+      return () => window.clearTimeout(resume);
+    }
+    stopSpeechRef.current();
+  }, [page]);
   useEffect(() => {
     if (!("speechSynthesis" in window)) return;
     const loadVoices = () => setVoices(window.speechSynthesis.getVoices());
@@ -273,6 +325,13 @@ export default function Reader({
       window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
     };
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem("spl-device-speech-language", speechLanguage);
+    localStorage.setItem("spl-device-speech-rate", String(speechRate));
+    if (selectedVoiceURI) localStorage.setItem("spl-device-speech-voice", selectedVoiceURI);
+    else localStorage.removeItem("spl-device-speech-voice");
+  }, [speechLanguage, speechRate, selectedVoiceURI]);
 
   useEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
@@ -413,6 +472,52 @@ export default function Reader({
     setPage(suggestedTextPage);
   };
 
+  const refreshDeviceVoices = () => {
+    if (!("speechSynthesis" in window)) return [] as SpeechSynthesisVoice[];
+    const refreshed = window.speechSynthesis.getVoices();
+    setVoices(refreshed);
+    if (selectedVoiceURI && !refreshed.some((voice) => voice.voiceURI === selectedVoiceURI)) setSelectedVoiceURI("");
+    return refreshed;
+  };
+
+  const browserCanRouteSpeechLanguage = () => {
+    const isAppleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const isChromium = /(?:Chrome|CriOS|SamsungBrowser)\//.test(navigator.userAgent) &&
+      !/(?:Edg|OPR)\//.test(navigator.userAgent);
+    return isAppleMobile || isChromium;
+  };
+
+  const testDeviceVoice = () => {
+    if (!("speechSynthesis" in window)) {
+      setError(rtl ? "هذا المتصفح لا يدعم صوت الجهاز." : "This browser does not support device speech.");
+      return;
+    }
+    stopSpeech();
+    const language: DeviceSpeechLanguage = speechLanguage === "auto" ? (rtl ? "ar-SA" : "en-US") : speechLanguage;
+    const availableVoices = refreshDeviceVoices();
+    const matchingVoice = bestDeviceVoice(availableVoices, language, selectedVoiceURI);
+    if (!matchingVoice && !browserCanRouteSpeechLanguage()) {
+      setError(language === "ar-SA"
+        ? (rtl ? "لا يوجد صوت عربي مثبت. أضف العربية من إعدادات تحويل النص إلى كلام في الجهاز ثم اضغط «تحديث الأصوات»." : "No Arabic voice is installed. Add Arabic in the device text-to-speech settings, then press Refresh voices.")
+        : (rtl ? "لا يوجد صوت إنجليزي مثبت. أضف الإنجليزية من إعدادات تحويل النص إلى كلام في الجهاز ثم اضغط «تحديث الأصوات»." : "No English voice is installed. Add English in the device text-to-speech settings, then press Refresh voices."));
+      return;
+    }
+    setError("");
+    setSpeechTestBusy(true);
+    const utterance = new SpeechSynthesisUtterance(language === "ar-SA" ? "مرحبًا، هذا اختبار لصوت القراءة العربية." : "Hello, this is an English reading voice test.");
+    utterance.lang = language;
+    utterance.rate = speechRate;
+    if (matchingVoice) utterance.voice = matchingVoice;
+    utterance.onend = () => setSpeechTestBusy(false);
+    utterance.onerror = () => {
+      setSpeechTestBusy(false);
+      setError(rtl ? "تعذر تشغيل صوت الاختبار. راجع لغة تحويل النص إلى كلام في إعدادات الجهاز ثم حدّث الأصوات." : "The voice test could not play. Check the device text-to-speech language, then refresh voices.");
+    };
+    window.speechSynthesis.resume();
+    window.speechSynthesis.speak(utterance);
+  };
+
   const speakPage = async () => {
     if (!document || !("speechSynthesis" in window)) {
       setError(rtl ? "هذا المتصفح لا يدعم صوت الجهاز." : "This browser does not support device speech.");
@@ -453,48 +558,36 @@ export default function Reader({
         return;
       }
       setSuggestedTextPage(null);
-      const arabicLetters = (pageText.match(/[؀-ۿ]/g) ?? []).length;
-      const latinLetters = (pageText.match(/[A-Za-z]/g) ?? []).length;
-      const detectedLanguage: "ar-SA" | "en-US" = arabicLetters >= latinLetters ? "ar-SA" : "en-US";
-      const requestedLanguage = speechLanguage === "auto" ? detectedLanguage : speechLanguage;
-      const availableVoices = voices.length ? voices : window.speechSynthesis.getVoices();
-      const languagePrefix = requestedLanguage.slice(0, 2).toLowerCase();
-      const selectedVoice = availableVoices.find((voice) => voice.voiceURI === selectedVoiceURI);
-      const matchingVoice =
-        (selectedVoice?.lang.toLowerCase().startsWith(languagePrefix) ? selectedVoice : null) ??
-        availableVoices.find((voice) => voice.lang.toLowerCase().startsWith(languagePrefix));
-
-      // Never let a page detected as Arabic (or explicitly requested as Arabic)
-      // fall back to whatever the browser's default voice happens to be — on many
-      // systems with no Arabic voice pack installed, that default is an English
-      // voice that mispronounces the Arabic text entirely. Refuse instead.
-      const isAppleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-      const isGoogleChrome = /(?:Chrome|CriOS)\//.test(navigator.userAgent) &&
-        !/(?:Edg|OPR)\//.test(navigator.userAgent);
-      // iOS and Google Chrome may omit an installed/online Arabic voice from
-      // getVoices(), while still routing an utterance correctly from its lang.
-      // The user explicitly targets Chrome, so allow Chrome's own language
-      // routing instead of blocking before speechSynthesis gets a chance.
-      const allowNativeLanguageVoice = requestedLanguage === "ar-SA" && (isAppleMobile || isGoogleChrome);
-      if (!matchingVoice && !allowNativeLanguageVoice) {
+      const detectedLanguage = detectSpeechLanguage(pageText, rtl ? "ar-SA" : "en-US");
+      const chunks = splitIntoSpeechChunks(pageText);
+      if (!chunks.length) return;
+      // Samsung Internet and mobile Chrome often populate voices only after a
+      // user gesture. Refresh at the exact moment the reader button is pressed.
+      const freshVoices = window.speechSynthesis.getVoices();
+      const availableVoices = freshVoices.length ? freshVoices : voices;
+      if (freshVoices.length) setVoices(freshVoices);
+      const requiredLanguages = new Set<DeviceSpeechLanguage>(
+        speechLanguage === "auto"
+          ? chunks.map((chunk) => detectSpeechLanguage(chunk, detectedLanguage))
+          : [speechLanguage],
+      );
+      const missingLanguage = [...requiredLanguages].find((language) => !bestDeviceVoice(availableVoices, language, selectedVoiceURI));
+      if (missingLanguage && !browserCanRouteSpeechLanguage()) {
         setSpeaking(false);
         setSpeechProgress(null);
         setError(
-          requestedLanguage === "ar-SA"
+          missingLanguage === "ar-SA"
             ? rtl
-              ? "لم يعثر Google Chrome على صوت عربي. فعّل العربية في إعدادات اللغة والصوت بالجهاز، أغلق Chrome بالكامل ثم افتحه من جديد."
-              : "Google Chrome could not find an Arabic voice. Enable Arabic in your device language and speech settings, fully close Chrome, then reopen it."
+              ? "لا يوجد صوت عربي مثبت على هذا الجهاز. أضف العربية من إعدادات تحويل النص إلى كلام، ثم ارجع واضغط «تحديث الأصوات»."
+              : "No Arabic voice is installed on this device. Add Arabic in text-to-speech settings, then return and press Refresh voices."
             : rtl
-              ? "لا يوجد صوت مطابق للغة المطلوبة على هذا الجهاز."
-              : "No voice matching the requested language is installed on this device.",
+              ? "لا يوجد صوت إنجليزي مثبت على هذا الجهاز. أضف الإنجليزية من إعدادات تحويل النص إلى كلام، ثم حدّث الأصوات."
+              : "No English voice is installed on this device. Add English in text-to-speech settings, then refresh voices.",
         );
         return;
       }
 
       setError("");
-      const chunks = splitIntoSpeechChunks(pageText);
-      if (!chunks.length) return;
       speechQueueRef.current = chunks;
       setSpeaking(true);
 
@@ -503,13 +596,24 @@ export default function Reader({
         if (index >= speechQueueRef.current.length) {
           setSpeaking(false);
           setSpeechProgress(null);
+          if (continuousSpeech && page < document.numPages) {
+            continueSpeechRef.current = true;
+            setPage(page + 1);
+          }
           return;
         }
         setSpeechProgress({ index: index + 1, total: speechQueueRef.current.length });
-        const utterance = new SpeechSynthesisUtterance(speechQueueRef.current[index]);
-        utterance.lang = requestedLanguage;
+        const chunk = speechQueueRef.current[index];
+        // In automatic mode every chunk gets its own Arabic/English route, so
+        // citations, names and bilingual paragraphs are not forced through one voice.
+        const chunkLanguage: DeviceSpeechLanguage = speechLanguage === "auto"
+          ? detectSpeechLanguage(chunk, detectedLanguage)
+          : speechLanguage;
+        const chunkVoice = bestDeviceVoice(availableVoices, chunkLanguage, selectedVoiceURI);
+        const utterance = new SpeechSynthesisUtterance(chunk);
+        utterance.lang = chunkLanguage;
         utterance.rate = speechRate;
-        if (matchingVoice) utterance.voice = matchingVoice;
+        if (chunkVoice) utterance.voice = chunkVoice;
         utterance.onend = () => {
           if (myGeneration !== speechGenerationRef.current) return;
           playChunk(index + 1);
@@ -520,10 +624,11 @@ export default function Reader({
           setSpeechProgress(null);
           setError(
             rtl
-              ? "تعذر على Google Chrome تشغيل الصوت المحدد. أغلق Chrome بالكامل بعد تثبيت الصوت العربي ثم افتحه مجددًا، أو استخدم الصوت الاحترافي المستقل في V0.9."
-              : "Google Chrome could not play the selected voice. Fully close Chrome after installing Arabic speech, then reopen it, or use V0.9's independent professional voice.",
+              ? "تعذر تشغيل صوت الجهاز. راجع لغة تحويل النص إلى كلام في إعدادات الهاتف، ثم اضغط «تحديث الأصوات» واختبره مجددًا. ويمكن استخدام الصوت الاحترافي للملخص والتحليل."
+              : "Device speech could not play. Check the phone text-to-speech language, refresh voices, and test again. Professional voice remains available for summaries and analysis.",
           );
         };
+        window.speechSynthesis.resume();
         window.speechSynthesis.speak(utterance);
       };
       playChunk(0);
@@ -536,6 +641,7 @@ export default function Reader({
       setError(rtl ? "تعذر استخراج نص هذه الصفحة للصوت المجاني." : "Could not extract this page for free device speech.");
     }
   };
+  speechStartRef.current = () => { void speakPage(); };
 
   const close = () => {
     stopSpeech();
@@ -555,12 +661,24 @@ export default function Reader({
     ? speechProgress
       ? (rtl ? `■ إيقاف (${speechProgress.index}/${speechProgress.total})` : `■ Stop (${speechProgress.index}/${speechProgress.total})`)
       : (rtl ? "■ إيقاف" : "■ Stop")
-    : (rtl ? "▶ اقرأ الصفحة الحالية" : "▶ Read current page");
+    : continuousSpeech
+      ? (rtl ? "▶ اقرأ من هنا وتابع" : "▶ Read continuously from here")
+      : (rtl ? "▶ اقرأ الصفحة الحالية" : "▶ Read current page");
   const speechFooterLabel = speaking
     ? speechProgress
       ? (rtl ? `■ إيقاف (${speechProgress.index}/${speechProgress.total})` : `■ Stop (${speechProgress.index}/${speechProgress.total})`)
       : (rtl ? "■ إيقاف" : "■ Stop")
-    : (rtl ? "▶ استمع لهذه الصفحة" : "▶ Listen to this page");
+    : continuousSpeech
+      ? (rtl ? "▶ استمع وتابع الصفحات" : "▶ Listen continuously")
+      : (rtl ? "▶ استمع لهذه الصفحة" : "▶ Listen to this page");
+  const arabicVoices = voices.filter((voice) => voiceMatchesLanguage(voice, "ar-SA"));
+  const englishVoices = voices.filter((voice) => voiceMatchesLanguage(voice, "en-US"));
+  const changeSpeechLanguage = (language: "auto" | DeviceSpeechLanguage) => {
+    stopSpeech();
+    setSpeechLanguage(language);
+    const selected = voices.find((voice) => voice.voiceURI === selectedVoiceURI);
+    if (language !== "auto" && selected && !voiceMatchesLanguage(selected, language)) setSelectedVoiceURI("");
+  };
 
   return <div className="page source-reader-page">
     <header className="page-title"><div><span>{rtl ? "القارئ والصوت المجاني — V0.7.3-candidate" : "Free reader & device voice — V0.7.3-candidate"}</span><h2>{isSaved ? (rtl ? "كتاب من مكتبتك" : "A book from your library") : (rtl ? "قارئ الكتب متعدد اللغات" : "Multilingual book reader")}</h2><p>{rtl ? "اعرض الكتاب واقرأ صفحته بصوت جهازك بلا OpenAI وبلا تكلفة API." : "View your book and hear each page through your device voice—no OpenAI call or API charge."}</p></div>{activeUrl && <button className="secondary" onClick={close}>{isSaved ? (rtl ? "العودة إلى الكتاب" : "Back to the book") : (rtl ? "إغلاق الكتاب" : "Close book")}</button>}</header>
@@ -596,7 +714,17 @@ export default function Reader({
         <div><b>{rtl ? "بيئة القراءة" : "Reading scene"}</b><div className="option-row themes">{(["linen","paper","library","night"] as Theme[]).map(item => <button key={item} className={theme === item ? "active" : ""} onClick={() => setTheme(item)}>{rtl ? ({linen:"هادئة",paper:"ورق",library:"مكتبة",night:"ليل"} as Record<Theme,string>)[item] : item}</button>)}</div></div>
         <div><b>{rtl ? "اتجاه الكتاب" : "Book direction"}</b><div className="option-row">{(["auto","rtl","ltr"] as Direction[]).map(item => <button key={item} className={direction === item ? "active" : ""} onClick={() => setDirection(item)}>{item === "auto" ? (rtl ? "تلقائي" : "Auto") : item.toUpperCase()}</button>)}</div></div>
         <div><b>{rtl ? "سرعة التقليب" : "Turn speed"}</b><div className="option-row">{(["slow","normal","fast"] as Speed[]).map(item => <button key={item} className={speed === item ? "active" : ""} onClick={() => setSpeed(item)}>{rtl ? ({slow:"هادئ",normal:"طبيعي",fast:"سريع"} as Record<Speed,string>)[item] : item}</button>)}</div></div>
-        <div><b>{rtl ? "صوت الجهاز — مجاني" : "Device voice — free"}</b><div className="option-row"><select value={speechLanguage} onChange={e=>setSpeechLanguage(e.target.value as "auto"|"ar-SA"|"en-US")}><option value="auto">{rtl?"تلقائي حسب نص الصفحة":"Auto-detect page"}</option><option value="ar-SA">العربية</option><option value="en-US">English</option></select><select value={selectedVoiceURI} onChange={e=>setSelectedVoiceURI(e.target.value)}><option value="">{rtl?"اختيار الصوت تلقائيًا":"Choose voice automatically"}</option>{voices.map((voice)=><option key={voice.voiceURI} value={voice.voiceURI}>{voice.name} — {voice.lang}</option>)}</select><select value={speechRate} onChange={e=>setSpeechRate(Number(e.target.value))}><option value="0.8">0.8×</option><option value="1">1×</option><option value="1.2">1.2×</option></select><button className={speaking?"active":""} disabled={!document||viewMode!=="book"||compatibility!=="passed"} onClick={speakPage}>{speechStatusLabel}</button></div><small>{viewMode!=="book"?(rtl?"انتقل إلى وضع الكتاب أولًا حتى يتزامن الصوت مع رقم الصفحة.":"Switch to Book mode first so speech follows the current page."):(rtl?`${voices.length} صوتًا متاحًا على الجهاز؛ اختر الصوت العربي إن ظهر هنا.`:`${voices.length} device voices available; select an Arabic voice here if listed.`)}</small></div>
+        <div className="device-speech-settings"><b>{rtl ? "صوت الجهاز — مجاني" : "Device voice — free"}</b><div className="option-row device-speech-controls">
+          <select value={speechLanguage} onChange={(event) => changeSpeechLanguage(event.target.value as "auto" | DeviceSpeechLanguage)} aria-label={rtl ? "لغة القراءة" : "Reading language"}><option value="auto">{rtl ? "تلقائي: عربي/إنجليزي لكل مقطع" : "Auto: Arabic/English per segment"}</option><option value="ar-SA">العربية</option><option value="en-US">English</option></select>
+          <select value={selectedVoiceURI} onChange={(event) => setSelectedVoiceURI(event.target.value)} aria-label={rtl ? "صوت القراءة" : "Reading voice"}><option value="">{rtl ? "أفضل صوت تلقائيًا" : "Best voice automatically"}</option>{(speechLanguage === "en-US" ? englishVoices : speechLanguage === "ar-SA" ? arabicVoices : [...arabicVoices, ...englishVoices]).map((voice) => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.name} — {voice.lang}</option>)}</select>
+          <select value={speechRate} onChange={(event) => setSpeechRate(Number(event.target.value))} aria-label={rtl ? "سرعة القراءة" : "Reading speed"}><option value="0.8">0.8×</option><option value="1">1×</option><option value="1.2">1.2×</option></select>
+          <button type="button" disabled={speaking || speechTestBusy} onClick={refreshDeviceVoices}>↻ {rtl ? "تحديث الأصوات" : "Refresh voices"}</button>
+          <button type="button" className={speechTestBusy ? "active" : ""} disabled={speaking} onClick={speechTestBusy ? stopSpeech : testDeviceVoice}>{speechTestBusy ? (rtl ? "■ إيقاف الاختبار" : "■ Stop test") : (rtl ? "▷ اختبار الصوت" : "▷ Test voice")}</button>
+          <button type="button" className={continuousSpeech ? "active" : ""} disabled={speaking || speechTestBusy} onClick={() => setContinuousSpeech((current) => !current)}>⇥ {continuousSpeech ? (rtl ? "قراءة متواصلة مفعلة" : "Continuous reading on") : (rtl ? "الصفحة الحالية فقط" : "Current page only")}</button>
+          <button type="button" className={speaking ? "active" : ""} disabled={!document || viewMode !== "book" || compatibility !== "passed" || speechTestBusy} onClick={speakPage}>{speechStatusLabel}</button>
+        </div><small>{viewMode !== "book"
+          ? (rtl ? "انتقل إلى وضع الكتاب أولًا حتى يتزامن الصوت مع رقم الصفحة." : "Switch to Book mode first so speech follows the current page.")
+          : (rtl ? `المتاح: ${arabicVoices.length} عربي، ${englishVoices.length} إنجليزي. في الوضع التلقائي تتغير اللغة مع كل مقطع.` : `Available: ${arabicVoices.length} Arabic, ${englishVoices.length} English. Auto mode switches language for each segment.`)}</small></div>
         <div><b>{rtl ? "مؤثرات القراءة" : "Reading sounds"}</b><div className="option-row"><button className={sound ? "active" : ""} onClick={() => setSound(!sound)}>{rtl ? "صوت الورق" : "Page sound"}</button><label className="audio-picker"><input type="file" accept="audio/*" onChange={chooseAmbient}/>{rtl ? "اختر صوتًا خلفيًا" : "Choose ambience"}</label>{ambientUrl && <button className={ambientOn ? "active" : ""} onClick={() => setAmbientOn(!ambientOn)}>{ambientOn ? "❚❚" : "▶"} {ambientName.slice(0,18)}</button>}</div></div>
         <audio ref={audioRef} src={ambientUrl} loop />
       </aside>}
