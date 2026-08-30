@@ -856,14 +856,14 @@ function Dashboard({
       <section className="panel library-preview">
         <SectionHead
           over={rtl ? "رفوفك الشخصية" : "Your shelves"}
-          title={t.myLibrary}
-          action={t.all}
+          title={rtl ? "رفّي الحالي" : "My current shelf"}
+          action={rtl ? "عرض مكتبتي" : "Open my library"}
           onAction={() => setView("library")}
         />
         <div className="book-grid active-book-grid">
           {activePilotBooks.length > 0
             ? activePilotBooks.map((book) => (
-              <LiveBookCard key={book.id} book={book} rtl={rtl} onOpen={() => onOpenPilot(book)} />
+              <LiveBookCard key={book.id} book={book} rtl={rtl} compact onOpen={() => onOpenPilot(book)} />
             ))
             : <SampleShelf rtl={rtl} compact />}
           {activePilotBooks.length > 0 && activePilotBooks.length < MAX_ACTIVE_BOOKS && (
@@ -1221,6 +1221,7 @@ function LiveBookCard({
   book,
   rtl,
   onOpen,
+  compact = false,
   onArchive,
   onRestore,
   onClassificationChange,
@@ -1228,6 +1229,7 @@ function LiveBookCard({
   book: PilotBook;
   rtl: boolean;
   onOpen: () => void;
+  compact?: boolean;
   onArchive?: () => void;
   onRestore?: () => void;
   onClassificationChange?: (classification: BookClassificationPatch) => Promise<boolean | void> | boolean | void;
@@ -1259,16 +1261,16 @@ function LiveBookCard({
     }
   };
   return (
-    <article className="book-card live-book-card">
+    <article className={`book-card live-book-card${compact ? " compact-live-book-card" : ""}`}>
       <button className="book-card-open" onClick={onOpen} aria-label={`${rtl ? "فتح" : "Open"} ${book.title}`}>
         <OriginalPdfCover book={book} />
       </button>
       <div className="live-book-copy">
-        <span className="tag">{rtl ? "كتابك" : "Your book"}</span>
+        {!compact && <span className="tag">{rtl ? "كتابك" : "Your book"}</span>}
         <button className="book-title-button" onClick={onOpen}><h4>{book.title}</h4></button>
-        <p>{subtitle}</p>
-        <span className={`book-status-badge ${statusTone}`}>{status}</span>
-        {onClassificationChange && editingClassification ? <div className="book-classification-editor">
+        {!compact && <p>{subtitle}</p>}
+        {!compact && <span className={`book-status-badge ${statusTone}`}>{status}</span>}
+        {compact ? <span className={`book-category-chip final ${classification.deweyMain ? "" : "unclassified"}`}>{finalClassificationLabel(classification, rtl)}</span> : onClassificationChange && editingClassification ? <div className="book-classification-editor">
           <select value={draftClassification.deweyMain} onChange={(event) => {
             const gateway = DEWEY_GATEWAYS.find((item) => item.id === event.target.value) ?? DEWEY_GATEWAYS[0];
             setDraftClassification({ ...draftClassification, deweyMain: gateway.id, deweyBranch: gateway.branches[0][0] });
@@ -1288,8 +1290,8 @@ function LiveBookCard({
             <button className="secondary compact" disabled={classificationBusy} onClick={() => { setDraftClassification(classification); setEditingClassification(false); }}>{rtl ? "تراجع" : "Cancel"}</button>
           </div>
         </div> : <button className="book-category-chips category-edit-trigger" onClick={() => { setDraftClassification(classification); setEditingClassification(true); }} aria-label={rtl ? "عرض أو تغيير تصنيف الكتاب" : "View or change book category"}><span className={`book-category-chip final ${classification.deweyMain ? "" : "unclassified"}`}>{finalClassificationLabel(classification, rtl)}</span><small>{rtl ? "تغيير التصنيف" : "Change category"}</small></button>}
-        {onArchive && !archived && <button className="book-archive-button" onClick={onArchive}>▣ {rtl ? "نقل إلى الأرشيف" : "Move to archive"}</button>}
-        {onRestore && archived && <button className="book-restore-button" onClick={onRestore}>↥ {rtl ? "إعادة إلى الكتب النشطة" : "Restore to active shelf"}</button>}
+        {!compact && onArchive && !archived && <button className="book-archive-button" onClick={onArchive}>▣ {rtl ? "نقل إلى الأرشيف" : "Move to archive"}</button>}
+        {!compact && onRestore && archived && <button className="book-restore-button" onClick={onRestore}>↥ {rtl ? "إعادة إلى الكتب النشطة" : "Restore to active shelf"}</button>}
       </div>
     </article>
   );
@@ -1307,9 +1309,11 @@ const SAMPLE_BOOKS = [
 function SampleShelf({ rtl, compact = false }: { rtl: boolean; compact?: boolean }) {
   return (
     <div className={compact ? "sample-shelf compact-samples" : "sample-shelf"}>
-      {!compact && <p className="sample-library-intro">{rtl
+      <p className="sample-library-intro">{compact
+        ? (rtl ? "نماذج توضيحية فقط — تختفي عند إضافة أول كتاب حقيقي." : "Display-only samples — they disappear after your first real book.")
+        : rtl
         ? "هذه أمثلة توضيحية فقط لتعرف شكل المكتبة ومخرجات كل كتاب. لا تُرسل إلى OpenAI ولا تُحسب ضمن كتبك."
-        : "These are display-only examples of the library and book outputs. They never call OpenAI and do not count as your books."}</p>}
+        : "These are display-only examples of the library and book outputs. They never call OpenAI and do not count as your books."}</p>
       <div className="sample-book-grid">
         {SAMPLE_BOOKS.map((sample) => (
           <article className="sample-book-card" key={sample.title}>
@@ -1557,6 +1561,20 @@ function Library({
     groups.set(key, items);
     return groups;
   }, new Map<string, PilotBook[]>()));
+  const selectedShelfLabel = query
+    ? (rtl ? "نتائج البحث" : "Search results")
+    : categoryFilter === "modern"
+      ? (branchFilter === "all" ? gatewayLabel("modern", rtl) : modernTopicLabel(branchFilter, rtl))
+      : categoryFilter !== "all"
+        ? (branchFilter === "all" ? gatewayLabel(categoryFilter, rtl) : branchLabel(categoryFilter, branchFilter, rtl))
+        : (rtl ? "كل الكتب" : "All books");
+  const denseMobileShelves = mobileShelves.filter(([, books]) => books.length >= 3);
+  const sparseMobileBooks = mobileShelves.filter(([, books]) => books.length < 3).flatMap(([, books]) => books);
+  const adaptiveMobileShelves: Array<[string, PilotBook[]]> = query || categoryFilter !== "all"
+    ? [[selectedShelfLabel, filteredPilotBooks]]
+    : denseMobileShelves.length > 0
+      ? [...denseMobileShelves, ...(sparseMobileBooks.length ? [[rtl ? "كتب أخرى" : "Other books", sparseMobileBooks] as [string, PilotBook[]]] : [])]
+      : [[selectedShelfLabel, filteredPilotBooks]];
   const changeClassification = async (book: PilotBook, classification: BookClassificationPatch) => {
     setLibraryMessage("");
     try {
@@ -1667,7 +1685,7 @@ function Library({
           <span className="eyebrow">
             {rtl ? "كتب V0.7 المحفوظة" : "Saved V0.7 books"}
           </span>
-          <h3>{shelf === "active" ? (rtl ? "مكتبتك الفعلية" : "Your live library") : (rtl ? "أرشيفك المحفوظ" : "Your saved archive")}</h3>
+          <h3>{shelf === "active" ? (rtl ? "مكتبتي" : "My library") : (rtl ? "أرشيفي المحفوظ" : "My saved archive")}</h3>
           {shelf === "active" && <p className="active-shelf-limit">{rtl ? `يمكن عرض ستة كتب أصلية نشطة. المتاح الآن: ${MAX_ACTIVE_BOOKS - activeBooks.length}. الكتاب السابع يحتاج نقل كتاب إلى الأرشيف، دون فقد النتائج المدفوعة.` : `Six original books can remain active. Available now: ${MAX_ACTIVE_BOOKS - activeBooks.length}. A seventh requires archiving one book without losing paid outputs.`}</p>}
           <p className="pilot-session-warning">
             {rtl
@@ -1675,7 +1693,7 @@ function Library({
               : "Pilot notice: access is currently tied to this browser. Do not clear browser data before upgrading to a permanent account below."}
           </p>
           {mobileShelfLayout ? <div className="mobile-category-shelves">
-            {mobileShelves.map(([label, books]) => <section className="mobile-category-shelf" key={label}>
+            {adaptiveMobileShelves.map(([label, books]) => <section className="mobile-category-shelf" key={label}>
               <div className="mobile-shelf-heading"><h4>{label}</h4><small>{rtl ? "اسحب لمشاهدة الكتب" : "Swipe to browse"} ↔</small></div>
               <div className="mobile-shelf-track">
                 {books.map((book) => <LiveBookCard
