@@ -2598,3 +2598,909 @@ function PilotWorkspace({
                 </>
               )}
             </section>
+            {error && <div className="reader-error inline">{error}</div>}
+          </aside>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BookDetail({ rtl, onBack }: { rtl: boolean; onBack: () => void }) {
+  const [tab, setTab] = useState("summary");
+  const [playing] = useState(false);
+  const tabs = rtl
+    ? [
+        ["summary", "الخلاصة"],
+        ["chapters", "الفصول"],
+        ["analysis", "التحليل"],
+        ["return", "العودة للكتاب"],
+        ["audio", "الاستماع"],
+      ]
+    : [
+        ["summary", "Overview"],
+        ["chapters", "Chapters"],
+        ["analysis", "Analysis"],
+        ["return", "Return to source"],
+        ["audio", "Listen"],
+      ];
+  return (
+    <div className="page book-detail">
+      <button className="back" onClick={onBack}>
+        → {rtl ? "العودة إلى مكتبتي" : "Back to my library"}
+      </button>
+      <section className="book-hero panel">
+        <BookCover
+          tone="emerald"
+          title={rtl ? "إدارة المعرفة" : "Knowledge Management"}
+        />
+        <div className="book-identity">
+          <span className="tag">
+            {rtl ? "إدارة المعرفة" : "Knowledge management"}
+          </span>
+          <h2>
+            {rtl
+              ? "مدخل إلى إدارة المعرفة"
+              : "Introduction to Knowledge Management"}
+          </h2>
+          <p>
+            {rtl
+              ? "نموذج تجريبي • 284 صفحة • العربية"
+              : "Demo edition • 284 pages • Arabic"}
+          </p>
+          <div className="book-badges">
+            <span>✓ {rtl ? "التحليل جاهز" : "Analysis ready"}</span>
+            <span>⌁ {rtl ? "12 فصلًا" : "12 chapters"}</span>
+            <span>◖ 18:42</span>
+            <span>◎ {rtl ? "موثق بالصفحات" : "Page cited"}</span>
+          </div>
+        </div>
+        <div className="trust-score">
+          <strong>92%</strong>
+          <span>{rtl ? "ثقة المخرجات" : "Output confidence"}</span>
+          <small>
+            {rtl
+              ? "يحتاج إلى مراجعة بشرية قبل الاستشهاد الأكاديمي"
+              : "Human review required before academic citation"}
+          </small>
+        </div>
+      </section>
+      <nav className="book-tabs">
+        {tabs.map(([id, label]) => (
+          <button
+            key={id}
+            className={tab === id ? "active" : ""}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+      <div className="book-content">
+        <article className="panel reading-surface">
+          {tab === "summary" && (
+            <>
+              <ContentTitle
+                n="01"
+                over={rtl ? "خلاصة 18 دقيقة" : "18-minute overview"}
+                title={
+                  rtl
+                    ? "خريطة الكتاب في قراءة واحدة"
+                    : "The book map in one reading"
+                }
+              />
+              <TrustLabel rtl={rtl} />
+              <p className="lead-copy">
+                {rtl
+                  ? "ينطلق الكتاب من أن المعرفة ليست مجرد معلومات محفوظة، بل قدرة المؤسسة على تحويل خبرات الأفراد إلى مورد يمكن مشاركته وتطويره واستخدامه في اتخاذ القرار. ويعرض الفرق بين المعرفة الصريحة القابلة للتوثيق والمعرفة الضمنية المرتبطة بالتجربة."
+                  : "The book argues that knowledge is more than stored information: it is an organization’s ability to turn individual experience into a resource that can be shared, developed, and used in decisions."}
+              </p>
+              <h3>{rtl ? "الأفكار المحورية" : "Core ideas"}</h3>
+              <div className="key-ideas">
+                <Idea
+                  n="1"
+                  title={rtl ? "المعرفة أصل متجدد" : "Knowledge is renewable"}
+                  text={
+                    rtl
+                      ? "تزداد قيمتها بالمشاركة المنظمة، لا بالاحتفاظ الفردي."
+                      : "Its value grows through structured sharing."
+                  }
+                />
+                <Idea
+                  n="2"
+                  title={
+                    rtl ? "التقنية ليست كافية" : "Technology is not enough"
+                  }
+                  text={
+                    rtl
+                      ? "نجاح النظام يعتمد على الثقافة والحوافز والثقة."
+                      : "Success depends on culture, incentives, and trust."
+                  }
+                />
+                <Idea
+                  n="3"
+                  title={
+                    rtl
+                      ? "الفهرسة جسر الاسترجاع"
+                      : "Cataloguing enables retrieval"
+                  }
+                  text={
+                    rtl
+                      ? "ما لا يوصف وينظم يصعب العثور عليه وإعادة استخدامه."
+                      : "What is not described and organized is hard to reuse."
+                  }
+                />
+              </div>
+              <blockquote>
+                {rtl
+                  ? "هذه صياغة تلخيصية للمنصة وليست اقتباسًا حرفيًا من المؤلف."
+                  : "This is a platform-generated summary, not a verbatim quotation from the author."}
+              </blockquote>
+            </>
+          )}
+          {tab === "chapters" && (
+            <>
+              <ContentTitle
+                n="02"
+                over={rtl ? "12 فصلًا مكتشفًا" : "12 detected chapters"}
+                title={
+                  rtl
+                    ? "مرور أعمق على بنية الكتاب"
+                    : "A deeper pass through the book"
+                }
+              />
+              <div className="chapters">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <details key={n} open={n === 1}>
+                    <summary>
+                      <b>{String(n).padStart(2, "0")}</b>
+                      <span>
+                        {rtl
+                          ? [
+                              "من البيانات إلى المعرفة",
+                              "المعرفة الصريحة والضمنية",
+                              "ثقافة المشاركة",
+                              "دورة حياة المعرفة",
+                              "قياس الأثر",
+                            ][n - 1]
+                          : [
+                              "From data to knowledge",
+                              "Explicit and tacit knowledge",
+                              "A culture of sharing",
+                              "The knowledge lifecycle",
+                              "Measuring impact",
+                            ][n - 1]}
+                      </span>
+                      <em>
+                        {6 + n} {rtl ? "دقائق" : "min"}
+                      </em>
+                    </summary>
+                    <div>
+                      <TrustLabel rtl={rtl} />
+                      <p>
+                        {rtl
+                          ? "يعرض الفصل المفاهيم الأساسية والحجج والأمثلة، مع فصل واضح بين ما ورد في النص وما استنتجته المنصة."
+                          : "The chapter presents its main concepts, arguments, and examples, clearly separating source content from platform inference."}
+                      </p>
+                      <button className="text-button disabled-soon" disabled title={rtl ? "نموذج عرض" : "Display sample"}>
+                        {rtl
+                          ? `افتح الفصل عند الصفحة ${18 + n * 12}`
+                          : `Open chapter at page ${18 + n * 12}`}{" "}
+                        ←
+                      </button>
+                    </div>
+                  </details>
+                ))}
+              </div>
+            </>
+          )}
+          {tab === "analysis" && (
+            <>
+              <ContentTitle
+                n="03"
+                over={rtl ? "قراءة نقدية" : "Critical reading"}
+                title={
+                  rtl
+                    ? "ما الذي يضيفه الكتاب وما حدوده؟"
+                    : "What the book adds — and where it stops"
+                }
+              />
+              <div className="analysis-grid">
+                <div>
+                  <h3>✓ {rtl ? "نقاط القوة" : "Strengths"}</h3>
+                  <ul>
+                    <li>
+                      {rtl
+                        ? "يربط إدارة المعرفة بالعمل اليومي."
+                        : "Connects knowledge management to daily work."}
+                    </li>
+                    <li>
+                      {rtl
+                        ? "يقدم إطارًا واضحًا للتحويل والمشاركة."
+                        : "Offers a clear sharing framework."}
+                    </li>
+                    <li>
+                      {rtl
+                        ? "أمثلته قابلة للتطبيق المؤسسي."
+                        : "Examples transfer well to institutions."}
+                    </li>
+                  </ul>
+                </div>
+                <div>
+                  <h3>△ {rtl ? "الحدود" : "Limitations"}</h3>
+                  <ul>
+                    <li>
+                      {rtl
+                        ? "لا يناقش الذكاء الاصطناعي الحديث بعمق."
+                        : "Modern AI is not explored deeply."}
+                    </li>
+                    <li>
+                      {rtl
+                        ? "بعض الأمثلة تحتاج تحديثًا."
+                        : "Some examples need updating."}
+                    </li>
+                    <li>
+                      {rtl
+                        ? "القياس العملي مختصر."
+                        : "Practical measurement is brief."}
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              <div className="inference">
+                <b>{rtl ? "تحليل المنصة" : "Platform analysis"}</b>
+                <p>
+                  {rtl
+                    ? "يمكن تطبيق الإطار على المكتبات المتخصصة، لكن ذلك استنتاج تطبيقي وليس رأيًا منسوبًا إلى المؤلف."
+                    : "The framework can be applied to specialist libraries, but this is a platform inference—not a view attributed to the author."}
+                </p>
+              </div>
+            </>
+          )}
+          {tab === "return" && (
+            <>
+              <ContentTitle
+                n="04"
+                over={rtl ? "جسر العودة إلى الأصل" : "Bridge back to source"}
+                title={
+                  rtl
+                    ? "خمسة مواضع تستحق القراءة بنفسك"
+                    : "Five passages worth reading yourself"
+                }
+              />
+              <p className="lead-copy">
+                {rtl
+                  ? "الخلاصة لا تكفي لفهم هذه المواضع؛ افتحها في سياقها الأصلي."
+                  : "The overview is not enough for these passages; read them in their original context."}
+              </p>
+              <div className="return-list">
+                {[
+                  [42, "تعريف المعرفة الضمنية"],
+                  [74, "نموذج تحويل المعرفة"],
+                  [121, "مقاومة المشاركة داخل المؤسسات"],
+                  [166, "بناء ذاكرة مؤسسية"],
+                  [231, "مؤشرات قياس الأثر"],
+                ].map(([p, s], i) => (
+                  <button key={p} disabled title={rtl ? "نموذج عرض" : "Display sample"}>
+                    <b>{i + 1}</b>
+                    <span>
+                      {rtl
+                        ? s
+                        : [
+                            "Defining tacit knowledge",
+                            "The knowledge conversion model",
+                            "Resistance to organizational sharing",
+                            "Building institutional memory",
+                            "Impact indicators",
+                          ][i]}
+                    </span>
+                    <em>{rtl ? `صفحة ${p}` : `Page ${p}`} ←</em>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          {tab === "audio" && (
+            <>
+              <ContentTitle
+                n="05"
+                over={rtl ? "النسخة الصوتية للخلاصة" : "Audio overview"}
+                title={
+                  rtl ? "استمع إلى خريطة الكتاب" : "Listen to the book map"
+                }
+              />
+              <div className="audio-player">
+                <button disabled title={rtl ? "مشغّل نموذجي غير متصل بملف صوت" : "Sample player without an audio file"}>
+                  {playing ? "Ⅱ" : "▶"}
+                </button>
+                <div>
+                  <strong>
+                    {rtl
+                      ? "خلاصة الكتاب — صوت عربي"
+                      : "Book overview — Arabic voice"}
+                  </strong>
+                  <Bar value={playing ? 38 : 0} />
+                  <span>06:58 / 18:42</span>
+                </div>
+                <select aria-label="Speed">
+                  <option>1×</option>
+                  <option>1.25×</option>
+                  <option>1.5×</option>
+                </select>
+              </div>
+              <div className="audio-note">
+                <b>◉ {rtl ? "ما الذي يُقرأ؟" : "What is narrated?"}</b>
+                <p>
+                  {rtl
+                    ? "الخلاصة وملخصات الفصول التي أنشأتها المنصة فقط؛ وليست قراءة حرفية كاملة للكتاب المحمي."
+                    : "Only platform-generated overview and chapter summaries—not a complete verbatim narration of a protected book."}
+                </p>
+              </div>
+            </>
+          )}
+        </article>
+        <aside className="detail-aside">
+          <div className="panel">
+            <h3>{rtl ? "بطاقة الثقة" : "Trust card"}</h3>
+            <p className="trust-row">
+              <b className="dot source" />
+              <span>{rtl ? "معلومة من الكتاب" : "From the book"}</span>
+              <em>8</em>
+            </p>
+            <p className="trust-row">
+              <b className="dot analysis" />
+              <span>{rtl ? "تحليل المنصة" : "Platform analysis"}</span>
+              <em>3</em>
+            </p>
+            <p className="trust-row">
+              <b className="dot verify" />
+              <span>{rtl ? "يحتاج تحققًا" : "Needs verification"}</span>
+              <em>1</em>
+            </p>
+          </div>
+          <div className="panel">
+            <h3>{rtl ? "لغات المخرجات" : "Output languages"}</h3>
+            <label className="select-label">
+              {rtl ? "لغة التحليل" : "Analysis language"}
+              <select>
+                <option>{rtl ? "العربية" : "Arabic"}</option>
+                <option>English</option>
+                <option>{rtl ? "عرض ثنائي" : "Bilingual"}</option>
+              </select>
+            </label>
+            <label className="select-label">
+              {rtl ? "لغة الصوت" : "Audio language"}
+              <select>
+                <option>{rtl ? "العربية" : "Arabic"}</option>
+                <option>English</option>
+              </select>
+            </label>
+          </div>
+          <button className="feedback-mini disabled-soon" disabled>
+            ✎ {rtl ? "سجّل ملاحظتك عن هذا الكتاب" : "Log feedback on this book"}
+          </button>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function ContentTitle({
+  n,
+  over,
+  title,
+}: {
+  n: string;
+  over: string;
+  title: string;
+}) {
+  return (
+    <header className="content-title">
+      <b>{n}</b>
+      <div>
+        <span>{over}</span>
+        <h2>{title}</h2>
+      </div>
+    </header>
+  );
+}
+function TrustLabel({ rtl }: { rtl: boolean }) {
+  return (
+    <span className="trust-label">
+      <b className="dot source" />{" "}
+      {rtl
+        ? "مستند إلى الكتاب مع إحالات"
+        : "Grounded in the book with citations"}
+    </span>
+  );
+}
+function Idea({ n, title, text }: { n: string; title: string; text: string }) {
+  return (
+    <div className="idea">
+      <b>{n}</b>
+      <div>
+        <h4>{title}</h4>
+        <p>{text}</p>
+      </div>
+    </div>
+  );
+}
+
+function UserGuide({ rtl, onUpload, onLibrary, onActivate, activating }: { rtl: boolean; onUpload: () => void; onLibrary: () => void; onActivate: () => void; activating: boolean }) {
+  const topics = rtl ? [
+    ["1. إضافة الكتاب", "اختر PDF وحدد لغة المخرجات وأقر بحق الاستخدام. الرفع وحده لا يشغّل خدمة مدفوعة."],
+    ["2. حدود الملف قبل الرفع", "تقبل النسخة حتى 30 ميجابايت و500 صفحة. يُفحص الشرطان قبل الحفظ، ورسالة الرفض تؤكد عدم تشغيل OpenAI وعدم الخصم."],
+    ["3. الكتب الستة والأرشيف", "يظهر في الرف النشط ستة كتب أصلية. قبل السابع انقل كتابًا إلى الأرشيف؛ يُحذف PDF لتوفير المساحة وتبقى البطاقة والغلاف والخلاصات والتحليل والصوت والأسئلة. أعد رفع الملف نفسه لاحقًا لاستعادته بلا تكرار."],
+    ["4. التصنيفات", "تظهر عشر بوابات ديوي وبوابة للموضوعات الحديثة. اضغط البوابة لترى تفريعاتها؛ ويمكن للكتاب أن يحمل تصنيف ديوي وموضوعًا حديثًا دون نسخة مكررة."],
+    ["5. حالة كل كتاب", "بانتظار التحليل، جارٍ التحليل، تم التحليل، أو تعذر التحليل. لا تتساوى بطاقة الكتاب المحلل مع الكتاب الذي ينتظر."],
+    ["6. صفحة الكتاب", "صفحة الكتاب الحالية هي القاعدة الثابتة لكل كتاب جديد، وبها القراءة والتحليل والنتائج والصوت والأسئلة."],
+    ["7. الغلاف الأصلي", "تأخذ المكتبة الغلاف من الصفحة الأولى للكتاب نفسه، مع بديل آمن فقط إذا تعذر فتح الملف."],
+    ["8. القراءة وموضع التوقف", "تُحفظ الصفحة والعلامات لتعود إلى الموضع نفسه من الكمبيوتر أو الهاتف."],
+    ["9. التحليل المجاني", "يفحص بنية الكتاب داخل المتصفح دون تكلفة AI ودون إرسال الملف إلى OpenAI."],
+    ["10. التحليل المدفوع", "قبل التأكيد ترى حد اليوم والمتبقي ووقت التجدد. أثناء التجهيز يظهر شريط متحرك ومهمة محفوظة؛ لا تضغط مرتين حتى لو انقطع الإنترنت."],
+    ["11. أسئلة الكتاب", "بعد اكتمال التحليل اكتب سؤالًا، ثم راجع التكلفة. إذا بلغ حد اليوم تتوقف العملية قبل OpenAI وتظهر رسالة عدم الخصم."],
+    ["12. الصوت الاحترافي", "استمع إلى Marin أو Cedar واختره بوضوح. أثناء إنشاء الصوت تظهر حالة تجهيز مستمرة، ويُعاد استخدام النتيجة المكتملة دون شراء مكرر."],
+    ["13. التنبيهات", "اضغط الجرس الأصفر، فعّل إشعارات الجهاز مرة واحدة، اختر الكتاب والموعد، ثم استخدم اختبار الآن."],
+    ["14. الهاتف والوضع الليلي", "على iPhone افتح المنصة من الشاشة الرئيسية، وعلى Samsung اسمح بالإشعارات وحدّث النسخة. ألوان النص تبقى واضحة في الوضع الليلي."],
+    ["15. تنشيط أحدث نسخة", "إذا بقي الهاتف أو الكمبيوتر على نسخة قديمة، اضغط تنشيط النسخة؛ تُمسح ذاكرة المنصة القديمة وتُفتح أحدث نسخة تلقائيًا."],
+  ] : [
+    ["1. Add a book", "Choose a PDF, output language, and lawful-use confirmation. Uploading does not start paid AI."],
+    ["2. File limits", "Up to 30 MB and 500 pages; both are checked before storage and paid AI."],
+    ["3. Six books and archive", "Six originals stay active. Archiving removes the PDF to save space while keeping the card, cover and paid outputs. Re-upload the same file later to restore it without duplication."],
+    ["4. Classification", "Ten Dewey gateways plus one modern-topics gateway; subdivisions appear only after selection."],
+    ["5. Book status", "Awaiting, processing, complete, or failed are clearly distinguished."],
+    ["6. Book page", "The current successful book page remains the fixed template for every new book."],
+    ["7. Original cover", "The cover comes from page one, with a safe fallback only if the file cannot be opened."],
+    ["8. Reading position", "Page and bookmarks are saved across computer and phone."],
+    ["9. Free analysis", "Examines structure locally without AI cost or sending the file to OpenAI."],
+    ["10. Paid analysis", "Shows daily use, remaining allowance and reset time. A saved moving task indicator prevents repeat taps."],
+    ["11. Ask the book", "Review cost first; limit messages stop before OpenAI and explicitly confirm no charge."],
+    ["12. Professional audio", "Choose Marin or Cedar. Progress remains visible and completed output is reused."],
+    ["13. Notifications", "Use the yellow bell, enable the device once, choose book and time, then test."],
+    ["14. Phones and night mode", "Home Screen mode on iPhone; notification permission and refresh on Samsung; high-contrast text at night."],
+    ["15. Activate latest version", "Clears the old platform cache and reloads the newest build."],
+  ];
+  return <div className="page user-guide-page"><PageTitle title={rtl ? "دليل استخدام المكتبة" : "Library user guide"} description={rtl ? "خطوات عملية تشرح الموجود وتفعّله دون تغيير صفحة الكتاب الناجحة." : "Practical steps that activate the current experience without changing the successful book page."} /><div className="guide-actions"><button className="primary" onClick={onUpload}>＋ {rtl ? "أضف كتابًا" : "Add a book"}</button><button className="secondary" onClick={onLibrary}>▥ {rtl ? "افتح مكتبتي" : "Open my library"}</button><button className="secondary activate-version-button" disabled={activating} onClick={onActivate}>↻ {activating ? (rtl ? "جارٍ التنشيط…" : "Activating…") : (rtl ? "تنشيط أحدث نسخة" : "Activate latest version")}</button></div><section className="panel guide-topics">{topics.map(([title, body]) => <details key={title}><summary>{title}</summary><p>{body}</p></details>)}</section></div>;
+}
+
+function Progress({ rtl, title, books }: { rtl: boolean; title: string; books: PilotBook[] }) {
+  const [reminders, setReminders] = useState<BookReminder[]>([]);
+  const [bookId, setBookId] = useState(books[0]?.id ?? "");
+  const [when, setWhen] = useState(() => {
+    const value = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    value.setSeconds(0, 0);
+    return new Date(value.getTime() - value.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  });
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [pushReady, setPushReady] = useState(false);
+  const reload = () => listBookReminders().then(setReminders).catch((error) => setMessage(describeReminderError(error, rtl)));
+  useEffect(() => { reload(); }, []);
+  useEffect(() => { if (!bookId && books[0]) setBookId(books[0].id); }, [books, bookId]);
+  const save = async () => {
+    setBusy(true); setMessage("");
+    try {
+      await enablePushForThisDevice();
+      await saveBookReminder(bookId, new Date(when));
+      await reload();
+      setMessage(rtl ? "حُفظ التنبيه وسيصل إلى أجهزتك المفعّلة." : "The reminder was saved for your enabled devices.");
+    } catch (error) { setMessage(describeReminderError(error, rtl)); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="page">
+      <PageTitle
+        title={title}
+        description={
+          rtl
+            ? "تذكيرات هادئة تعيدك إلى ما بدأت، دون إزعاج."
+            : "Gentle reminders that bring you back without becoming noise."
+        }
+      />
+      <div className="progress-layout">
+        <article className="panel">
+          <h3>{rtl ? "خطة هذا الأسبوع" : "This week’s plan"}</h3>
+          <div className="week">
+            {["س", "ح", "ن", "ث", "ر", "خ", "ج"].map((d, i) => (
+              <span className={i < 4 ? "done" : i === 4 ? "today" : ""} key={i}>
+                {d}
+                <b>{i < 4 ? "✓" : i === 4 ? "•" : ""}</b>
+              </span>
+            ))}
+          </div>
+          <div className="goal">
+            <strong>47 / 90</strong>
+            <span>
+              {rtl ? "دقيقة قراءة واستماع" : "reading & listening minutes"}
+            </span>
+            <Bar value={52} />
+          </div>
+        </article>
+        <article className="panel reminders">
+          <h3>{rtl ? "تنبيهات قادمة" : "Upcoming reminders"}</h3>
+          <div className="v0103-reminder-form">
+            <div className={`notification-activation ${pushReady ? "ready" : ""}`}>
+              <div><strong>{rtl ? "تفعيل تنبيهات هذا الجهاز" : "Enable notifications on this device"}</strong><small>{pushReady ? (rtl ? "✓ تم تفعيل الجهاز" : "✓ Device enabled") : (rtl ? "خطوة مطلوبة مرة واحدة على كل هاتف أو كمبيوتر." : "Required once on each phone or computer.")}</small></div>
+              <button className="secondary" disabled={busy || pushReady} onClick={async () => { setBusy(true); setMessage(""); try { await enablePushForThisDevice(); setPushReady(true); setMessage(rtl ? "تم تفعيل تنبيهات هذا الجهاز. اختبرها الآن." : "Notifications enabled on this device. Test them now."); } catch (error) { setMessage(describeReminderError(error, rtl)); } finally { setBusy(false); } }}>{pushReady ? (rtl ? "مفعّل" : "Enabled") : (rtl ? "تفعيل الجهاز" : "Enable device")}</button>
+            </div>
+            <select value={bookId} onChange={(event) => setBookId(event.target.value)} disabled={!books.length}>
+              {!books.length && <option value="">{rtl ? "أضف كتابًا أولًا" : "Add a book first"}</option>}
+              {books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}
+            </select>
+            <input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} />
+            <button className="primary" disabled={busy || !bookId} onClick={save}>{busy ? (rtl ? "جارٍ الحفظ…" : "Saving…") : (rtl ? "حفظ التنبيه" : "Save reminder")}</button>
+            <button className="secondary" disabled={busy} onClick={async () => {
+              try { await showReminderTest(rtl ? "اختبار تنبيه المكتبة" : "Library reminder test", rtl ? "التنبيهات تعمل على هذا الجهاز." : "Notifications work on this device."); }
+              catch (error) { setMessage(describeReminderError(error, rtl)); }
+            }}>{rtl ? "اختبار الآن" : "Test now"}</button>
+          </div>
+          {message && <p className="v0103-reminder-message">{message}</p>}
+          {reminders.length === 0 && <p>{rtl ? "لا توجد تنبيهات محفوظة." : "No saved reminders."}</p>}
+          {reminders.map((reminder) => <Reminder
+            key={reminder.id}
+            time={new Date(reminder.remind_at).toLocaleString(rtl ? "ar" : "en")}
+            value={books.find((book) => book.id === reminder.book_id)?.title ?? (rtl ? "كتابك" : "Your book")}
+            onCancel={async () => { await disableBookReminder(reminder.id); await reload(); }}
+          />)}
+        </article>
+      </div>
+    </div>
+  );
+}
+function Reminder({ time, value, onCancel }: { time: string; value: string; onCancel: () => void }) {
+  return (
+    <div className="reminder">
+      <i>◴</i>
+      <div>
+        <strong>{value}</strong>
+        <span>{time}</span>
+      </div>
+      <button onClick={onCancel} title="إلغاء / Cancel">×</button>
+    </div>
+  );
+}
+
+function Librarian({ rtl, title }: { rtl: boolean; title: string }) {
+  const [q, setQ] = useState("");
+  const [a, setA] = useState(false);
+  return (
+    <div className="page">
+      <PageTitle
+        title={title}
+        description={
+          rtl
+            ? "يساعدك من داخل مجموعتك، ويربط الإجابات بالمصادر الأصلية."
+            : "An assistant grounded in your collection and linked back to original sources."
+        }
+      />
+      <div className="librarian-workspace">
+        <div className="chat panel">
+          <div className="chat-intro">
+            <i>✦</i>
+            <h3>
+              {rtl
+                ? "ماذا تريد أن تفهم اليوم؟"
+                : "What would you like to understand today?"}
+            </h3>
+            <p>
+              {rtl
+                ? "اسأل كتابًا واحدًا أو قارن فكرة بين كتبك."
+                : "Ask one book or compare an idea across your library."}
+            </p>
+          </div>
+          {a && (
+            <div className="answer">
+              <span>{rtl ? "إجابة تجريبية" : "Demo answer"}</span>
+              <p>
+                {rtl
+                  ? "تظهر الإجابة هنا مع فصل الكتاب ورقم الصفحة وبطاقة توضح ما إذا كانت من النص أو من تحليل المنصة."
+                  : "The answer appears with chapter, page, and a trust card identifying source text versus platform analysis."}
+              </p>
+              <button className="disabled-soon" disabled>{rtl ? "نموذج عرض — صفحة 74" : "Display sample — page 74"} ←</button>
+            </div>
+          )}
+          <div className="chat-input">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder={
+                rtl
+                  ? "مثال: ما الفرق بين المعرفة الضمنية والصريحة؟"
+                  : "Example: What is the difference between tacit and explicit knowledge?"
+              }
+            />
+            <button onClick={() => q.trim() && setA(true)}>↑</button>
+          </div>
+        </div>
+        <aside className="panel trust">
+          <h3>{rtl ? "بطاقة الثقة" : "Trust card"}</h3>
+          <p>
+            <b className="dot source" />
+            {rtl ? "من الكتاب — موثق بالصفحة" : "From the book — page cited"}
+          </p>
+          <p>
+            <b className="dot analysis" />
+            {rtl ? "تحليل المنصة — استنتاج" : "Platform analysis — inference"}
+          </p>
+          <p>
+            <b className="dot verify" />
+            {rtl ? "يحتاج إلى تحقق" : "Needs verification"}
+          </p>
+          <small>
+            {rtl
+              ? "لا تُنسب استنتاجات المنصة إلى المؤلف."
+              : "Platform inferences are never attributed to the author."}
+          </small>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function Feedback({ rtl, t }: { rtl: boolean; t: typeof text.ar }) {
+  const featureOptions = rtl
+    ? [
+        "رفع كتاب وتحليله",
+        "الملخص العام",
+        "ملخصات الفصول",
+        "الاستماع",
+        "أمين المكتبة",
+      ]
+    : [
+        "Upload and analyse a book",
+        "Book overview",
+        "Chapter summaries",
+        "Audio",
+        "AI librarian",
+      ];
+  const [feature, setFeature] = useState(featureOptions[0]);
+  const [rating, setRating] = useState<number | null>(null);
+  const [note, setNote] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="page">
+      <PageTitle title={t.journal} description={t.journalSub} />
+      <form
+        className="feedback panel"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setSaved(false);
+          setSaveError("");
+          setBusy(true);
+          try {
+            await saveFeedback(feature, rating, note);
+            setSaved(true);
+            setNote("");
+            setRating(null);
+          } catch (err) {
+            setSaveError(
+              err instanceof Error
+                ? err.message
+                : rtl
+                  ? "تعذر حفظ الملاحظة"
+                  : "Could not save the note",
+            );
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <label>
+          {rtl ? "ما الذي جربته؟" : "What did you test?"}
+          <select value={feature} onChange={(e) => setFeature(e.target.value)}>
+            {featureOptions.map((option) => (
+              <option key={option}>{option}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          {rtl ? "هل ساعدك على الفهم؟" : "Did it improve understanding?"}
+          <div className="rating">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button
+                type="button"
+                key={n}
+                className={rating === n ? "active" : ""}
+                onClick={() => setRating(n)}
+                aria-pressed={rating === n}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </label>
+        <label>
+          {rtl ? "ملاحظتك بالتفصيل" : "Your detailed note"}
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder={
+              rtl
+                ? "ما الذي نجح؟ ما الذي أربكك؟ وما الذي أعادك إلى الكتاب؟"
+                : "What worked, what confused you, and what led you back to the book?"
+            }
+          />
+        </label>
+        <button className="primary" type="submit" disabled={busy}>
+          {busy ? "…" : rtl ? "حفظ الملاحظة" : "Save note"}
+        </button>
+        {saveError && <div className="reader-error inline">{saveError}</div>}
+        {saved && (
+          <span className="saved">
+            ✓{" "}
+            {rtl
+              ? "حُفظت الملاحظة في مكتبتك الخاصة"
+              : "Note saved to your private library"}
+          </span>
+        )}
+      </form>
+    </div>
+  );
+}
+
+function Upload({
+  rtl,
+  t,
+  file,
+  setFile,
+  outputLanguage,
+  setOutputLanguage,
+  rights1,
+  rights2,
+  setRights1,
+  setRights2,
+  processing,
+  percent,
+  close,
+  start,
+}: {
+  rtl: boolean;
+  t: typeof text.ar;
+  file: File | null;
+  setFile: (v: File | null) => void;
+  outputLanguage: OutputLanguage;
+  setOutputLanguage: (v: OutputLanguage) => void;
+  rights1: boolean;
+  rights2: boolean;
+  setRights1: (v: boolean) => void;
+  setRights2: (v: boolean) => void;
+  processing: boolean;
+  percent: number;
+  close: () => void;
+  start: () => void;
+}) {
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => e.target === e.currentTarget && close()}
+    >
+      <section className="modal">
+        <button className="modal-close" onClick={close}>
+          ×
+        </button>
+        <div className="modal-icon">⇧</div>
+        <span className="eyebrow">
+          {rtl ? "الخطوة الأولى — مجانية" : "Step one — free"}
+        </span>
+        <h2>{t.uploadTitle}</h2>
+        <p>{t.uploadSub}</p>
+        {!processing ? (
+          <>
+            <div className="free-notice">
+              <b>
+                ✓{" "}
+                {rtl
+                  ? "لا استخدام لـ OpenAI في هذه الخطوة"
+                  : "No OpenAI usage in this step"}
+              </b>
+              <span>
+                {rtl
+                  ? "سنحفظ الملف فقط. التحليل والترجمة والصوت الاحترافي تبقى خيارات منفصلة تحتاج تأكيدًا."
+                  : "We only store the file. Analysis, translation and professional audio remain separate, confirmed options."}
+              </span>
+            </div>
+            <label className="dropzone">
+              <input
+                type="file"
+                accept="application/pdf,.pdf"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+              <i>▤</i>
+              <strong>{file?.name || t.choose}</strong>
+              <span>
+                {rtl
+                  ? "حد أقصى 30 ميجابايت و500 صفحة؛ يُفحص الشرطان قبل الحفظ ولا يبدأ أي خصم"
+                  : "30 MB and 500 pages maximum; both are checked before saving and no charge starts"}
+              </span>
+            </label>
+            <label className="select-label output-language">
+              {rtl
+                ? "لغة الملخص والتحليل إذا طلبتهما لاحقًا"
+                : "Summary and analysis language, if requested later"}
+              <select
+                value={outputLanguage}
+                onChange={(e) =>
+                  setOutputLanguage(e.target.value as OutputLanguage)
+                }
+              >
+                <option value="ar">
+                  {rtl
+                    ? "العربية — ومنها ترجمة ملخص الكتاب الإنجليزي"
+                    : "Arabic — including summaries of English books"}
+                </option>
+                <option value="en">
+                  {rtl
+                    ? "الإنجليزية — ومنها ترجمة ملخص الكتاب العربي"
+                    : "English — including summaries of Arabic books"}
+                </option>
+                <option value="bilingual">
+                  {rtl ? "العربية والإنجليزية" : "Arabic and English"}
+                </option>
+              </select>
+            </label>
+            <div className="rights-box">
+              <h3>{rtl ? "بوابة الثقة والحقوق" : "Trust & rights gate"}</h3>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={rights1}
+                  onChange={(e) => setRights1(e.target.checked)}
+                />
+                <span>{t.rights1}</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={rights2}
+                  onChange={(e) => setRights2(e.target.checked)}
+                />
+                <span>{t.rights2}</span>
+              </label>
+              <small>
+                {rtl
+                  ? "لن يبدأ الرفع قبل التأشير على الإقرارين."
+                  : "Upload cannot start until both declarations are accepted."}
+              </small>
+            </div>
+            <div className="modal-actions">
+              <button className="secondary" onClick={close}>
+                {t.cancel}
+              </button>
+              <button
+                className="primary"
+                disabled={!file || !rights1 || !rights2}
+                onClick={start}
+              >
+                {t.start}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="processing">
+            <div className="processing-ring">
+              <strong>{percent}%</strong>
+            </div>
+            <h3>{rtl ? "نحفظ كتابك بأمان…" : "Saving your book securely…"}</h3>
+            <p>
+              {percent < 55
+                ? rtl
+                  ? "رفع الملف إلى مساحتك الخاصة"
+                  : "Uploading to your private storage"
+                : rtl
+                  ? "حفظ الإقرار وبيانات الكتاب"
+                  : "Saving consent and book details"}
+            </p>
+            <Bar value={percent} />
+            <small>
+              {rtl
+                ? "لا يوجد اتصال بـ OpenAI ولا خصم مالي."
+                : "No OpenAI call and no API charge."}
+            </small>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
