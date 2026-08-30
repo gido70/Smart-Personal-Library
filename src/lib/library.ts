@@ -17,7 +17,11 @@ export type PilotBook = {
   content_sha256: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
+  analysis_ready?: boolean;
 };
+
+export const MAX_ACTIVE_BOOKS = 6;
+export const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 
 function safeName(name: string) {
   const extension = name.match(/\.([a-z0-9]{1,8})$/i)?.[1]?.toLowerCase() || "pdf";
@@ -62,14 +66,25 @@ export async function listPilotBooks(): Promise<PilotBook[]> {
   const columns = hasHash
     ? "id,title,file_name,file_size,storage_path,source_language,output_language,status,content_sha256,metadata,created_at"
     : "id,title,file_name,file_size,storage_path,source_language,output_language,status,metadata,created_at";
-  const { data, error } = await supabase!
-    .from("spl_books")
-    .select(columns)
-    .order("created_at", { ascending: false });
+  const [{ data, error }, { data: analysed, error: analysedError }] = await Promise.all([
+    supabase!.from("spl_books").select(columns).order("created_at", { ascending: false }),
+    supabase!.from("spl_analyses").select("book_id").eq("kind", "overview").eq("source", "openai"),
+  ]);
   if (error) throw error;
-  return (
-    (data ?? []) as unknown as Array<Omit<PilotBook, "content_sha256"> & { content_sha256?: string | null }>
-  ).map((row) => ({ ...row, content_sha256: row.content_sha256 ?? null, metadata: row.metadata ?? {} }));
+  // The analysis marker is additive. Older databases may not yet have the
+  // `source` column, so the library still opens and simply falls back to the
+  // book status until the existing V0.7 migration is present.
+  const analysedIds = new Set(analysedError ? [] : (analysed ?? []).map((item) => item.book_id));
+  return ((data ?? []) as unknown as Array<Omit<PilotBook, "content_sha256"> & { content_sha256?: string | null }>).map((row) => ({
+    ...row,
+    content_sha256: row.content_sha256 ?? null,
+    metadata: row.metadata ?? {},
+    analysis_ready: analysedIds.has(row.id) || row.status === "ready",
+  }));
+}
+
+export function isBookArchived(book: Pick<PilotBook, "metadata">) {
+  return Boolean(book.metadata?.archived_at);
 }
 
 export type LibraryStats = { analysedBooks: number; questions: number; audioParts: number };
@@ -105,7 +120,7 @@ export type UploadResult = { book: PilotBook; deduped: boolean };
  */
 export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage): Promise<UploadResult> {
   if (!/\.pdf$/i.test(file.name) || (file.type && file.type !== "application/pdf")) throw new Error("PDF_ONLY");
-  if (file.size > 20 * 1024 * 1024) throw new Error("FILE_TOO_LARGE_20MB");
+  if (file.size > MAX_UPLOAD_BYTES) throw new Error("FILE_TOO_LARGE_30MB");
   const inspection = await inspectPdfForAcceptance(file);
   const session = await ensurePilotSession();
   const hasHash = await checkHashColumnAvailable();
@@ -121,7 +136,35 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
         .limit(1)
         .maybeSingle();
       if (!lookupError && existing) {
-        return { book: existing as PilotBook, deduped: true };
+        const existingBook = existing as PilotBook;
+        if (isBookArchived(existingBook)) {
+          const { data: activeRows, error: activeError } = await supabase!
+            .from("spl_books")
+            .select("id,metadata");
+          if (activeError) throw activeError;
+          const activeCount = (activeRows ?? []).filter((item) => !item.metadata?.archived_at).length;
+          if (activeCount >= MAX_ACTIVE_BOOKS) throw new Error("ACTIVE_BOOK_LIMIT_REACHED");
+          const metadata = { ...(existingBook.metadata ?? {}) };
+          if (metadata.original_removed) {
+            const { error: restoreFileError } = await supabase!.storage
+              .from("spl-books")
+              .upload(existingBook.storage_path, file, { contentType: file.type || "application/pdf", upsert: true });
+            if (restoreFileError) throw restoreFileError;
+          }
+          delete metadata.archived_at;
+          delete metadata.archive_reason;
+          delete metadata.original_removed;
+          delete metadata.original_compaction_pending;
+          const { data: restored, error: restoreError } = await supabase!
+            .from("spl_books")
+            .update({ metadata })
+            .eq("id", existingBook.id)
+            .select("id,title,file_name,file_size,storage_path,source_language,output_language,status,content_sha256,metadata,created_at")
+            .single();
+          if (restoreError) throw restoreError;
+          return { book: restored as PilotBook, deduped: true };
+        }
+        return { book: existingBook, deduped: true };
       }
     } catch (hashOrLookupError) {
       // Never block an upload because the dedupe check itself failed (e.g. a
@@ -131,6 +174,11 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
       contentHash = null;
     }
   }
+
+  const { data: activeRows, error: activeError } = await supabase!.from("spl_books").select("id,metadata");
+  if (activeError) throw activeError;
+  const activeCount = (activeRows ?? []).filter((item) => !item.metadata?.archived_at).length;
+  if (activeCount >= MAX_ACTIVE_BOOKS) throw new Error("ACTIVE_BOOK_LIMIT_REACHED");
 
   const bookId = crypto.randomUUID();
   const storagePath = `${session.user.id}/${bookId}/${safeName(file.name)}`;
@@ -241,10 +289,20 @@ export async function deletePilotBook(book: Pick<PilotBook, "id" | "storage_path
   return { cleanupWarning: cleanupErrors.join("; ") || null };
 }
 
-export async function updateBookCategory(book: PilotBook, category: string): Promise<PilotBook> {
+export type BookClassificationPatch = {
+  deweyMain: string;
+  deweyBranch: string;
+  modernTopic?: string;
+};
+
+export async function updateBookClassification(book: PilotBook, patch: BookClassificationPatch): Promise<PilotBook> {
   await ensurePilotSession();
-  const cleanCategory = category.trim().slice(0, 60);
-  const metadata = { ...(book.metadata ?? {}), category: cleanCategory || undefined };
+  const metadata = {
+    ...(book.metadata ?? {}),
+    dewey_main: patch.deweyMain.trim().slice(0, 8),
+    dewey_branch: patch.deweyBranch.trim().slice(0, 80),
+    modern_topic: (patch.modernTopic ?? "").trim().slice(0, 80) || null,
+  };
   const { data, error } = await supabase!
     .from("spl_books")
     .update({ metadata })
@@ -253,6 +311,134 @@ export async function updateBookCategory(book: PilotBook, category: string): Pro
     .single();
   if (error) throw error;
   return data as PilotBook;
+}
+
+/**
+ * Frees one of the six active-library slots without deleting the record,
+ * generated summaries, audio, questions, reminders, or payment history.
+ * A small cover is retained, then the original PDF is compacted only after
+ * the archive metadata is safely stored. Re-uploading the same file hash
+ * restores this record without duplicating paid outputs.
+ */
+export async function archivePilotBook(book: PilotBook): Promise<PilotBook> {
+  const session = await ensurePilotSession();
+  const expectedPrefix = `${session.user.id}/${book.id}/`;
+  if (!book.storage_path.startsWith(expectedPrefix)) throw new Error("BOOK_ARCHIVE_PATH_MISMATCH");
+  let coverPath = String(book.metadata?.archive_cover_path ?? "");
+  if (!coverPath) {
+    try {
+      const { data: pdfBlob, error: downloadError } = await supabase!.storage.from("spl-books").download(book.storage_path);
+      if (downloadError || !pdfBlob) throw downloadError ?? new Error("BOOK_DOWNLOAD_FAILED");
+      const pdfjs = await import("pdfjs-dist");
+      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+      const pdf = await pdfjs.getDocument({ data: new Uint8Array(await pdfBlob.arrayBuffer()), disableFontFace: true }).promise;
+      const page = await pdf.getPage(1);
+      const base = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({ scale: Math.max(0.4, Math.min(1.15, 420 / base.width)) });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      const context = canvas.getContext("2d", { alpha: false });
+      if (!context) throw new Error("COVER_CANVAS_UNAVAILABLE");
+      await page.render({ canvasContext: context, viewport, canvas }).promise;
+      const coverBlob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("COVER_EXPORT_FAILED")), "image/jpeg", 0.82));
+      coverPath = `${expectedPrefix}archive-cover.jpg`;
+      const { error: coverError } = await supabase!.storage.from("spl-books").upload(coverPath, coverBlob, { contentType: "image/jpeg", upsert: true });
+      if (coverError) throw coverError;
+    } catch (coverError) {
+      // Archiving must remain possible even when an unusual PDF cannot render
+      // a thumbnail; the title-based cover is the safe visual fallback.
+      console.warn("SPL: archive cover fallback", coverError);
+      coverPath = "";
+    }
+  }
+  const metadata = {
+    ...(book.metadata ?? {}),
+    archived_at: new Date().toISOString(),
+    archive_reason: "active_shelf_limit",
+    archive_cover_path: coverPath || null,
+    original_compaction_pending: true,
+  };
+  const { data, error } = await supabase!
+    .from("spl_books")
+    .update({ metadata })
+    .eq("id", book.id)
+    .select("id,title,file_name,file_size,storage_path,source_language,output_language,status,content_sha256,metadata,created_at")
+    .single();
+  if (error) throw error;
+  const { error: removeError } = await supabase!.storage.from("spl-books").remove([book.storage_path]);
+  if (removeError) {
+    console.warn("SPL: original compaction deferred", removeError);
+    return data as PilotBook;
+  }
+  const compactedMetadata = { ...metadata, original_removed: true, original_compaction_pending: false };
+  const { data: compacted, error: compactedError } = await supabase!
+    .from("spl_books")
+    .update({ metadata: compactedMetadata })
+    .eq("id", book.id)
+    .select("id,title,file_name,file_size,storage_path,source_language,output_language,status,content_sha256,metadata,created_at")
+    .single();
+  if (compactedError) {
+    console.warn("SPL: archive compaction marker deferred", compactedError);
+    return data as PilotBook;
+  }
+  return compacted as PilotBook;
+}
+
+export async function restoreArchivedBook(book: PilotBook): Promise<PilotBook> {
+  await ensurePilotSession();
+  if (book.metadata?.original_removed) throw new Error("ARCHIVED_ORIGINAL_REUPLOAD_REQUIRED");
+  const { data: activeRows, error: activeError } = await supabase!.from("spl_books").select("id,metadata");
+  if (activeError) throw activeError;
+  if ((activeRows ?? []).filter((item) => !item.metadata?.archived_at).length >= MAX_ACTIVE_BOOKS) {
+    throw new Error("ACTIVE_BOOK_LIMIT_REACHED");
+  }
+  const metadata = { ...(book.metadata ?? {}) };
+  delete metadata.archived_at;
+  delete metadata.archive_reason;
+  const { data, error } = await supabase!
+    .from("spl_books")
+    .update({ metadata })
+    .eq("id", book.id)
+    .select("id,title,file_name,file_size,storage_path,source_language,output_language,status,content_sha256,metadata,created_at")
+    .single();
+  if (error) throw error;
+  return data as PilotBook;
+}
+
+export type AiLimitsSnapshot = {
+  analysesToday: number;
+  analysisLimit: number;
+  questionsToday: number;
+  dailyQuestionLimit: number;
+  questionsTotal: number;
+  totalQuestionLimit: number;
+  resetsAt: string;
+};
+
+export async function getAiLimitsSnapshot(): Promise<AiLimitsSnapshot> {
+  await ensurePilotSession();
+  const dayStart = new Date();
+  dayStart.setUTCHours(0, 0, 0, 0);
+  const nextReset = new Date(dayStart);
+  nextReset.setUTCDate(nextReset.getUTCDate() + 1);
+  const [analysesResult, questionsTodayResult, questionsTotalResult] = await Promise.all([
+    supabase!.from("spl_analyses").select("book_id").eq("kind", "overview").eq("source", "openai").gte("created_at", dayStart.toISOString()),
+    supabase!.from("spl_questions").select("id", { count: "exact", head: true }).gte("created_at", dayStart.toISOString()),
+    supabase!.from("spl_questions").select("id", { count: "exact", head: true }),
+  ]);
+  if (analysesResult.error) throw analysesResult.error;
+  if (questionsTodayResult.error) throw questionsTodayResult.error;
+  if (questionsTotalResult.error) throw questionsTotalResult.error;
+  return {
+    analysesToday: new Set((analysesResult.data ?? []).map((item) => item.book_id)).size,
+    analysisLimit: 3,
+    questionsToday: questionsTodayResult.count ?? 0,
+    dailyQuestionLimit: 10,
+    questionsTotal: questionsTotalResult.count ?? 0,
+    totalQuestionLimit: 20,
+    resetsAt: nextReset.toISOString(),
+  };
 }
 
 export async function downloadBookFile(storagePath: string): Promise<Blob> {
