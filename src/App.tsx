@@ -6,6 +6,7 @@ import {
   getAiLimitsSnapshot,
   getLibraryStats,
   getLegalConsentStatus,
+  getPaidTaskReceipt,
   getPrivateAudioUrl,
   archivePilotBook,
   downloadBookFile,
@@ -48,6 +49,32 @@ import {
 } from "./lib/reminders";
 
 type Lang = "ar" | "en";
+type ProfessionalVoice = "marin" | "cedar" | "coral" | "onyx" | "nova" | "sage";
+const PROFESSIONAL_VOICES: ProfessionalVoice[] = ["marin", "cedar", "coral", "onyx", "nova", "sage"];
+const isProfessionalVoice = (value: unknown): value is ProfessionalVoice =>
+  PROFESSIONAL_VOICES.includes(value as ProfessionalVoice);
+const voiceLabel = (voice: ProfessionalVoice, rtl: boolean) => {
+  const recommended = voice === "marin" || voice === "cedar";
+  const name = `${voice[0].toUpperCase()}${voice.slice(1)}`;
+  return `${name}${recommended ? (rtl ? " — موصى به" : " — recommended") : (rtl ? " — بديل للاختبار" : " — alternative")}`;
+};
+const audioPartCount = (results: Record<string, unknown> | null) => {
+  const overview = results?.overview as Record<string, unknown> | undefined;
+  const spoken = String(overview?.summary ?? results?.summary ?? "").slice(0, 24000);
+  if (!spoken) return 0;
+  const sentences = spoken.split(/(?<=[.!؟?])\s+/u);
+  let parts = 0;
+  let current = "";
+  for (const sentence of sentences) {
+    if (current && current.length + sentence.length > 3400) {
+      parts += 1;
+      current = "";
+    }
+    current += `${current ? " " : ""}${sentence}`;
+  }
+  if (current) parts += 1;
+  return Math.min(parts, 8);
+};
 type View =
   | "home"
   | "library"
@@ -748,6 +775,13 @@ function Dashboard({
   onOpenPilot: (book: PilotBook) => void;
 }) {
   const activePilotBooks = pilotBooks.filter((book) => !isBookArchived(book)).slice(0, MAX_ACTIVE_BOOKS);
+  const knowledgeCopies = pilotBooks.filter(isBookArchived);
+  const [homeShelf, setHomeShelf] = useState<"active" | "archive">(() => localStorage.getItem("spl-preferred-library-shelf") === "archive" ? "archive" : "active");
+  const previewBooks = (homeShelf === "active" ? activePilotBooks : knowledgeCopies).slice(0, MAX_ACTIVE_BOOKS);
+  const chooseHomeShelf = (nextShelf: "active" | "archive") => {
+    setHomeShelf(nextShelf);
+    localStorage.setItem("spl-preferred-library-shelf", nextShelf);
+  };
   const current = activePilotBooks[0];
   return (
     <div className="page">
@@ -857,17 +891,26 @@ function Dashboard({
       <section className="panel library-preview">
         <SectionHead
           over={rtl ? "رفوفك الشخصية" : "Your shelves"}
-          title={rtl ? "رفّي الحالي" : "My current shelf"}
+          title={homeShelf === "active" ? (rtl ? "الكتب الأصلية" : "Original books") : (rtl ? "النسخ المعرفية" : "Knowledge copies")}
           action={rtl ? "عرض مكتبتي" : "Open my library"}
           onAction={() => setView("library")}
         />
+        <div className="library-shelf-tabs home-shelf-switch" role="group" aria-label={rtl ? "اختيار الرف الظاهر في المقدمة" : "Choose the shelf shown on the home page"}>
+          <button className={homeShelf === "active" ? "active" : ""} onClick={() => chooseHomeShelf("active")}>{rtl ? `الكتب الأصلية ${activePilotBooks.length}/${MAX_ACTIVE_BOOKS}` : `Original books ${activePilotBooks.length}/${MAX_ACTIVE_BOOKS}`}</button>
+          <button className={homeShelf === "archive" ? "active" : ""} onClick={() => chooseHomeShelf("archive")}>{rtl ? `النسخ المعرفية ${knowledgeCopies.length}` : `Knowledge copies ${knowledgeCopies.length}`}</button>
+        </div>
+        <p className="home-shelf-explainer">{homeShelf === "active"
+          ? (rtl ? "تعرض الكتب الكاملة الموجودة حاليًا، بحد أقصى ستة كتب." : "Shows the complete books currently available, up to six.")
+          : (rtl ? "تعرض الكتب الملخّصة المحفوظة بعد أرشفة الأصل؛ افتح أي بطاقة للوصول إلى نتائجها." : "Shows saved summarized books after the original is archived; open a card to access its results.")}</p>
         <div className="book-grid active-book-grid">
-          {activePilotBooks.length > 0
-            ? activePilotBooks.map((book) => (
+          {previewBooks.length > 0
+            ? previewBooks.map((book) => (
               <LiveBookCard key={book.id} book={book} rtl={rtl} compact onOpen={() => onOpenPilot(book)} />
             ))
-            : <SampleShelf rtl={rtl} compact />}
-          {activePilotBooks.length > 0 && activePilotBooks.length < MAX_ACTIVE_BOOKS && (
+            : homeShelf === "active"
+              ? <SampleShelf rtl={rtl} compact />
+              : <p className="disclosure-note empty-knowledge-shelf">{rtl ? "لا توجد نسخ معرفية بعد. عند أرشفة كتاب مكتمل سيظهر هنا مع خلاصته وصوته ونتائجه." : "No knowledge copies yet. An archived completed book will appear here with its summary, audio and results."}</p>}
+          {homeShelf === "active" && activePilotBooks.length > 0 && activePilotBooks.length < MAX_ACTIVE_BOOKS && (
             <button className="add-book-card" onClick={onUpload}>
               <i>＋</i>
               <strong>{rtl ? "أضف كتابًا جديدًا" : "Add a new book"}</strong>
@@ -1240,14 +1283,19 @@ function LiveBookCard({
   const subtitle = languageLabel(book.source_language, rtl);
   const classification = inferClassification(book);
   const archived = isBookArchived(book);
-  const status = book.status === "processing"
-    ? (rtl ? "جارٍ التحليل — يمكنك مغادرة الصفحة" : "Analysis running — you may leave this page")
+  const originalRemoved = Boolean(book.metadata?.original_removed);
+  const status = archived
+    ? originalRemoved
+      ? (rtl ? "✓ نسخة معرفية محفوظة — الأصل مؤرشف" : "✓ Saved knowledge copy — original archived")
+      : (rtl ? "جارٍ إكمال الأرشفة — النتائج محفوظة" : "Completing archive — results are saved")
+    : book.status === "processing"
+    ? (rtl ? "جارٍ التحليل — انتظر ولا تكرر الطلب" : "Analysis running — wait and do not repeat the request")
     : book.status === "failed"
       ? (rtl ? "تعذر التحليل — لم يُخصم طلب جديد" : "Analysis failed — no new request was charged")
       : book.analysis_ready
         ? (rtl ? "✓ مكتمل — جاهز للأرشفة" : "✓ Complete — ready to archive")
         : (rtl ? "بانتظار التحليل" : "Awaiting analysis");
-  const statusTone = book.status === "processing" ? "processing" : book.status === "failed" ? "failed" : book.analysis_ready ? "complete" : "waiting";
+  const statusTone = archived ? "knowledge" : book.status === "processing" ? "processing" : book.status === "failed" ? "failed" : book.analysis_ready ? "complete" : "waiting";
   const [editingClassification, setEditingClassification] = useState(false);
   const [classificationBusy, setClassificationBusy] = useState(false);
   const [draftClassification, setDraftClassification] = useState<BookClassificationPatch>(classification);
@@ -1273,6 +1321,7 @@ function LiveBookCard({
         <button className="book-title-button" onClick={onOpen}><h4>{book.title}</h4></button>
         {!compact && <p>{subtitle}</p>}
         {!compact && <span className={`book-status-badge ${statusTone}`}>{status}</span>}
+        {compact && archived && <span className="book-status-badge knowledge compact-knowledge-status">{rtl ? "نسخة معرفية" : "Knowledge copy"}</span>}
         {compact ? <span className={`book-category-chip final ${classification.deweyMain ? "" : "unclassified"}`}>{finalClassificationLabel(classification, rtl)}</span> : onClassificationChange && editingClassification ? <div className="book-classification-editor">
           <select value={draftClassification.deweyMain} onChange={(event) => {
             const gateway = DEWEY_GATEWAYS.find((item) => item.id === event.target.value) ?? DEWEY_GATEWAYS[0];
@@ -1531,7 +1580,7 @@ function Library({
   const [categoryFilter, setCategoryFilter] = useState<DeweyGatewayId | "modern" | "all">("all");
   const [branchFilter, setBranchFilter] = useState("all");
   const [classificationFiltersOpen, setClassificationFiltersOpen] = useState(false);
-  const [shelf, setShelf] = useState<"active" | "archive">("active");
+  const [shelf, setShelf] = useState<"active" | "archive">(() => localStorage.getItem("spl-preferred-library-shelf") === "archive" ? "archive" : "active");
   const [bookToArchive, setBookToArchive] = useState<PilotBook | null>(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [bookToDelete, setBookToDelete] = useState<PilotBook | null>(null);
@@ -1550,7 +1599,9 @@ function Library({
   const archivedBooks = pilotBooks.filter(isBookArchived);
   const shelfBooks = shelf === "active" ? activeBooks : archivedBooks;
   const filteredPilotBooks = pilotBooks.filter((book) => {
-    if (shelf === "active" ? isBookArchived(book) : !isBookArchived(book)) return false;
+    // Search spans the complete personal library. Without a search term, the
+    // selected shelf keeps originals and knowledge copies visually separate.
+    if (!query && (shelf === "active" ? isBookArchived(book) : !isBookArchived(book))) return false;
     const classification = inferClassification(book);
     const matchesQuery = !query || classificationSearchText(book, rtl).includes(query);
     const matchesCategory = categoryFilter === "all"
@@ -1592,6 +1643,13 @@ function Library({
       setLibraryMessage(error instanceof Error ? error.message : rtl ? "تعذر حفظ التصنيف." : "Could not save category.");
       return false;
     }
+  };
+  const chooseShelf = (nextShelf: "active" | "archive") => {
+    setShelf(nextShelf);
+    localStorage.setItem("spl-preferred-library-shelf", nextShelf);
+    setCategoryFilter("all");
+    setBranchFilter("all");
+    setClassificationFiltersOpen(false);
   };
   const confirmArchive = async () => {
     if (!bookToArchive) return;
@@ -1661,8 +1719,8 @@ function Library({
       )}
       {!booksLoading && !booksError && pilotBooks.length > 0 && <>
         <div className="library-shelf-tabs">
-          <button className={shelf === "active" ? "active" : ""} onClick={() => { setShelf("active"); setCategoryFilter("all"); setBranchFilter("all"); setClassificationFiltersOpen(false); }}>{rtl ? `الكتب النشطة ${activeBooks.length}/${MAX_ACTIVE_BOOKS}` : `Active books ${activeBooks.length}/${MAX_ACTIVE_BOOKS}`}</button>
-          <button className={shelf === "archive" ? "active" : ""} onClick={() => { setShelf("archive"); setCategoryFilter("all"); setBranchFilter("all"); setClassificationFiltersOpen(false); }}>{rtl ? `الأرشيف ${archivedBooks.length}` : `Archive ${archivedBooks.length}`}</button>
+          <button className={shelf === "active" ? "active" : ""} onClick={() => chooseShelf("active")}>{rtl ? `الكتب الأصلية ${activeBooks.length}/${MAX_ACTIVE_BOOKS}` : `Original books ${activeBooks.length}/${MAX_ACTIVE_BOOKS}`}</button>
+          <button className={shelf === "archive" ? "active" : ""} onClick={() => chooseShelf("archive")}>{rtl ? `النسخ المعرفية ${archivedBooks.length}` : `Knowledge copies ${archivedBooks.length}`}</button>
         </div>
         <div className="classification-filter-summary">
           <button className="classification-filter-toggle" aria-expanded={classificationFiltersOpen} onClick={() => setClassificationFiltersOpen((open) => !open)}>⌄ {rtl ? "تصفية الكتب حسب التصنيف" : "Filter books by category"}</button>
@@ -1708,8 +1766,13 @@ function Library({
           <span className="eyebrow">
             {rtl ? "كتب V0.7 المحفوظة" : "Saved V0.7 books"}
           </span>
-          <h3>{shelf === "active" ? (rtl ? "مكتبتي" : "My library") : (rtl ? "أرشيفي المحفوظ" : "My saved archive")}</h3>
+          <h3>{query
+            ? (rtl ? "نتائج البحث في المكتبة كاملة" : "Search results across the library")
+            : shelf === "active"
+              ? (rtl ? "مكتبة الكتب الأصلية" : "Original-book library")
+              : (rtl ? "مكتبة النسخ المعرفية" : "Knowledge-copy library")}</h3>
           {shelf === "active" && <p className="active-shelf-limit">{rtl ? `يمكن عرض ستة كتب أصلية نشطة. المتاح الآن: ${MAX_ACTIVE_BOOKS - activeBooks.length}. الكتاب السابع يحتاج نقل كتاب إلى الأرشيف، دون فقد النتائج المدفوعة.` : `Six original books can remain active. Available now: ${MAX_ACTIVE_BOOKS - activeBooks.length}. A seventh requires archiving one book without losing paid outputs.`}</p>}
+          {shelf === "archive" && !query && <p className="knowledge-shelf-note">{rtl ? "هذه نسخ معرفية خفيفة: الغلاف والفهرسة والتصنيف والخلاصة والتحليل والصوت والأسئلة محفوظة، بينما أزيل PDF الأصلي لتوفير المساحة." : "These are lightweight knowledge copies: cover, catalogue, classification, summary, analysis, audio and questions remain, while the original PDF was removed to save space."}</p>}
           <p className="pilot-session-warning">
             {rtl
               ? "تنبيه النسخة التجريبية: دخولك مرتبط بهذا المتصفح حاليًا؛ لا تمسح بيانات المتصفح قبل الترقية إلى حساب دائم أدناه."
@@ -1724,9 +1787,9 @@ function Library({
                   book={book}
                   rtl={rtl}
                   onOpen={() => onOpenPilot(book)}
-                  onArchive={shelf === "active" ? () => setBookToArchive(book) : undefined}
-                  onRestore={shelf === "archive" ? () => restoreBook(book) : undefined}
-                  onDelete={shelf === "archive" ? () => setBookToDelete(book) : undefined}
+                  onArchive={!isBookArchived(book) ? () => setBookToArchive(book) : undefined}
+                  onRestore={isBookArchived(book) ? () => restoreBook(book) : undefined}
+                  onDelete={isBookArchived(book) ? () => setBookToDelete(book) : undefined}
                   onClassificationChange={(classification) => changeClassification(book, classification)}
                 />)}
               </div>
@@ -1737,9 +1800,9 @@ function Library({
               book={book}
               rtl={rtl}
               onOpen={() => onOpenPilot(book)}
-              onArchive={shelf === "active" ? () => setBookToArchive(book) : undefined}
-              onRestore={shelf === "archive" ? () => restoreBook(book) : undefined}
-              onDelete={shelf === "archive" ? () => setBookToDelete(book) : undefined}
+              onArchive={!isBookArchived(book) ? () => setBookToArchive(book) : undefined}
+              onRestore={isBookArchived(book) ? () => restoreBook(book) : undefined}
+              onDelete={isBookArchived(book) ? () => setBookToDelete(book) : undefined}
               onClassificationChange={(classification) => changeClassification(book, classification)}
             />)}
           </div>}
@@ -1806,12 +1869,17 @@ function PilotWorkspace({
   const [resultLanguage, setResultLanguage] = useState<"ar" | "en">(
     book.output_language === "en" ? "en" : rtl ? "ar" : "en",
   );
-  const [professionalVoice, setProfessionalVoice] = useState<"marin" | "cedar">(() => localStorage.getItem(`spl-professional-voice-${book.id}`) === "cedar" ? "cedar" : "marin");
-  const [voicePreviewUrls, setVoicePreviewUrls] = useState<Partial<Record<"marin" | "cedar", string>>>({});
+  const [professionalVoice, setProfessionalVoice] = useState<ProfessionalVoice>(() => {
+    const saved = localStorage.getItem(`spl-professional-voice-${book.id}`);
+    return isProfessionalVoice(saved) ? saved : "marin";
+  });
+  const [voicePreviewUrls, setVoicePreviewUrls] = useState<Partial<Record<ProfessionalVoice, string>>>({});
   const [questionHistory, setQuestionHistory] = useState<Array<{ id: string; question: string; answer: Record<string, unknown>; language: "ar" | "en"; created_at: string }>>([]);
   const [usageTotals, setUsageTotals] = useState({ calls: 0, input: 0, output: 0, textCostUsd: 0, audioCharacters: 0, unpricedCalls: 0 });
   const [limits, setLimits] = useState<AiLimitsSnapshot | null>(null);
   const [busy, setBusy] = useState("");
+  const paidTaskLockRef = useRef(false);
+  const [paidTaskProgress, setPaidTaskProgress] = useState<{ completed: number; total: number } | null>(null);
   const [recoveryMessage, setRecoveryMessage] = useState("");
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState<
@@ -1839,18 +1907,40 @@ function PilotWorkspace({
     subject: "",
     pageCount: "",
   });
-  const selectProfessionalVoice = (voice: "marin" | "cedar") => {
+  const selectProfessionalVoice = (voice: ProfessionalVoice) => {
+    if (busy) return;
+    if (voice !== professionalVoice) {
+      // Never leave the previous voice's players visible while the newly
+      // selected voice is being loaded from private storage.
+      setAudioUrls([]);
+      setConfirming("");
+    }
     setProfessionalVoice(voice);
     localStorage.setItem(`spl-professional-voice-${book.id}`, voice);
   };
   const taskStorageKey = `spl-paid-task-${book.id}`;
+  const expectedAudioParts = audioPartCount(results);
   const beginPaidTask = (action: "process" | "ask" | "audio" | "audio_preview") => {
-    const requestId = crypto.randomUUID();
+    if (paidTaskLockRef.current || localStorage.getItem(taskStorageKey)) {
+      setRecoveryMessage(rtl ? "الطلب مسجّل بالفعل وما زال قيد المتابعة. انتظر ولا تضغط مرة أخرى حتى لا يتكرر الطلب." : "This request is already registered and still being monitored. Wait and do not press again to avoid a duplicate request.");
+      return null;
+    }
+    paidTaskLockRef.current = true;
+    // A full-audio operation has one stable identity per book/language/voice.
+    // A retry therefore resumes missing parts instead of buying a second copy.
+    const requestId = action === "audio"
+      ? `audio-${book.id}-${resultLanguage}-${professionalVoice}`
+      : crypto.randomUUID();
     localStorage.setItem(taskStorageKey, JSON.stringify({ requestId, action, startedAt: new Date().toISOString(), language: resultLanguage, voice: professionalVoice }));
+    setPaidTaskProgress(null);
     setRecoveryMessage("");
     return requestId;
   };
-  const finishPaidTask = () => localStorage.removeItem(taskStorageKey);
+  const finishPaidTask = () => {
+    localStorage.removeItem(taskStorageKey);
+    paidTaskLockRef.current = false;
+    setPaidTaskProgress(null);
+  };
   const handlePaidFailure = (value: unknown) => {
     const raw = value instanceof Error ? value.message : String(value ?? "");
     if (/(PAID_AI_DISABLED|PRIVATE_PILOT_EMAIL_REQUIRED|DAILY_ANALYSIS_LIMIT_REACHED|DAILY_QUESTION_LIMIT_REACHED|PILOT_QUESTION_LIMIT_REACHED|LEGAL_CONSENT_REQUIRED|BOOK_NOT_PROCESSED|ANALYSIS_NOT_READY)/.test(raw)) {
@@ -1860,7 +1950,8 @@ function PilotWorkspace({
     setRecoveryMessage(rtl ? "انقطع الرد أو تعذر التحقق. بقيت المهمة محفوظة وسنبحث عن النتيجة دون إعادة الخصم؛ لا تضغط مرة أخرى." : "The response was interrupted or could not be verified. The task remains saved and will be checked without charging again; do not press again.");
   };
   useEffect(() => {
-    setProfessionalVoice(localStorage.getItem(`spl-professional-voice-${book.id}`) === "cedar" ? "cedar" : "marin");
+    const savedVoice = localStorage.getItem(`spl-professional-voice-${book.id}`);
+    setProfessionalVoice(isProfessionalVoice(savedVoice) ? savedVoice : "marin");
     setCatalogEditing(false);
     setCatalogMessage("");
   }, [book.id]);
@@ -1921,30 +2012,80 @@ function PilotWorkspace({
   useEffect(() => {
     const raw = localStorage.getItem(taskStorageKey);
     if (!raw) return;
-    let saved: { action?: string; startedAt?: string; language?: string; voice?: string } | null = null;
-    try { saved = JSON.parse(raw); } catch { localStorage.removeItem(taskStorageKey); }
+    let saved: { requestId?: string; action?: string; startedAt?: string; language?: string; voice?: string } | null = null;
+    try { saved = JSON.parse(raw); } catch {
+      localStorage.removeItem(taskStorageKey);
+      paidTaskLockRef.current = false;
+    }
     if (!saved?.action || !saved.startedAt) return;
     const startedAt = Date.parse(saved.startedAt);
     if (!Number.isFinite(startedAt) || Date.now() - startedAt > 2 * 60 * 60 * 1000) {
       localStorage.removeItem(taskStorageKey);
+      paidTaskLockRef.current = false;
       setRecoveryMessage(rtl ? "انتهت مهلة مهمة سابقة. راجع النتائج قبل بدء طلب جديد؛ لن نضغط تلقائيًا." : "A previous task timed out. Review results before starting a new request; nothing will be retried automatically.");
       return;
     }
-    setBusy(saved.action);
+    paidTaskLockRef.current = true;
+    const savedBusyAction = saved.action === "audio_preview" && isProfessionalVoice(saved.voice)
+      ? `preview-${saved.voice}`
+      : saved.action;
+    // The running operation owns its voice. After refresh, restore that exact
+    // choice before reading rows or showing progress so parts from another
+    // selection can never appear as one narration.
+    if ((saved.action === "audio" || saved.action === "audio_preview") && isProfessionalVoice(saved.voice)) {
+      setProfessionalVoice(saved.voice);
+      localStorage.setItem(`spl-professional-voice-${book.id}`, saved.voice);
+    }
+    if (!busy) setBusy(savedBusyAction);
     setRecoveryMessage(rtl ? "تم العثور على مهمة مدفوعة سابقة. نتحقق من نتيجتها المحفوظة دون إنشاء طلب جديد." : "A previous paid task was found. Checking its saved result without creating a new request.");
     const check = async () => {
       try {
+        const receipt = saved?.requestId ? await getPaidTaskReceipt(saved.requestId) : null;
+        const receiptResult = receipt?.result ?? null;
+        const completedParts = Number(receiptResult?.completedParts ?? 0);
+        const totalParts = Number(receiptResult?.totalParts ?? 0);
+        if (totalParts > 0) {
+          setPaidTaskProgress({ completed: Math.min(completedParts, totalParts), total: totalParts });
+          if (receipt?.status === "processing") setRecoveryMessage(rtl
+            ? `جارٍ إنشاء الصوت: حُفظ ${completedParts} من ${totalParts}. انتظر ولا تغلق الصفحة ولا تضغط مرة أخرى.`
+            : `Generating audio: ${completedParts} of ${totalParts} parts saved. Keep this page open and do not press again.`);
+        }
+        const receiptUpdatedAt = Date.parse(receipt?.updated_at ?? "");
+        if (receipt?.status === "processing" && saved?.action === "audio" && Number.isFinite(receiptUpdatedAt) && Date.now() - receiptUpdatedAt > 8 * 60 * 1000) {
+          localStorage.removeItem(taskStorageKey);
+          paidTaskLockRef.current = false;
+          setBusy("");
+          setRecoveryMessage(rtl
+            ? `لم يتقدم إنشاء الصوت منذ أكثر من ثماني دقائق. حُفظ ${completedParts} من ${totalParts || "؟"}. استخدم «استكمال الصوت الناقص»؛ لن يعاد إنشاء الأجزاء المحفوظة.`
+            : `Audio has not progressed for more than eight minutes. ${completedParts} of ${totalParts || "?"} parts are saved. Use “Resume missing audio”; saved parts will not be regenerated.`);
+          await reload();
+          return;
+        }
+        if (receipt?.status === "failed") {
+          localStorage.removeItem(taskStorageKey);
+          paidTaskLockRef.current = false;
+          setBusy("");
+          setRecoveryMessage(rtl
+            ? `توقفت المهمة بعد حفظ ${completedParts} من ${totalParts || "؟"}. الأجزاء المحفوظة لن تُعاد؛ استخدم «استكمال الصوت الناقص» لإنشاء الأجزاء المتبقية فقط.`
+            : `The task stopped after saving ${completedParts} of ${totalParts || "?"} parts. Saved parts will not be repeated; use “Resume missing audio” to create only the remainder.`);
+          await reload();
+          return;
+        }
         const data = await getBookResults(book.id);
-        const completed = saved?.action === "process"
+        const completed = receipt
+          ? receipt.status === "succeeded"
+          : saved?.action === "process"
           ? data.analyses.some((item) => item.kind === "overview" && item.language === saved?.language)
           : saved?.action === "audio"
-            ? data.audio.some((item) => item.language === saved?.language && item.voice === saved?.voice)
+            ? false
             : saved?.action === "ask"
               ? data.questions.some((item) => Date.parse(item.created_at) >= startedAt)
               : data.usage.some((item) => item.action === "audio_preview" && Date.parse(item.created_at) >= startedAt);
         if (completed) {
           localStorage.removeItem(taskStorageKey);
+          paidTaskLockRef.current = false;
           setBusy("");
+          setPaidTaskProgress(null);
           setRecoveryMessage(rtl ? "✓ اكتملت المهمة السابقة وحُفظت نتيجتها. لم يُنشأ طلب مكرر." : "✓ Previous task completed and was saved. No duplicate request was created.");
           await reload();
         }
@@ -1953,14 +2094,16 @@ function PilotWorkspace({
     void check();
     const timer = window.setInterval(check, 5000);
     return () => window.clearInterval(timer);
-  // The task is scoped to the saved book; changing UI language must not create a new task.
+  // Re-run when a new paid action starts so interrupted network responses are
+  // monitored immediately, not only after the page is reopened.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book.id]);
+  }, [book.id, busy]);
   const process = async () => {
     if (ZERO_COST_MODE) return;
-    setBusy("process");
     setError("");
     const requestId = beginPaidTask("process");
+    if (!requestId) return;
+    setBusy("process");
     try {
       await invokeBookAI(book.id, "process", { language: resultLanguage, requestId });
       await reload();
@@ -1976,9 +2119,10 @@ function PilotWorkspace({
   const ask = async () => {
     if (ZERO_COST_MODE) return;
     if (!q.trim()) return;
-    setBusy("ask");
     setError("");
     const requestId = beginPaidTask("ask");
+    if (!requestId) return;
+    setBusy("ask");
     try {
       const data = await invokeBookAI(book.id, "ask", {
         question: q,
@@ -1997,13 +2141,18 @@ function PilotWorkspace({
   };
   const audio = async () => {
     if (ZERO_COST_MODE) return;
-    setBusy("audio");
     setError("");
     const requestId = beginPaidTask("audio");
+    if (!requestId) return;
+    const requestedVoice = professionalVoice;
+    if (expectedAudioParts > 0) {
+      setPaidTaskProgress({ completed: Math.min(audioUrls.length, expectedAudioParts), total: expectedAudioParts });
+    }
+    setBusy("audio");
     try {
       const data = await invokeBookAI(book.id, "audio", {
         language: resultLanguage,
-        voice: professionalVoice,
+        voice: requestedVoice,
         requestId,
       });
       setAudioUrls(
@@ -2023,12 +2172,13 @@ function PilotWorkspace({
       if (!localStorage.getItem(taskStorageKey)) setBusy("");
     }
   };
-  const previewVoice = async (voice: "marin" | "cedar") => {
+  const previewVoice = async (voice: ProfessionalVoice) => {
     if (ZERO_COST_MODE) return;
     selectProfessionalVoice(voice);
-    setBusy(`preview-${voice}`);
     setError("");
     const requestId = beginPaidTask("audio_preview");
+    if (!requestId) return;
+    setBusy(`preview-${voice}`);
     try {
       const data = await invokeBookAI(book.id, "audio_preview", {
         language: resultLanguage,
@@ -2199,6 +2349,34 @@ function PilotWorkspace({
       setCatalogBusy(false);
     }
   };
+  const archived = isBookArchived(book);
+  const originalRemoved = Boolean(book.metadata?.original_removed);
+  const taskTitle = busy === "process"
+    ? (rtl ? "الكتاب قيد التحليل" : "Book analysis in progress")
+    : busy === "audio"
+      ? (rtl ? "الصوت الكامل قيد الإنشاء" : "Full audio is being generated")
+      : busy === "ask"
+        ? (rtl ? "إجابة الكتاب قيد التجهيز" : "Book answer is being prepared")
+        : busy.startsWith("preview-")
+          ? (rtl ? "العينة الصوتية قيد الإنشاء" : "Voice sample is being generated")
+          : (rtl ? "نتابع المهمة المدفوعة" : "Monitoring the paid task");
+  const taskInstruction = rtl
+    ? "انتظر ولا تغلق الصفحة حتى يظهر إشعار الاكتمال. تم تسجيل الطلب؛ لا تضغط الزر مرة أخرى ولن نبدأ طلبًا مكررًا."
+    : "Please wait and keep this page open until completion appears. The request is registered; do not press again and no duplicate request will be started.";
+  const renderVoiceChoice = (voice: ProfessionalVoice) => (
+    <div className={`voice-choice ${professionalVoice === voice ? "selected" : ""}`} key={voice}>
+      <button className="voice-select" disabled={Boolean(busy)} aria-pressed={professionalVoice === voice} onClick={() => selectProfessionalVoice(voice)}>
+        <span className="voice-radio" aria-hidden="true">{professionalVoice === voice ? "●" : "○"}</span>
+        <strong>{voiceLabel(voice, rtl)}</strong>
+        <span>{rtl ? "استمع إلى العربية أولًا؛ العينة هي معيار الاختيار قبل الدفع." : "Test the Arabic sample first; the sample is the quality gate before payment."}</span>
+        {professionalVoice === voice && <b className="voice-selected-label">{rtl ? "مختار لإنشاء الصوت الكامل" : "Selected for full audio"}</b>}
+      </button>
+      <button className="secondary voice-preview-button" disabled={Boolean(busy)} onClick={() => previewVoice(voice)}>
+        {busy === `preview-${voice}` ? (rtl ? "جارٍ إنشاء العينة" : "Generating sample") : rtl ? "أنشئ/شغّل العينة" : "Create/play sample"}
+      </button>
+      {voicePreviewUrls[voice] && <audio controls preload="metadata" src={voicePreviewUrls[voice]} />}
+    </div>
+  );
   return (
     <div className="page">
       <button className="back" onClick={onBack}>
@@ -2207,21 +2385,37 @@ function PilotWorkspace({
       <PageTitle
         title={book.title}
         description={
-          rtl
-            ? "محفوظ في مساحتك الخاصة. الحفظ وحده لا يستهلك رصيد OpenAI."
-            : "Saved in your private space. Storage alone does not use OpenAI credit."
+          archived
+            ? rtl
+              ? "نسخة معرفية محفوظة: الغلاف والفهرسة والخلاصة والتحليل والصوت والأسئلة باقية، بينما الأصل مؤرشف."
+              : "Saved knowledge copy: cover, catalogue, summary, analysis, audio and questions remain while the original is archived."
+            : rtl
+              ? "محفوظ في مساحتك الخاصة. الحفظ وحده لا يستهلك رصيد OpenAI."
+              : "Saved in your private space. Storage alone does not use OpenAI credit."
         }
       />
+      {archived && <section className="knowledge-copy-banner" role="status">
+        <strong>{rtl ? "نسخة معرفية محفوظة" : "Saved knowledge copy"}</strong>
+        <span>{originalRemoved
+          ? (rtl ? "PDF الأصلي غير محفوظ. استخدم الخلاصة والصوت والأسئلة، أو أعد رفع الملف نفسه لاستعادة الأصل دون تكرار النتائج." : "The original PDF is not stored. Use the summary, audio and questions, or re-upload the same file to restore the original without duplicating results.")
+          : (rtl ? "النتائج محفوظة، ويجري استكمال ضغط الأصل بأمان." : "Results are saved while original-file compaction is being completed safely.")}</span>
+      </section>}
       <div className="mobile-book-tools" aria-label={rtl ? "اختصارات وظائف الكتاب" : "Book feature shortcuts"}>
         <button className="secondary" onClick={() => document.getElementById("ask-book-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{rtl ? "اسأل الكتاب" : "Ask"}</button>
         <button className="secondary" onClick={() => document.getElementById("professional-voice-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{rtl ? "اختيار الصوت" : "Choose voice"}</button>
       </div>
       {(busy || recoveryMessage) && <section className={`panel durable-task-banner ${busy ? "running" : "complete"}`} aria-live="polite">
-        <div className="task-train" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <div className="task-motion" aria-hidden="true"><span>↻</span><div className="task-train"><i></i><i></i><i></i><i></i><i></i></div></div>
         <div><strong>{busy
-          ? (rtl ? "المحتوى قيد التجهيز — المهمة محفوظة" : "Content is being prepared — task saved")
+          ? taskTitle
           : (rtl ? "تحديث حالة المهمة" : "Task status update")}</strong>
-          <p>{recoveryMessage || (rtl ? "يمكنك إبقاء الصفحة مفتوحة أو العودة لاحقًا. لا تضغط الزر مرة أخرى؛ سنعرض النتيجة المحفوظة عند اكتمالها." : "You may keep this page open or return later. Do not press again; the saved result will appear when complete.")}</p>
+          <p>{recoveryMessage || taskInstruction}</p>
+          {paidTaskProgress && <small className="paid-task-part-count">{rtl ? `تم حفظ ${paidTaskProgress.completed} من ${paidTaskProgress.total} أجزاء` : `${paidTaskProgress.completed} of ${paidTaskProgress.total} parts saved`}</small>}
+          {paidTaskProgress && <div className="paid-task-parts" aria-label={rtl ? "تقدم أجزاء الصوت" : "Audio part progress"}>
+            {Array.from({ length: paidTaskProgress.total }, (_, index) => <span className={index < paidTaskProgress.completed ? "done" : "pending"} key={index}>
+              {index < paidTaskProgress.completed ? "✓" : "…"} {rtl ? `الجزء ${index + 1}` : `Part ${index + 1}`}
+            </span>)}
+          </div>}
         </div>
       </section>}
       <section className="panel book-info-card">
@@ -2237,9 +2431,9 @@ function PilotWorkspace({
           <button className="primary catalog-edit-trigger" onClick={openCatalogEditor}>
             ✎ {rtl ? "تحرير بطاقة الفهرسة" : "Edit catalogue card"}
           </button>
-          <button className="secondary catalog-open-original" onClick={() => onOpenReader()}>
-            ↗ {rtl ? "فتح الكتاب الأصلي" : "Open original book"}
-          </button>
+          {originalRemoved
+            ? <button className="secondary catalog-open-original" disabled>↥ {rtl ? "الأصل مؤرشف — أعد رفعه من «أضف كتابًا»" : "Original archived — re-upload from Add a book"}</button>
+            : <button className="secondary catalog-open-original" onClick={() => onOpenReader()}>↗ {rtl ? "فتح الكتاب الأصلي" : "Open original book"}</button>}
         </div>}
         {catalogEditing && <form className="catalog-edit-form" onSubmit={saveCatalogEditor}>
           <p>{rtl ? "صحح البيانات الظاهرة في البحث وبطاقة الفهرسة. لا يتغير ملف PDF الأصلي." : "Correct the data used by search and the catalogue card. The original PDF is unchanged."}</p>
@@ -2279,17 +2473,25 @@ function PilotWorkspace({
         <div className="free-lane">
           <span>{rtl ? "مجاني" : "FREE"}</span>
           <h3>
-            {rtl
+            {originalRemoved
+              ? rtl
+                ? "الكتاب الأصلي مؤرشف"
+                : "The original book is archived"
+              : rtl
               ? "افتح الكتاب واستمع بصوت الجهاز"
               : "Read with your device voice"}
           </h3>
           <p>
-            {rtl
+            {originalRemoved
+              ? rtl
+                ? "النسخة المعرفية ونتائجها محفوظة. أعد رفع PDF نفسه إذا أردت القراءة الكاملة بصوت الجهاز."
+                : "The knowledge copy and its results are saved. Re-upload the same PDF for full reading with device voice."
+              : rtl
               ? "يقرأ النص الأصلي على جهازك بلا إرسال إلى OpenAI وبلا خصم من رصيدك."
               : "Reads the original text on your device. Nothing is sent to OpenAI and no API credit is used."}
           </p>
-          <button className="secondary" onClick={() => onOpenReader()}>
-            ◫ {rtl ? "فتح القارئ والصوت المجاني" : "Open free reader & voice"}
+          <button className="secondary" disabled={originalRemoved} onClick={() => onOpenReader()}>
+            {originalRemoved ? "↥" : "◫"} {originalRemoved ? (rtl ? "أعد رفع الأصل من «أضف كتابًا»" : "Re-upload original from Add a book") : (rtl ? "فتح القارئ والصوت المجاني" : "Open free reader & voice")}
           </button>
         </div>
         <div className="paid-lane">
@@ -2327,10 +2529,11 @@ function PilotWorkspace({
             : "A structural pass that runs only in your browser via PDF.js: page/word counts, detected language, candidate headings, top terms. This is not a summary, translation, or AI analysis."}
         </p>
         {!localAnalysis && !localBusy && (
-          <button className="secondary" onClick={runLocalAnalysis}>
+          <button className="secondary" disabled={originalRemoved} onClick={runLocalAnalysis}>
             ⌕ {rtl ? "شغّل التحليل المحلي المجاني" : "Run free local analysis"}
           </button>
         )}
+        {originalRemoved && !localAnalysis && <p className="disclosure-note">{rtl ? "التحليل المحلي يحتاج PDF الأصلي. النتائج المدفوعة المحفوظة أدناه لا تتأثر." : "Local analysis requires the original PDF. Saved paid results below are unaffected."}</p>}
         {localBusy && (
           <div className="local-progress">
             <Bar
@@ -2560,7 +2763,7 @@ function PilotWorkspace({
             </h3>
             <label className="select-label paid-language-select">
               {rtl ? "لغة النتيجة الحالية" : "Current result language"}
-              <select value={resultLanguage} onChange={(event) => setResultLanguage(event.target.value as "ar" | "en")}>
+              <select disabled={Boolean(busy)} value={resultLanguage} onChange={(event) => setResultLanguage(event.target.value as "ar" | "en")}>
                 <option value="ar">العربية</option>
                 <option value="en">English</option>
               </select>
@@ -2578,11 +2781,15 @@ function PilotWorkspace({
               !results && (
               <div className="paid-empty">
                 <p>
-                  {rtl
-                    ? "لم يُرسل الكتاب إلى OpenAI بعد، ولذلك لم يُخصم شيء للتحليل."
-                    : "This book has not been sent to OpenAI, so no analysis credit has been used."}
+                  {originalRemoved
+                    ? (rtl
+                      ? "هذه نسخة معرفية بلا تحليل محفوظ. أعد رفع ملف PDF نفسه أولًا؛ ستُستعاد البطاقة الحالية ولن يتكرر السجل أو تُعاد نتائج سابقة."
+                      : "This knowledge copy has no saved analysis. Re-upload the same PDF first; the existing card will be restored without duplicating its record or prior outputs.")
+                    : (rtl
+                      ? "لم يُرسل الكتاب إلى OpenAI بعد، ولذلك لم يُخصم شيء للتحليل."
+                      : "This book has not been sent to OpenAI, so no analysis credit has been used.")}
                 </p>
-                {confirming !== "process" ? (
+                {!originalRemoved && (confirming !== "process" ? (
                   <button
                     className="primary"
                     onClick={() => setConfirming("process")}
@@ -2608,7 +2815,7 @@ function PilotWorkspace({
                       onClick={process}
                     >
                       {busy === "process"
-                        ? "…"
+                        ? (rtl ? "جارٍ التحليل — انتظر" : "Analysing — please wait")
                         : rtl
                           ? "أوافق وابدأ التحليل"
                           : "Confirm and analyse"}
@@ -2620,7 +2827,7 @@ function PilotWorkspace({
                       {rtl ? "تراجع" : "Go back"}
                     </button>
                   </div>
-                )}
+                ))}
               </div>
               )
             )}
@@ -2678,7 +2885,7 @@ function PilotWorkspace({
                         onClick={ask}
                       >
                         {busy === "ask"
-                          ? "…"
+                          ? (rtl ? "جارٍ تجهيز الإجابة" : "Preparing answer")
                           : rtl
                             ? "تأكيد وإرسال"
                             : "Confirm & ask"}
@@ -2714,53 +2921,45 @@ function PilotWorkspace({
                       : "Listen to a short sample first. It has a tiny one-time generation cost, then replays at no cost."}
                   </p>
                   <div className="voice-choice-grid">
-                    {(["marin", "cedar"] as const).map((voice) => (
-                      <div className={`voice-choice ${professionalVoice === voice ? "selected" : ""}`} key={voice}>
-                        <button
-                          className="voice-select"
-                          aria-pressed={professionalVoice === voice}
-                          onClick={() => selectProfessionalVoice(voice)}
-                        >
-                          <span className="voice-radio" aria-hidden="true">{professionalVoice === voice ? "●" : "○"}</span>
-                          <strong>{voice === "marin" ? (rtl ? "صوت أنثوي — Marin" : "Female voice — Marin") : (rtl ? "صوت رجالي — Cedar" : "Male voice — Cedar")}</strong>
-                          <span>{rtl ? "هادئ، دافئ، وقراءة متزنة" : "Calm, warm, balanced narration"}</span>
-                          {professionalVoice === voice && <b className="voice-selected-label">{rtl ? "مختار لإنشاء الصوت الكامل" : "Selected for full audio"}</b>}
-                        </button>
-                        <button className="secondary voice-preview-button" disabled={Boolean(busy)} onClick={() => previewVoice(voice)}>
-                          {busy === `preview-${voice}` ? "…" : rtl ? "أنشئ/شغّل العينة" : "Create/play sample"}
-                        </button>
-                        {voicePreviewUrls[voice] && <audio controls preload="metadata" src={voicePreviewUrls[voice]} />}
-                      </div>
-                    ))}
+                    {PROFESSIONAL_VOICES.slice(0, 2).map(renderVoiceChoice)}
                   </div>
+                  <details className="more-voice-options">
+                    <summary>{rtl ? "عرض أربعة أصوات إضافية للاختبار" : "Show four more voices to test"}</summary>
+                    <div className="voice-choice-grid">{PROFESSIONAL_VOICES.slice(2).map(renderVoiceChoice)}</div>
+                  </details>
                   <p className="selected-voice-summary">
                     {rtl ? "الصوت المختار للشراء: " : "Voice selected for purchase: "}
-                    <strong>{professionalVoice === "marin" ? (rtl ? "الأنثوي — Marin" : "Female — Marin") : (rtl ? "الرجالي — Cedar" : "Male — Cedar")}</strong>
+                    <strong>{voiceLabel(professionalVoice, rtl)}</strong>
                   </p>
+                  <p className="audio-parts-disclosure">{rtl
+                    ? `سيُقسّم الملخص إلى ${expectedAudioParts || "عدة"} أجزاء صوتية قصيرة. سيظهر كل جزء بعلامة ✓ فور حفظه، ويمكن استكمال الناقص دون إعادة الأجزاء المحفوظة.`
+                    : `The summary will be split into ${expectedAudioParts || "several"} short audio parts. Each part gets a ✓ as soon as it is saved, and missing parts can resume without recreating saved ones.`}</p>
+                  {!audioUrls.length && !voicePreviewUrls[professionalVoice] && <p className="voice-quality-gate">{rtl ? "اختبر الصوت المختار واستمع إليه قبل تفعيل الشراء الكامل." : "Test and listen to the selected voice before enabling the full purchase."}</p>}
                   {confirming !== "audio" ? (
                     <button
                       className="secondary"
-                      disabled={!results}
+                      disabled={!results || (!audioUrls.length && !voicePreviewUrls[professionalVoice])}
                       onClick={() => setConfirming("audio")}
                     >
-                      {rtl ? "راجع التكلفة" : "Review cost"}
+                      {audioUrls.length > 0 ? (rtl ? "راجع استكمال الصوت الناقص" : "Review missing-audio resume") : (rtl ? "راجع التكلفة" : "Review cost")}
                     </button>
                   ) : (
                     <div className="cost-confirm">
                       <strong className="confirm-voice-name">
                         {rtl ? "سيُنشأ الصوت الكامل باستخدام: " : "Full audio will use: "}
-                        {professionalVoice === "marin" ? (rtl ? "الصوت الأنثوي — Marin" : "Female — Marin") : (rtl ? "الصوت الرجالي — Cedar" : "Male — Cedar")}
+                        {voiceLabel(professionalVoice, rtl)}
                       </strong>
+                      {audioUrls.length > 0 && <p>{rtl ? `يوجد ${audioUrls.length} جزء محفوظ. سيتحقق الخادم من العدد المطلوب وينشئ الأجزاء الناقصة فقط؛ لن يعيد شراء الأجزاء المحفوظة.` : `${audioUrls.length} part(s) are already saved. The server will verify the required total and create only missing parts; saved parts will not be purchased again.`}</p>}
                       <button
                         className="primary"
                         disabled={Boolean(busy)}
                         onClick={audio}
                       >
                         {busy === "audio"
-                          ? "…"
+                          ? (rtl ? "جارٍ إنشاء الصوت — انتظر" : "Generating audio — please wait")
                           : rtl
-                            ? "أوافق وأنشئ الصوت"
-                            : "Confirm & generate"}
+                            ? (audioUrls.length > 0 ? "أوافق واستكمل الناقص فقط" : "أوافق وأنشئ الصوت")
+                            : (audioUrls.length > 0 ? "Confirm and resume missing parts" : "Confirm & generate")}
                       </button>
                       <button
                         className="secondary"
