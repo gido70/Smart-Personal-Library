@@ -60,7 +60,7 @@ const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
     version: "حساب المكتبة الموحد — V0.10.4",
-    search: "ابحث في كتبك وأفكارك…",
+    search: "ابحث بالعنوان أو الموضوع أو التصنيف…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
       "مكتبتك لا تختصر الكتاب بدلًا عنك؛ بل تمنحك خريطته وتعيدك إلى المواضع التي تستحق القراءة.",
@@ -91,7 +91,7 @@ const text = {
   en: {
     name: "Smart Personal Library",
     version: "Unified library account — V0.10.4",
-    search: "Search your books and ideas…",
+    search: "Search by title, topic, or category…",
     hello: "Good morning, Abdel Rahman",
     intro:
       "Your library does not replace the book. It maps it, then leads you back to the passages worth reading.",
@@ -1059,7 +1059,7 @@ const STATUS_LABELS_EN: Record<PilotBook["status"], string> = {
 };
 
 const DEWEY_GATEWAYS = [
-  { id: "000", ar: "المعارف العامة", en: "Computer science & general works", branches: [["010", "الببليوغرافيا والمكتبات", "Bibliography & libraries"], ["020", "علم المكتبات والمعلومات", "Library & information science"], ["030", "الموسوعات والمعاجم العامة", "General encyclopedias"], ["070", "الإعلام والصحافة والنشر", "News media & publishing"]] },
+  { id: "000", ar: "المعارف العامة وعلوم الحاسوب", en: "Computer science & general works", branches: [["004", "علوم الحاسوب ومعالجة البيانات", "Computer science & data processing"], ["005.8", "أمن المعلومات والأمن السيبراني", "Information & cybersecurity"], ["006.3", "الذكاء الاصطناعي", "Artificial intelligence"], ["020", "علم المكتبات والمعلومات", "Library & information science"], ["070", "الإعلام والصحافة والنشر", "News media & publishing"]] },
   { id: "100", ar: "الفلسفة وعلم النفس", en: "Philosophy & psychology", branches: [["110", "ما وراء الطبيعة", "Metaphysics"], ["130", "الظواهر النفسية", "Parapsychology"], ["150", "علم النفس", "Psychology"], ["170", "الأخلاق", "Ethics"]] },
   { id: "200", ar: "الديانات", en: "Religion", branches: [["210", "فلسفة الدين", "Philosophy of religion"], ["220", "الكتب المقدسة", "Sacred texts"], ["230", "المسيحية", "Christianity"], ["290", "الديانات الأخرى والمقارنة", "Other & comparative religions"]] },
   { id: "300", ar: "العلوم الاجتماعية", en: "Social sciences", branches: [["310", "الإحصاء", "Statistics"], ["320", "العلوم السياسية", "Political science"], ["330", "الاقتصاد", "Economics"], ["340", "القانون", "Law"], ["370", "التعليم", "Education"]] },
@@ -1096,23 +1096,27 @@ function inferClassification(book: PilotBook): BookClassificationPatch {
   const haystack = `${book.title} ${String(book.metadata?.subject ?? "")}`.toLowerCase();
   if (/تاريخ|history|حضار|سيرة|جغراف|geograph|رحلات/.test(haystack)) return { deweyMain: "900", deweyBranch: /سيرة|biograph/.test(haystack) ? "920" : "910" };
   if (/إدار|قياد|management|leadership|business/.test(haystack)) return { deweyMain: "600", deweyBranch: "650", modernTopic: /تحول رقمي|digital transformation/.test(haystack) ? "digital-transformation" : undefined };
-  if (/ذكاء اصطناعي|\bai\b|artificial|claude|cyber|تقني|رقمي|برمج|technology|coming wave/.test(haystack)) return { deweyMain: "000", deweyBranch: "010", modernTopic: /cyber|أمن سيبراني/.test(haystack) ? "cybersecurity" : "artificial-intelligence" };
+  if (/cyber|أمن سيبراني|الأمن السيبراني|information security/.test(haystack)) return { deweyMain: "000", deweyBranch: "005.8", modernTopic: "cybersecurity" };
+  if (/ذكاء اصطناعي|\bai\b|artificial intelligence|claude|coming wave/.test(haystack)) return { deweyMain: "000", deweyBranch: "006.3", modernTopic: "artificial-intelligence" };
+  if (/research writing|كتابة بحث|منهجية البحث/.test(haystack)) return { deweyMain: "800", deweyBranch: "808" };
   if (/أدب|رواي|شعر|literature|novel|poetry/.test(haystack)) return { deweyMain: "800", deweyBranch: "890" };
   if (/لغ|language|linguistic/.test(haystack)) return { deweyMain: "400", deweyBranch: "410" };
   if (/صحة|طب|health|medicine/.test(haystack)) return { deweyMain: "600", deweyBranch: "610" };
   if (/علوم|رياض|فيزياء|كيمياء|science|math|physics|chemistry/.test(haystack)) return { deweyMain: "500", deweyBranch: "510" };
   if (/دين|relig/.test(haystack)) return { deweyMain: "200", deweyBranch: "290" };
   if (/فكر|فلسف|نفس|thought|philosoph|psycholog/.test(haystack)) return { deweyMain: "100", deweyBranch: "150" };
-  return { deweyMain: "000", deweyBranch: "010" };
+  return { deweyMain: "", deweyBranch: "" };
 }
 
 function gatewayLabel(id: string, rtl: boolean) {
+  if (!id) return rtl ? "غير مصنف" : "Unclassified";
   if (id === MODERN_GATEWAY.id) return rtl ? MODERN_GATEWAY.ar : MODERN_GATEWAY.en;
   const item = DEWEY_GATEWAYS.find((entry) => entry.id === id) ?? DEWEY_GATEWAYS[0];
   return `${item.id} · ${rtl ? item.ar : item.en}`;
 }
 
 function branchLabel(main: string, branch: string, rtl: boolean) {
+  if (!main || !branch) return rtl ? "لم يُحدد التفريع" : "No subdivision selected";
   const item = DEWEY_GATEWAYS.find((entry) => entry.id === main) ?? DEWEY_GATEWAYS[0];
   const selected = item.branches.find((entry) => entry[0] === branch) ?? item.branches[0];
   return `${selected[0]} · ${rtl ? selected[1] : selected[2]}`;
@@ -1121,6 +1125,27 @@ function branchLabel(main: string, branch: string, rtl: boolean) {
 function modernTopicLabel(topic: string, rtl: boolean) {
   const selected = MODERN_TOPICS.find((entry) => entry[0] === topic);
   return selected ? (rtl ? selected[1] : selected[2]) : "";
+}
+
+function classificationSearchText(book: PilotBook, rtl: boolean) {
+  const classification = inferClassification(book);
+  const gateway = DEWEY_GATEWAYS.find((entry) => entry.id === classification.deweyMain);
+  const branch = gateway?.branches.find((entry) => entry[0] === classification.deweyBranch);
+  const modern = MODERN_TOPICS.find((entry) => entry[0] === classification.modernTopic);
+  return [
+    book.title,
+    String(book.metadata?.subject ?? ""),
+    classification.deweyMain,
+    gateway?.ar,
+    gateway?.en,
+    classification.deweyBranch,
+    branch?.[1],
+    branch?.[2],
+    classification.modernTopic,
+    modern?.[1],
+    modern?.[2],
+    rtl ? "" : book.source_language,
+  ].filter(Boolean).join(" ").toLowerCase();
 }
 
 function OriginalPdfCover({ book }: { book: PilotBook }) {
@@ -1182,7 +1207,7 @@ function LiveBookCard({
   onOpen: () => void;
   onArchive?: () => void;
   onRestore?: () => void;
-  onClassificationChange?: (classification: BookClassificationPatch) => void;
+  onClassificationChange?: (classification: BookClassificationPatch) => Promise<boolean | void> | boolean | void;
 }) {
   const subtitle = languageLabel(book.source_language, rtl);
   const classification = inferClassification(book);
@@ -1194,7 +1219,21 @@ function LiveBookCard({
       : book.analysis_ready
         ? (rtl ? "✓ تم التحليل" : "✓ Analysis complete")
         : (rtl ? "بانتظار التحليل" : "Awaiting analysis");
-  const selectedGateway = DEWEY_GATEWAYS.find((item) => item.id === classification.deweyMain) ?? DEWEY_GATEWAYS[0];
+  const [editingClassification, setEditingClassification] = useState(false);
+  const [classificationBusy, setClassificationBusy] = useState(false);
+  const [draftClassification, setDraftClassification] = useState<BookClassificationPatch>(classification);
+  useEffect(() => setDraftClassification(classification), [book.id, book.metadata?.dewey_main, book.metadata?.dewey_branch, book.metadata?.modern_topic]);
+  const selectedGateway = DEWEY_GATEWAYS.find((item) => item.id === draftClassification.deweyMain) ?? DEWEY_GATEWAYS[0];
+  const saveClassification = async () => {
+    if (!onClassificationChange || !draftClassification.deweyMain || !draftClassification.deweyBranch) return;
+    setClassificationBusy(true);
+    try {
+      const saved = await onClassificationChange(draftClassification);
+      if (saved !== false) setEditingClassification(false);
+    } finally {
+      setClassificationBusy(false);
+    }
+  };
   return (
     <article className="book-card live-book-card">
       <button className="book-card-open" onClick={onOpen} aria-label={`${rtl ? "فتح" : "Open"} ${book.title}`}>
@@ -1205,21 +1244,26 @@ function LiveBookCard({
         <button className="book-title-button" onClick={onOpen}><h4>{book.title}</h4></button>
         <p>{subtitle}</p>
         <small>{status}</small>
-        {onClassificationChange ? <div className="book-classification-editor">
-          <select value={classification.deweyMain} onChange={(event) => {
+        {onClassificationChange && editingClassification ? <div className="book-classification-editor">
+          <select value={draftClassification.deweyMain} onChange={(event) => {
             const gateway = DEWEY_GATEWAYS.find((item) => item.id === event.target.value) ?? DEWEY_GATEWAYS[0];
-            onClassificationChange({ ...classification, deweyMain: gateway.id, deweyBranch: gateway.branches[0][0] });
+            setDraftClassification({ ...draftClassification, deweyMain: gateway.id, deweyBranch: gateway.branches[0][0] });
           }} aria-label={rtl ? "تصنيف ديوي الرئيسي" : "Main Dewey class"}>
+            <option value="" disabled>{rtl ? "اختر التصنيف الرئيسي" : "Choose main class"}</option>
             {DEWEY_GATEWAYS.map((item) => <option key={item.id} value={item.id}>{gatewayLabel(item.id, rtl)}</option>)}
           </select>
-          <select value={classification.deweyBranch} onChange={(event) => onClassificationChange({ ...classification, deweyBranch: event.target.value })} aria-label={rtl ? "تفريع ديوي" : "Dewey subdivision"}>
+          <select value={draftClassification.deweyBranch} disabled={!draftClassification.deweyMain} onChange={(event) => setDraftClassification({ ...draftClassification, deweyBranch: event.target.value })} aria-label={rtl ? "تفريع ديوي" : "Dewey subdivision"}>
             {selectedGateway.branches.map((branch) => <option key={branch[0]} value={branch[0]}>{branchLabel(selectedGateway.id, branch[0], rtl)}</option>)}
           </select>
-          <select value={classification.modernTopic ?? ""} onChange={(event) => onClassificationChange({ ...classification, modernTopic: event.target.value || undefined })} aria-label={rtl ? "موضوع حديث اختياري" : "Optional modern topic"}>
+          <select value={draftClassification.modernTopic ?? ""} onChange={(event) => setDraftClassification({ ...draftClassification, modernTopic: event.target.value || undefined })} aria-label={rtl ? "موضوع حديث اختياري" : "Optional modern topic"}>
             <option value="">{rtl ? "لا يوجد موضوع حديث إضافي" : "No additional modern topic"}</option>
             {MODERN_TOPICS.map((topic) => <option key={topic[0]} value={topic[0]}>{rtl ? topic[1] : topic[2]}</option>)}
           </select>
-        </div> : <div className="book-category-chips"><span className="book-category-chip">{gatewayLabel(classification.deweyMain, rtl)}</span>{classification.modernTopic && <span className="book-category-chip modern">{modernTopicLabel(classification.modernTopic, rtl)}</span>}</div>}
+          <div className="classification-editor-actions">
+            <button className="primary compact" disabled={classificationBusy || !draftClassification.deweyMain || !draftClassification.deweyBranch} onClick={saveClassification}>{classificationBusy ? "…" : rtl ? "حفظ التصنيف" : "Save category"}</button>
+            <button className="secondary compact" disabled={classificationBusy} onClick={() => { setDraftClassification(classification); setEditingClassification(false); }}>{rtl ? "تراجع" : "Cancel"}</button>
+          </div>
+        </div> : <button className="book-category-chips category-edit-trigger" onClick={() => { setDraftClassification(classification); setEditingClassification(true); }} aria-label={rtl ? "عرض أو تغيير تصنيف الكتاب" : "View or change book category"}><span className={`book-category-chip ${classification.deweyMain ? "" : "unclassified"}`}>{gatewayLabel(classification.deweyMain, rtl)}</span>{classification.deweyBranch && <span className="book-category-chip branch">{branchLabel(classification.deweyMain, classification.deweyBranch, rtl)}</span>}{classification.modernTopic && <span className="book-category-chip modern">{modernTopicLabel(classification.modernTopic, rtl)}</span>}<small>{rtl ? "اضغط للتغيير" : "Tap to change"}</small></button>}
         {onArchive && !archived && <button className="book-archive-button" onClick={onArchive}>▣ {rtl ? "نقل إلى الأرشيف" : "Move to archive"}</button>}
         {onRestore && archived && <button className="book-restore-button" onClick={onRestore}>↥ {rtl ? "إعادة إلى الكتب النشطة" : "Restore to active shelf"}</button>}
       </div>
@@ -1454,6 +1498,7 @@ function Library({
 }) {
   const [categoryFilter, setCategoryFilter] = useState<DeweyGatewayId | "modern" | "all">("all");
   const [branchFilter, setBranchFilter] = useState("all");
+  const [classificationFiltersOpen, setClassificationFiltersOpen] = useState(false);
   const [shelf, setShelf] = useState<"active" | "archive">("active");
   const [bookToArchive, setBookToArchive] = useState<PilotBook | null>(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
@@ -1465,7 +1510,7 @@ function Library({
   const filteredPilotBooks = pilotBooks.filter((book) => {
     if (shelf === "active" ? isBookArchived(book) : !isBookArchived(book)) return false;
     const classification = inferClassification(book);
-    const matchesQuery = !query || book.title.toLowerCase().includes(query);
+    const matchesQuery = !query || classificationSearchText(book, rtl).includes(query);
     const matchesCategory = categoryFilter === "all"
       || (categoryFilter === "modern" ? Boolean(classification.modernTopic) : classification.deweyMain === categoryFilter);
     const matchesBranch = branchFilter === "all"
@@ -1478,8 +1523,10 @@ function Library({
       await updateBookClassification(book, classification);
       onBooksChanged();
       setLibraryMessage(rtl ? "تم حفظ تصنيف الكتاب." : "Book category saved.");
+      return true;
     } catch (error) {
       setLibraryMessage(error instanceof Error ? error.message : rtl ? "تعذر حفظ التصنيف." : "Could not save category.");
+      return false;
     }
   };
   const confirmArchive = async () => {
@@ -1533,18 +1580,25 @@ function Library({
       )}
       {!booksLoading && !booksError && pilotBooks.length > 0 && <>
         <div className="library-shelf-tabs">
-          <button className={shelf === "active" ? "active" : ""} onClick={() => { setShelf("active"); setCategoryFilter("all"); setBranchFilter("all"); }}>{rtl ? `الكتب النشطة ${activeBooks.length}/${MAX_ACTIVE_BOOKS}` : `Active books ${activeBooks.length}/${MAX_ACTIVE_BOOKS}`}</button>
-          <button className={shelf === "archive" ? "active" : ""} onClick={() => { setShelf("archive"); setCategoryFilter("all"); setBranchFilter("all"); }}>{rtl ? `الأرشيف ${archivedBooks.length}` : `Archive ${archivedBooks.length}`}</button>
+          <button className={shelf === "active" ? "active" : ""} onClick={() => { setShelf("active"); setCategoryFilter("all"); setBranchFilter("all"); setClassificationFiltersOpen(false); }}>{rtl ? `الكتب النشطة ${activeBooks.length}/${MAX_ACTIVE_BOOKS}` : `Active books ${activeBooks.length}/${MAX_ACTIVE_BOOKS}`}</button>
+          <button className={shelf === "archive" ? "active" : ""} onClick={() => { setShelf("archive"); setCategoryFilter("all"); setBranchFilter("all"); setClassificationFiltersOpen(false); }}>{rtl ? `الأرشيف ${archivedBooks.length}` : `Archive ${archivedBooks.length}`}</button>
         </div>
-        <div className="category-filter dewey-gateways" role="group" aria-label={rtl ? "بوابات التصنيف الإحدى عشرة" : "Eleven classification gateways"}>
-          {DEWEY_GATEWAYS.map((gateway) => <button key={gateway.id} className={categoryFilter === gateway.id ? "active" : ""} onClick={() => { setCategoryFilter(gateway.id); setBranchFilter("all"); }}>{gatewayLabel(gateway.id, rtl)} <b>{shelfBooks.filter((book) => inferClassification(book).deweyMain === gateway.id).length}</b></button>)}
-          <button className={categoryFilter === "modern" ? "active modern" : "modern"} onClick={() => { setCategoryFilter("modern"); setBranchFilter("all"); }}>{gatewayLabel("modern", rtl)} <b>{shelfBooks.filter((book) => Boolean(inferClassification(book).modernTopic)).length}</b></button>
+        <div className="classification-filter-summary">
+          <button className="classification-filter-toggle" aria-expanded={classificationFiltersOpen} onClick={() => setClassificationFiltersOpen((open) => !open)}>⌄ {rtl ? "تصفية الكتب حسب التصنيف" : "Filter books by category"}</button>
+          {categoryFilter !== "all" && <span className="active-classification-filter">{categoryFilter === "modern" ? (branchFilter === "all" ? gatewayLabel("modern", rtl) : modernTopicLabel(branchFilter, rtl)) : (branchFilter === "all" ? gatewayLabel(categoryFilter, rtl) : branchLabel(categoryFilter, branchFilter, rtl))}<button aria-label={rtl ? "مسح فلتر التصنيف" : "Clear category filter"} onClick={() => { setCategoryFilter("all"); setBranchFilter("all"); }}>×</button></span>}
         </div>
-        {categoryFilter !== "all" && <div className="category-branches" role="group" aria-label={rtl ? "التفريعات" : "Subcategories"}>
-          <button className={branchFilter === "all" ? "active" : ""} onClick={() => setBranchFilter("all")}>{rtl ? "كل التفريعات" : "All subdivisions"}</button>
-          {categoryFilter === "modern"
-            ? MODERN_TOPICS.map((topic) => <button key={topic[0]} className={branchFilter === topic[0] ? "active" : ""} onClick={() => setBranchFilter(topic[0])}>{rtl ? topic[1] : topic[2]}</button>)
-            : (DEWEY_GATEWAYS.find((gateway) => gateway.id === categoryFilter)?.branches ?? []).map((branch) => <button key={branch[0]} className={branchFilter === branch[0] ? "active" : ""} onClick={() => setBranchFilter(branch[0])}>{branchLabel(categoryFilter, branch[0], rtl)}</button>)}
+        {classificationFiltersOpen && <div className="classification-filter-drawer">
+          <p>{rtl ? "تصنيف ديوي العشري — اختر بوابة رئيسية ثم تفريعًا عند الحاجة" : "Dewey Decimal Classification — choose a main class, then an optional subdivision"}</p>
+          <div className="category-filter dewey-gateways" role="group" aria-label={rtl ? "بوابات التصنيف الإحدى عشرة" : "Eleven classification gateways"}>
+            {DEWEY_GATEWAYS.map((gateway) => <button key={gateway.id} className={categoryFilter === gateway.id ? "active" : ""} onClick={() => { setCategoryFilter(gateway.id); setBranchFilter("all"); }}>{gatewayLabel(gateway.id, rtl)} <b>{shelfBooks.filter((book) => inferClassification(book).deweyMain === gateway.id).length}</b></button>)}
+            <button className={categoryFilter === "modern" ? "active modern" : "modern"} onClick={() => { setCategoryFilter("modern"); setBranchFilter("all"); }}>{gatewayLabel("modern", rtl)} <b>{shelfBooks.filter((book) => Boolean(inferClassification(book).modernTopic)).length}</b></button>
+          </div>
+          {categoryFilter !== "all" && <div className="category-branches" role="group" aria-label={rtl ? "التفريعات" : "Subcategories"}>
+            <button className={branchFilter === "all" ? "active" : ""} onClick={() => { setBranchFilter("all"); setClassificationFiltersOpen(false); }}>{rtl ? "عرض كل كتب هذا التصنيف" : "Show all books in this class"}</button>
+            {categoryFilter === "modern"
+              ? MODERN_TOPICS.map((topic) => <button key={topic[0]} className={branchFilter === topic[0] ? "active" : ""} onClick={() => { setBranchFilter(topic[0]); setClassificationFiltersOpen(false); }}>{rtl ? topic[1] : topic[2]}</button>)
+              : (DEWEY_GATEWAYS.find((gateway) => gateway.id === categoryFilter)?.branches ?? []).map((branch) => <button key={branch[0]} className={branchFilter === branch[0] ? "active" : ""} onClick={() => { setBranchFilter(branch[0]); setClassificationFiltersOpen(false); }}>{branchLabel(categoryFilter, branch[0], rtl)}</button>)}
+          </div>}
         </div>}
       </>}
       {libraryMessage && <p className="library-action-message">{libraryMessage}</p>}
