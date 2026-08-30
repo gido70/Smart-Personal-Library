@@ -22,9 +22,11 @@ check("new books are not blocked by the retired one-book pilot gate", !/PILOT_BO
 check("question spending has daily and total limits", /DAILY_QUESTION_LIMIT_REACHED/.test(edge) && /PILOT_QUESTION_LIMIT_REACHED/.test(edge));
 check("analysis and question output are capped server-side", /max_output_tokens: 12_000/.test(edge) && /max_output_tokens: 2_500/.test(edge));
 check("PDF token cost uses low detail", /type: "input_file"[\s\S]{0,100}detail: "low"/.test(edge));
-check("professional audio is reused instead of charged twice", /existingAudio\?\.length/.test(edge) && /reused: true/.test(edge));
+check("professional audio is reused instead of charged twice", /completedParts\.size >= totalParts/.test(edge) && /reused: true/.test(edge) && /if \(completedParts\.has\(partNo\)\) continue/.test(edge));
 check("professional audio reuse is isolated by voice", /eq\("voice", voice\)/.test(edge));
-check("only approved professional voices are accepted", /body\.voice === "cedar" \? "cedar" : "marin"/.test(edge));
+check("only approved professional voices are accepted", /PROFESSIONAL_VOICES = \["marin", "cedar", "coral", "onyx", "nova", "sage"\]/.test(edge) && /professionalVoice\(body\.voice\)/.test(edge));
+check("speech uses a pinned improved model and one-narrator instructions", /gpt-4o-mini-tts-2025-12-15/.test(edge) && /صوت راوٍ واحد ثابت/.test(edge) && /ممنوع تبديل الشخصية/.test(edge));
+check("new paid audio requires listening to the selected sample", /voice-quality-gate/.test(app) && /!voicePreviewUrls\[professionalVoice\]/.test(app));
 check("voice samples are short, cached, and never generated automatically", /action === "audio_preview"/.test(edge) && /voice-previews/.test(edge) && /onClick=\{\(\) => previewVoice\(voice\)\}/.test(app));
 check("every paid browser action has an explicit confirmation state", /confirming !== "process"/.test(app) && /confirming !== "ask"/.test(app) && /confirming !== "audio"/.test(app));
 check("paid actions send stable request identifiers", /requestId/.test(app) && /idempotency_key/.test(edge));
