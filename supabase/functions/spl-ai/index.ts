@@ -27,6 +27,13 @@ async function openAI(path: string, init: RequestInit) {
 }
 
 const TEXT_MODEL = () => Deno.env.get("OPENAI_TEXT_MODEL") ?? "gpt-5.6-terra";
+// Pin the improved decoder so every independently generated part uses the
+// same speech model instead of changing when the floating alias advances.
+const TTS_MODEL = "gpt-4o-mini-tts-2025-12-15";
+const PROFESSIONAL_VOICES = ["marin", "cedar", "coral", "onyx", "nova", "sage"] as const;
+type ProfessionalVoice = typeof PROFESSIONAL_VOICES[number];
+const professionalVoice = (value: unknown): ProfessionalVoice =>
+  PROFESSIONAL_VOICES.includes(value as ProfessionalVoice) ? value as ProfessionalVoice : "marin";
 const PILOT_QUESTION_LIMIT = 20;
 
 const bookAnalysisFormat = {
@@ -103,6 +110,7 @@ async function recordUsage(
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: cors });
   let requestReceipt: { client: ReturnType<typeof createClient>; id: string } | null = null;
+  let requestProgress: Record<string, unknown> | null = null;
   try {
     // Fail closed. The paid path stays unavailable unless the project owner
     // explicitly creates this server-side secret with the exact value "true".
@@ -139,16 +147,41 @@ Deno.serve(async (request) => {
     if (requestId && ["process", "ask", "audio", "audio_preview"].includes(action)) {
       const { data: previous, error: previousError } = await supabase
         .from("spl_ai_requests")
-        .select("id,status,http_status,result,error_code")
+        .select("id,status,http_status,result,error_code,updated_at")
         .eq("user_id", userData.user.id)
         .eq("idempotency_key", requestId)
         .maybeSingle();
       if (!previousError && previous) {
         if (previous.status === "succeeded") return json(previous.result ?? { ok: true, reused: true }, previous.http_status ?? 200);
-        if (previous.status === "failed") return json(previous.result ?? { error: previous.error_code ?? "PREVIOUS_REQUEST_FAILED" }, previous.http_status ?? 409);
-        return json({ ok: false, pending: true, requestId }, 202);
+        if (previous.status === "failed" && action === "audio") {
+          // Full audio is resumable: a failed operation may already have paid,
+          // safely stored parts. Atomically reclaim the same operation receipt
+          // and generate only the missing parts.
+          const { data: reclaimed } = await supabase.from("spl_ai_requests").update({
+            status: "processing",
+            http_status: null,
+            error_code: null,
+            completed_at: null,
+            updated_at: new Date().toISOString(),
+          }).eq("id", previous.id).eq("status", "failed").select("id").maybeSingle();
+          if (reclaimed) requestReceipt = { client: supabase, id: reclaimed.id };
+          else return json({ ok: false, pending: true, requestId }, 202);
+        } else if (previous.status === "failed") {
+          return json(previous.result ?? { error: previous.error_code ?? "PREVIOUS_REQUEST_FAILED" }, previous.http_status ?? 409);
+        }
+        if (requestReceipt) {
+          // Continue below using the reclaimed audio receipt.
+        } else {
+          const updatedAt = Date.parse(previous.updated_at ?? "");
+          const staleAudio = action === "audio" && Number.isFinite(updatedAt) && Date.now() - updatedAt > 8 * 60 * 1000;
+          if (staleAudio) {
+            const { data: reclaimed } = await supabase.from("spl_ai_requests").update({ updated_at: new Date().toISOString() }).eq("id", previous.id).eq("status", "processing").eq("updated_at", previous.updated_at).select("id").maybeSingle();
+            if (reclaimed) requestReceipt = { client: supabase, id: reclaimed.id };
+          }
+          if (!requestReceipt) return json({ ok: false, pending: true, requestId, ...(previous.result ?? {}) }, 202);
+        }
       }
-      if (!previousError) {
+      if (!previousError && !previous) {
         const { data: created, error: createError } = await supabase.from("spl_ai_requests").insert({
           user_id: userData.user.id,
           book_id: bookId,
@@ -259,56 +292,87 @@ Deno.serve(async (request) => {
 
     if (action === "audio_preview") {
       const language = body.language === "en" ? "en" : "ar";
-      const voice = body.voice === "cedar" ? "cedar" : "marin";
+      const voice = professionalVoice(body.voice);
       const sample = language === "ar"
         ? "في هذه المكتبة نقرأ بهدوء، ونمنح كل فكرة وقتها. هذا نموذج قصير لتختار الصوت الأقرب إليك قبل إنشاء الخلاصة الصوتية الكاملة."
         : "In this library, we read calmly and give every idea the time it deserves. This short sample helps you choose a voice before creating the full audio summary.";
-      const path = `${userData.user.id}/${bookId}/voice-previews/${language}-${voice}.mp3`;
+      const path = `${userData.user.id}/${bookId}/voice-previews/v2-${language}-${voice}.mp3`;
       const { data: cached } = await supabase.storage.from("spl-audio").download(path);
       if (cached) return await finish({ ok: true, reused: true, storage_path: path, voice, language });
       const instructions = language === "ar"
-        ? "اقرأ كراوٍ لكتاب صوتي: هادئ، دافئ، متزن، بسرعة أبطأ قليلًا، دون مبالغة مسرحية، مع وقفات طبيعية ونطق عربي فصيح واضح."
+        ? "اقرأ بصوت راوٍ واحد ثابت من البداية إلى النهاية. لا تبدّل الشخصية أو الجنس أو طبقة الصوت، ولا تقلّد حوارًا. استخدم عربية فصحى واضحة، ونبرة كتاب صوتي هادئة وحيوية باعتدال، مع وقفات طبيعية وسرعة مريحة."
         : "Read like a calm, warm audiobook narrator at a slightly slower pace, without theatrical exaggeration, using natural pauses and clear pronunciation.";
       const audioResponse = await openAI("audio/speech", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "gpt-4o-mini-tts", voice, input: sample, instructions, speed: 0.92, response_format: "mp3" }),
+        body: JSON.stringify({ model: TTS_MODEL, voice, input: sample, instructions, speed: 0.94, response_format: "mp3" }),
       });
       const { error: uploadError } = await supabase.storage.from("spl-audio").upload(path, await audioResponse.blob(), { contentType: "audio/mpeg", upsert: true });
       if (uploadError) throw uploadError;
-      await recordUsage(supabase, userData.user.id, bookId, "audio_preview", "gpt-4o-mini-tts", null, { language, voice, characters: sample.length });
-      return await finish({ ok: true, reused: false, storage_path: path, voice, language });
+      await recordUsage(supabase, userData.user.id, bookId, "audio_preview", TTS_MODEL, null, { language, voice, characters: sample.length });
+      return await finish({ ok: true, reused: false, storage_path: path, voice, language, model: TTS_MODEL });
     }
 
     if (action === "audio") {
       const language = body.language === "en" ? "en" : "ar";
-      const voice = body.voice === "cedar" ? "cedar" : "marin";
-      const { data: existingAudio } = await supabase.from("spl_audio_outputs").select("id,language,voice,storage_path,part_no,created_at").eq("book_id", bookId).eq("language", language).eq("voice", voice).order("part_no");
-      if (existingAudio?.length) return await finish({ ok: true, reused: true, audio: existingAudio, disclosure: language === "ar" ? "هذا الصوت مولد بالذكاء الاصطناعي." : "This voice is AI-generated." });
+      const voice = professionalVoice(body.voice);
       const { data: analysis } = await supabase.from("spl_analyses").select("id,content").eq("book_id", bookId).eq("kind", "overview").eq("language", language).maybeSingle();
       if (!analysis) return await finish({ error: "ANALYSIS_NOT_READY" }, 409);
       const spoken = String(analysis.content?.overview?.summary ?? analysis.content?.summary ?? "").slice(0, 24000);
       if (!spoken) return await finish({ error: "SUMMARY_EMPTY" }, 409);
       const instructions = language === "ar"
-        ? "اقرأ كراوٍ لكتاب صوتي: هادئ، دافئ، متزن، بسرعة أبطأ قليلًا، دون مبالغة مسرحية، مع وقفات طبيعية ونطق عربي فصيح واضح، ونطق الكلمات الإنجليزية داخل النص بإنجليزية طبيعية. هذه خلاصة كتاب وليست قراءة حرفية للكتاب."
+        ? "اقرأ بصوت راوٍ واحد ثابت في كل الأجزاء من البداية إلى النهاية. ممنوع تبديل الشخصية أو الجنس أو طبقة الصوت أو اللهجة، وممنوع تمثيل الاقتباسات أو الحوارات بأصوات أخرى. استخدم عربية فصحى واضحة، ونبرة كتاب صوتي هادئة وحيوية باعتدال، مع وقفات طبيعية وسرعة مريحة. انطق الكلمات الإنجليزية داخل النص بوضوح دون تغيير هوية الراوي. هذه خلاصة كتاب وليست قراءة حرفية للكتاب."
         : "Read like a calm, warm audiobook narrator at a slightly slower pace, without theatrical exaggeration, using natural pauses and clear English pronunciation. Pronounce any Arabic words carefully. This is a book summary, not a verbatim audiobook.";
       const sentences = spoken.split(/(?<=[.!؟?])\s+/u);const chunks:string[]=[];let current="";
       for(const sentence of sentences){if(current&&current.length+sentence.length>3400){chunks.push(current);current=""}current+=`${current?" ":""}${sentence}`}if(current)chunks.push(current);
-      const rows=[];
-      for(let index=0;index<Math.min(chunks.length,8);index++){
-        const audioResponse = await openAI("audio/speech", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model: "gpt-4o-mini-tts", voice, input: chunks[index], instructions, speed: 0.92, response_format: "mp3" }),
-        });
-        const path = `${userData.user.id}/${bookId}/${language}-${index+1}-${crypto.randomUUID()}.mp3`;
-        const { error: uploadError } = await supabase.storage.from("spl-audio").upload(path, await audioResponse.blob(), { contentType: "audio/mpeg" });
-        if (uploadError) throw uploadError;
-        const { data: row, error: rowError } = await supabase.from("spl_audio_outputs").insert({ user_id: userData.user.id, book_id: bookId, analysis_id: analysis.id, language, voice, part_no:index+1, storage_path: path }).select().single();
-        if (rowError) throw rowError;rows.push(row);
+      const totalParts = Math.min(chunks.length, 8);
+      const { data: existingAudio, error: existingAudioError } = await supabase.from("spl_audio_outputs").select("id,language,voice,storage_path,part_no,created_at").eq("book_id", bookId).eq("language", language).eq("voice", voice).order("part_no");
+      if (existingAudioError) throw existingAudioError;
+      const rows = (existingAudio ?? []).filter((row) => row.part_no >= 1 && row.part_no <= totalParts);
+      const completedParts = new Set(rows.map((row) => row.part_no));
+      requestProgress = { pending: completedParts.size < totalParts, completedParts: completedParts.size, totalParts, resumed: completedParts.size > 0, voice, model: TTS_MODEL };
+      if (requestReceipt) {
+        await requestReceipt.client.from("spl_ai_requests").update({ result: requestProgress, updated_at: new Date().toISOString() }).eq("id", requestReceipt.id);
       }
-      await recordUsage(supabase, userData.user.id, bookId, "audio", "gpt-4o-mini-tts", null, { language, voice, parts: rows.length, characters: spoken.length });
-      return await finish({ ok: true, audio: rows, disclosure: language === "ar" ? "هذا الصوت مولد بالذكاء الاصطناعي." : "This voice is AI-generated." });
+      if (completedParts.size >= totalParts) {
+        return await finish({ ok: true, reused: true, completedParts: totalParts, totalParts, audio: rows.sort((a,b) => a.part_no-b.part_no), disclosure: language === "ar" ? "هذا الصوت مولد بالذكاء الاصطناعي." : "This voice is AI-generated." });
+      }
+      let generatedParts = 0;
+      let generatedCharacters = 0;
+      for(let index=0;index<totalParts;index++){
+        const partNo = index + 1;
+        if (completedParts.has(partNo)) continue;
+        // Deterministic storage paths let a retry recover an uploaded part even
+        // if the database write was the step that failed.
+        const path = `${userData.user.id}/${bookId}/${language}-${voice}-part-${partNo}.mp3`;
+        const { data: storedPart } = await supabase.storage.from("spl-audio").download(path);
+        if (!storedPart) {
+          const audioResponse = await openAI("audio/speech", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ model: TTS_MODEL, voice, input: chunks[index], instructions, speed: 0.94, response_format: "mp3" }),
+          });
+          const { error: uploadError } = await supabase.storage.from("spl-audio").upload(path, await audioResponse.blob(), { contentType: "audio/mpeg", upsert: true });
+          if (uploadError) throw uploadError;
+          generatedParts += 1;
+          generatedCharacters += chunks[index].length;
+        }
+        const { data: row, error: rowError } = await supabase.from("spl_audio_outputs").insert({ user_id: userData.user.id, book_id: bookId, analysis_id: analysis.id, language, voice, part_no:partNo, storage_path: path }).select().single();
+        if (rowError) {
+          // Another resumed request may have persisted the same part while this
+          // request was running. Read it instead of generating it again.
+          const { data: recoveredRow } = await supabase.from("spl_audio_outputs").select("id,language,voice,storage_path,part_no,created_at").eq("book_id", bookId).eq("language", language).eq("voice", voice).eq("part_no", partNo).maybeSingle();
+          if (!recoveredRow) throw rowError;
+          rows.push(recoveredRow);
+        } else rows.push(row);
+        completedParts.add(partNo);
+        requestProgress = { pending: completedParts.size < totalParts, completedParts: completedParts.size, totalParts, resumed: true, voice, model: TTS_MODEL };
+        if (requestReceipt) {
+          await requestReceipt.client.from("spl_ai_requests").update({ result: requestProgress, updated_at: new Date().toISOString() }).eq("id", requestReceipt.id);
+        }
+      }
+      if (generatedParts > 0) await recordUsage(supabase, userData.user.id, bookId, "audio", TTS_MODEL, null, { language, voice, parts: generatedParts, characters: generatedCharacters, resumed: rows.length > generatedParts });
+      return await finish({ ok: true, reused: generatedParts === 0, completedParts: totalParts, totalParts, voice, model: TTS_MODEL, audio: rows.sort((a,b) => a.part_no-b.part_no), disclosure: language === "ar" ? "هذا الصوت مولد بالذكاء الاصطناعي." : "This voice is AI-generated." });
     }
 
     return await finish({ error: "UNKNOWN_ACTION" }, 400);
@@ -319,7 +383,7 @@ Deno.serve(async (request) => {
         status: "failed",
         http_status: 500,
         error_code: error instanceof Error ? error.message.slice(0, 240) : "UNKNOWN_ERROR",
-        result: { error: error instanceof Error ? error.message : "UNKNOWN_ERROR" },
+        result: { ...(requestProgress ?? {}), error: error instanceof Error ? error.message : "UNKNOWN_ERROR" },
         updated_at: new Date().toISOString(),
         completed_at: new Date().toISOString(),
       }).eq("id", requestReceipt.id);

@@ -49,3 +49,23 @@
 @media(max-width:900px){.reader-options .device-speech-settings{grid-column:1/-1}}
 @media(max-width:760px){.device-speech-controls{grid-template-columns:1fr 1fr}.device-speech-controls select:first-child,.device-speech-controls select:nth-child(2),.device-speech-controls button:last-child{grid-column:1/-1}}
 @media(max-width:380px){.device-speech-controls{grid-template-columns:1fr}.device-speech-controls select:first-child,.device-speech-controls select:nth-child(2),.device-speech-controls button:last-child{grid-column:1}}
+
+/* V1.8.3 — separate original books from saved knowledge copies. */
+.home-shelf-switch{margin-top:-4px}
+.home-shelf-explainer,.knowledge-shelf-note{margin:0 0 12px;padding:9px 11px;border-radius:10px;background:color-mix(in srgb,var(--gold) 9%,var(--card));color:var(--soft);font-size:11px;line-height:1.7}
+.empty-knowledge-shelf{grid-column:1/-1;margin:0}
+.book-status-badge.knowledge{background:rgba(70,91,142,.12);border-color:rgba(70,91,142,.25);color:#385380}
+.compact-knowledge-status{align-self:flex-start;margin-top:3px}
+.knowledge-copy-banner{display:flex;flex-direction:column;gap:4px;margin-bottom:16px;padding:13px 16px;border:1px solid color-mix(in srgb,#4a6092 45%,var(--line));border-radius:13px;background:color-mix(in srgb,#dce5ff 55%,var(--card));color:var(--ink)}
+.knowledge-copy-banner strong{color:#385380}
+.knowledge-copy-banner span{color:var(--soft);font-size:12px;line-height:1.75}
+.app.dark .book-status-badge.knowledge{color:#cbd8ff;background:#273858}
+.app.dark .knowledge-copy-banner{background:#273858}
+.app.dark .knowledge-copy-banner strong{color:#d6e0ff}
+.app.dark .knowledge-copy-banner span{color:#d9e1f5}
+
+/* Keep paid-operation feedback visible beside the user at every scroll point. */
+.durable-task-banner.running{position:fixed;z-index:95;inset-inline-end:24px;bottom:24px;width:min(520px,calc(100vw - 48px));margin:0;box-shadow:0 18px 55px rgba(18,63,51,.24)}
+.task-motion{display:grid;grid-template-columns:48px 1fr;align-items:center;gap:8px}.task-motion>span{width:44px;height:44px;border:4px solid color-mix(in srgb,var(--gold) 28%,transparent);border-top-color:var(--gold);border-radius:50%;display:grid;place-items:center;color:var(--green);font-size:24px;font-weight:900;animation:spl-task-spin .85s linear infinite}.durable-task-banner.complete .task-motion>span{animation:none;border-color:var(--green2);color:var(--green2)}.paid-task-part-count{display:inline-block;margin-top:7px;padding:4px 9px;border-radius:99px;background:color-mix(in srgb,var(--gold) 14%,var(--card));color:var(--green);font-weight:900}@keyframes spl-task-spin{to{transform:rotate(360deg)}}
+.paid-task-parts{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}.paid-task-parts span{padding:5px 9px;border:1px solid var(--line);border-radius:99px;background:var(--card);font-size:.84rem}.paid-task-parts .done{border-color:var(--green2);color:var(--green2);font-weight:800}.paid-task-parts .pending{color:var(--muted)}.audio-parts-disclosure,.voice-quality-gate{padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--gold) 9%,var(--card))}.voice-quality-gate{border-inline-start:4px solid var(--gold);font-weight:800}.more-voice-options{margin:10px 0}.more-voice-options>summary{cursor:pointer;color:var(--green);font-weight:800;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+@media(max-width:620px){.durable-task-banner.running{inset-inline:10px;bottom:78px;width:auto;padding:14px}.home-shelf-switch{grid-template-columns:1fr 1fr}}

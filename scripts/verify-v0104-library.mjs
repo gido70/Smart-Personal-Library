@@ -21,7 +21,9 @@ check("home shelf cards show only the book and final classification", /compact o
 check("mobile category shelves require three books or an explicit filter", /denseMobileShelves/.test(app) && /books\.length >= 3/.test(app) && /adaptiveMobileShelves/.test(app) && /كتب أخرى/.test(app));
 check("seventh-book entry is blocked before the upload modal", /const openUpload/.test(app) && /activeCount >= MAX_ACTIVE_BOOKS/.test(app) && /onUpload=\{openUpload\}/.test(app));
 check("archive explains preservation and requires confirmation", /ستتحرر فتحة من الستة/.test(app) && /نعم، انقل إلى الأرشيف/.test(app) && /الخلاصة والتحليل والصوت والأسئلة/.test(app));
-check("permanent deletion is isolated to the archive and explicitly confirmed", /onDelete=\{shelf === "archive"/.test(app) && /حذف نهائي لا يمكن التراجع عنه/.test(app) && /نعم، احذف نهائيًا/.test(app) && /deletePilotBook/.test(app));
+check("permanent deletion is isolated to archived records and explicitly confirmed", /onDelete=\{isBookArchived\(book\)/.test(app) && /حذف نهائي لا يمكن التراجع عنه/.test(app) && /نعم، احذف نهائيًا/.test(app) && /deletePilotBook/.test(app));
+check("original books and knowledge copies can be selected independently", /spl-preferred-library-shelf/.test(app) && /الكتب الأصلية/.test(app) && /النسخ المعرفية/.test(app) && /مكتبة النسخ المعرفية/.test(app));
+check("archived cards identify the saved knowledge-copy state", /نسخة معرفية محفوظة — الأصل مؤرشف/.test(app) && /book-status-badge knowledge/.test(app) && /original_removed/.test(app));
 check("eleven fixed classification gateways are defined", /DEWEY_GATEWAYS/.test(app) && /MODERN_GATEWAY/.test(app) && /بوابات التصنيف الإحدى عشرة/.test(app));
 check("classification supports Dewey plus modern topic on one book", /dewey_main/.test(library) && /dewey_branch/.test(library) && /modern_topic/.test(library));
 check("book classification editor stays collapsed until its category chip is pressed", /editingClassification/.test(app) && /category-edit-trigger/.test(app) && /حفظ التصنيف/.test(app));
@@ -43,8 +45,16 @@ check("notification bell and mobile destination are enabled", /🔔/.test(app) &
 check("service worker cache advances to V0.10.4", /smart-personal-library-v0\.10\.4/.test(worker));
 check("upload accepts 30 MB while preserving 500-page cap", /MAX_UPLOAD_BYTES = 30/.test(library) && /TOO_MANY_PAGES_500/.test(library) && /31457280/.test(requestMigration));
 check("daily limits and reset time are visible", /getAiLimitsSnapshot/.test(app) && /تتجدد الحدود اليومية/.test(app));
-check("interrupted paid task has visible moving progress", /durable-task-banner/.test(app) && /taskStorageKey/.test(app));
+check("interrupted paid task has persistent visible moving progress", /durable-task-banner/.test(app) && /taskStorageKey/.test(app) && /durable-task-banner\.running\{position:fixed/.test(styles) && /انتظر ولا تغلق الصفحة/.test(app));
+check("paid-task lock blocks repeat requests before React can rerender", /paidTaskLockRef/.test(app) && /الطلب مسجّل بالفعل/.test(app) && /if \(!requestId\) return/.test(app));
+check("paid-task lock is released after recovery completion or timeout", /localStorage\.removeItem\(taskStorageKey\);\s*paidTaskLockRef\.current = false;/.test(app));
 check("server-side idempotency receipt is additive and owner-scoped", /spl_ai_requests/.test(requestMigration) && /unique \(user_id, idempotency_key\)/.test(requestMigration) && /enable row level security/.test(requestMigration));
+check("partial audio resumes missing parts instead of treating one part as complete", !/if \(existingAudio\?\.length\) return/.test(edge) && /completedParts\.has\(partNo\)/.test(edge) && /completedParts: completedParts\.size/.test(edge));
+check("full audio uses a stable operation key and read-only receipt polling", /`audio-\$\{book\.id\}-\$\{resultLanguage\}-\$\{professionalVoice\}`/.test(app) && /getPaidTaskReceipt/.test(app) && /receipt\.status === "succeeded"/.test(app));
+check("paid work has an unmistakable animated activity indicator", /task-motion/.test(app) && /spl-task-spin/.test(styles) && /animation:spl-task-spin/.test(styles));
+check("audio progress names every saved and pending part", /paid-task-parts/.test(app) && /الجزء \$\{index \+ 1\}/.test(app) && /paid-task-parts \.done/.test(styles));
+check("voice selection survives refresh and stays locked to the running task", /setProfessionalVoice\(saved\.voice\)/.test(app) && /if \(busy\) return/.test(app) && /requestedVoice = professionalVoice/.test(app));
+check("six professional voices can be sampled before purchase", /PROFESSIONAL_VOICES/.test(app) && /"coral"/.test(app) && /"onyx"/.test(app) && /"nova"/.test(app) && /"sage"/.test(app));
 
 console.log(`\n${failed === 0 ? "ALL V0.10.4 LIBRARY CHECKS PASSED" : `${failed} V0.10.4 CHECK(S) FAILED`}`);
 if (failed) process.exit(1);
