@@ -20,7 +20,8 @@ check("six-book shelf is three-by-two on desktop and a compact swipe row on mobi
 check("home shelf cards show only the book and final classification", /compact onOpen/.test(app) && /compact-live-book-card/.test(app) && /compact \? <span className=\{`book-category-chip final/.test(app));
 check("mobile category shelves require three books or an explicit filter", /denseMobileShelves/.test(app) && /books\.length >= 3/.test(app) && /adaptiveMobileShelves/.test(app) && /كتب أخرى/.test(app));
 check("seventh-book entry is blocked before the upload modal", /const openUpload/.test(app) && /activeCount >= MAX_ACTIVE_BOOKS/.test(app) && /onUpload=\{openUpload\}/.test(app));
-check("archive preserves paid outputs", /الخلاصة والتحليل والصوت والأسئلة/.test(app) && !/نعم، احذف الكتاب/.test(app));
+check("archive explains preservation and requires confirmation", /ستتحرر فتحة من الستة/.test(app) && /نعم، انقل إلى الأرشيف/.test(app) && /الخلاصة والتحليل والصوت والأسئلة/.test(app));
+check("permanent deletion is isolated to the archive and explicitly confirmed", /onDelete=\{shelf === "archive"/.test(app) && /حذف نهائي لا يمكن التراجع عنه/.test(app) && /نعم، احذف نهائيًا/.test(app) && /deletePilotBook/.test(app));
 check("eleven fixed classification gateways are defined", /DEWEY_GATEWAYS/.test(app) && /MODERN_GATEWAY/.test(app) && /بوابات التصنيف الإحدى عشرة/.test(app));
 check("classification supports Dewey plus modern topic on one book", /dewey_main/.test(library) && /dewey_branch/.test(library) && /modern_topic/.test(library));
 check("book classification editor stays collapsed until its category chip is pressed", /editingClassification/.test(app) && /category-edit-trigger/.test(app) && /حفظ التصنيف/.test(app));
@@ -29,6 +30,7 @@ check("book cards show one final classification until editing", /finalClassifica
 check("mobile library uses horizontally swipeable category shelves", /mobileShelfLayout/.test(app) && /mobile-category-shelves/.test(app) && /mobile-shelf-track/.test(styles) && /scroll-snap-type:x mandatory/.test(styles));
 check("book page contains a bibliographic catalogue card", /بطاقة فهرسة الكتاب/.test(app) && /مكان النشر/.test(app) && /سنة النشر/.test(app) && /تصنيف ديوي/.test(app) && /ISBN/.test(app));
 check("catalogue card corrections can be saved without a schema change", /updateBookCatalogMetadata/.test(library) && /catalog_corrected_at/.test(library) && /تحرير بطاقة الفهرسة/.test(app) && /catalog-edit-form/.test(styles));
+check("catalogue card is compact by default and editor opens on demand", /catalog-card-layout/.test(styles) && /catalog-info-grid>div\{display:grid/.test(styles) && /catalog-card-actions/.test(app) && /!catalogEditing/.test(app));
 check("book readiness is explicit and visible on compact mobile cards", /جاهز للأرشفة/.test(app) && /بانتظار التحليل/.test(app) && /تعذر التحليل/.test(app) && /book-status-badge/.test(styles) && /mobile-shelf-track \.book-status-badge/.test(styles));
 check("device reader routes Arabic and English per speech chunk", /detectSpeechLanguage\(chunk/.test(reader) && /bestDeviceVoice/.test(reader) && /utterance\.lang = chunkLanguage/.test(reader));
 check("Samsung and mobile users can refresh and test installed voices", /SamsungBrowser/.test(reader) && /تحديث الأصوات/.test(reader) && /اختبار الصوت/.test(reader) && /refreshDeviceVoices/.test(reader));

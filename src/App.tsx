@@ -9,6 +9,7 @@ import {
   getPrivateAudioUrl,
   archivePilotBook,
   downloadBookFile,
+  deletePilotBook,
   groupDuplicateBooks,
   invokeBookAI,
   listPilotBooks,
@@ -1224,6 +1225,7 @@ function LiveBookCard({
   compact = false,
   onArchive,
   onRestore,
+  onDelete,
   onClassificationChange,
 }: {
   book: PilotBook;
@@ -1232,6 +1234,7 @@ function LiveBookCard({
   compact?: boolean;
   onArchive?: () => void;
   onRestore?: () => void;
+  onDelete?: () => void;
   onClassificationChange?: (classification: BookClassificationPatch) => Promise<boolean | void> | boolean | void;
 }) {
   const subtitle = languageLabel(book.source_language, rtl);
@@ -1292,6 +1295,7 @@ function LiveBookCard({
         </div> : <button className="book-category-chips category-edit-trigger" onClick={() => { setDraftClassification(classification); setEditingClassification(true); }} aria-label={rtl ? "عرض أو تغيير تصنيف الكتاب" : "View or change book category"}><span className={`book-category-chip final ${classification.deweyMain ? "" : "unclassified"}`}>{finalClassificationLabel(classification, rtl)}</span><small>{rtl ? "تغيير التصنيف" : "Change category"}</small></button>}
         {!compact && onArchive && !archived && <button className="book-archive-button" onClick={onArchive}>▣ {rtl ? "نقل إلى الأرشيف" : "Move to archive"}</button>}
         {!compact && onRestore && archived && <button className="book-restore-button" onClick={onRestore}>↥ {rtl ? "إعادة إلى الكتب النشطة" : "Restore to active shelf"}</button>}
+        {!compact && onDelete && archived && <button className="book-permanent-delete-button" onClick={onDelete}>⌫ {rtl ? "حذف نهائي" : "Delete permanently"}</button>}
       </div>
     </article>
   );
@@ -1530,6 +1534,8 @@ function Library({
   const [shelf, setShelf] = useState<"active" | "archive">("active");
   const [bookToArchive, setBookToArchive] = useState<PilotBook | null>(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
+  const [bookToDelete, setBookToDelete] = useState<PilotBook | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [libraryMessage, setLibraryMessage] = useState("");
   const [mobileShelfLayout, setMobileShelfLayout] = useState(() => window.matchMedia("(max-width: 760px)").matches);
   useEffect(() => {
@@ -1615,6 +1621,23 @@ function Library({
         : raw === "ARCHIVED_ORIGINAL_REUPLOAD_REQUIRED"
           ? (rtl ? "PDF الأصلي غير محفوظ في الأرشيف لتوفير المساحة. أعد رفع الملف نفسه من زر «أضف كتابًا»؛ ستعود هذه البطاقة بلا خصم أو تكرار." : "The original PDF is not kept in the archive. Re-upload the same file through Add a book; this record will return without a duplicate or charge.")
         : raw || (rtl ? "تعذرت استعادة الكتاب." : "Could not restore the book."));
+    }
+  };
+  const confirmPermanentDelete = async () => {
+    if (!bookToDelete) return;
+    setDeleteBusy(true);
+    setLibraryMessage("");
+    try {
+      const result = await deletePilotBook(bookToDelete);
+      setBookToDelete(null);
+      onBooksChanged();
+      setLibraryMessage(result.cleanupWarning
+        ? (rtl ? "حُذف سجل الكتاب نهائيًا، وتعذر تنظيف بعض الملفات التابعة تلقائيًا." : "The book record was permanently deleted, but some generated files could not be cleaned up automatically.")
+        : (rtl ? "حُذف الكتاب وجميع نتائجه نهائيًا." : "The book and all its results were permanently deleted."));
+    } catch (error) {
+      setLibraryMessage(error instanceof Error ? error.message : rtl ? "تعذر حذف الكتاب نهائيًا." : "Could not permanently delete the book.");
+    } finally {
+      setDeleteBusy(false);
     }
   };
   return (
@@ -1703,6 +1726,7 @@ function Library({
                   onOpen={() => onOpenPilot(book)}
                   onArchive={shelf === "active" ? () => setBookToArchive(book) : undefined}
                   onRestore={shelf === "archive" ? () => restoreBook(book) : undefined}
+                  onDelete={shelf === "archive" ? () => setBookToDelete(book) : undefined}
                   onClassificationChange={(classification) => changeClassification(book, classification)}
                 />)}
               </div>
@@ -1715,6 +1739,7 @@ function Library({
               onOpen={() => onOpenPilot(book)}
               onArchive={shelf === "active" ? () => setBookToArchive(book) : undefined}
               onRestore={shelf === "archive" ? () => restoreBook(book) : undefined}
+              onDelete={shelf === "archive" ? () => setBookToDelete(book) : undefined}
               onClassificationChange={(classification) => changeClassification(book, classification)}
             />)}
           </div>}
@@ -1734,6 +1759,21 @@ function Library({
             <div>
               <button className="primary" disabled={archiveBusy} onClick={confirmArchive}>{archiveBusy ? (rtl ? "جارٍ النقل…" : "Archiving…") : (rtl ? "نعم، انقل إلى الأرشيف" : "Yes, archive book")}</button>
               <button className="secondary" disabled={archiveBusy} onClick={() => setBookToArchive(null)}>{rtl ? "إلغاء" : "Cancel"}</button>
+            </div>
+          </section>
+        </div>
+      )}
+      {bookToDelete && (
+        <div className="confirm-delete-backdrop" role="presentation" onMouseDown={() => !deleteBusy && setBookToDelete(null)}>
+          <section className="confirm-delete-dialog permanent-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-book-title" onMouseDown={(event) => event.stopPropagation()}>
+            <span className="delete-dialog-icon">⌫</span>
+            <h3 id="delete-book-title">{rtl ? "حذف نهائي لا يمكن التراجع عنه" : "Permanent deletion cannot be undone"}</h3>
+            <p>{rtl
+              ? `سيُحذف «${bookToDelete.title}» نهائيًا مع بطاقة الفهرسة والغلاف والخلاصة والتحليل والصوت والأسئلة. استخدم هذا الخيار فقط إذا لم تعد تريد الاحتفاظ بأي نتيجة.`
+              : `“${bookToDelete.title}” will be permanently deleted with its catalogue card, cover, summaries, analysis, audio and questions. Use this only when you no longer want to keep any result.`}</p>
+            <div>
+              <button className="danger" disabled={deleteBusy} onClick={confirmPermanentDelete}>{deleteBusy ? (rtl ? "جارٍ الحذف…" : "Deleting…") : (rtl ? "نعم، احذف نهائيًا" : "Yes, delete permanently")}</button>
+              <button className="secondary" disabled={deleteBusy} onClick={() => setBookToDelete(null)}>{rtl ? "إلغاء والاحتفاظ بالكتاب" : "Cancel and keep book"}</button>
             </div>
           </section>
         </div>
@@ -2193,9 +2233,14 @@ function PilotWorkspace({
             {catalogRows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
           </dl>
         </div>
-        {!catalogEditing && <button className="secondary catalog-edit-trigger" onClick={openCatalogEditor}>
-          ✎ {rtl ? "تحرير بطاقة الفهرسة" : "Edit catalogue card"}
-        </button>}
+        {!catalogEditing && <div className="catalog-card-actions">
+          <button className="primary catalog-edit-trigger" onClick={openCatalogEditor}>
+            ✎ {rtl ? "تحرير بطاقة الفهرسة" : "Edit catalogue card"}
+          </button>
+          <button className="secondary catalog-open-original" onClick={() => onOpenReader()}>
+            ↗ {rtl ? "فتح الكتاب الأصلي" : "Open original book"}
+          </button>
+        </div>}
         {catalogEditing && <form className="catalog-edit-form" onSubmit={saveCatalogEditor}>
           <p>{rtl ? "صحح البيانات الظاهرة في البحث وبطاقة الفهرسة. لا يتغير ملف PDF الأصلي." : "Correct the data used by search and the catalogue card. The original PDF is unchanged."}</p>
           <div className="catalog-edit-fields">
