@@ -391,17 +391,18 @@ export async function archivePilotBook(book: PilotBook): Promise<PilotBook> {
       const { error: coverError } = await supabase!.storage.from("spl-books").upload(coverPath, coverBlob, { contentType: "image/jpeg", upsert: true });
       if (coverError) throw coverError;
     } catch (coverError) {
-      // Archiving must remain possible even when an unusual PDF cannot render
-      // a thumbnail; the title-based cover is the safe visual fallback.
-      console.warn("SPL: archive cover fallback", coverError);
-      coverPath = "";
+      // Never archive/delete the original unless its real first-page cover was
+      // successfully retained. A generated title card is not a preservation
+      // substitute and would make recovery impossible after PDF compaction.
+      console.error("SPL: archive cover preservation failed", coverError);
+      throw new Error("ARCHIVE_COVER_PRESERVATION_FAILED");
     }
   }
   const metadata = {
     ...(book.metadata ?? {}),
     archived_at: new Date().toISOString(),
     archive_reason: "active_shelf_limit",
-    archive_cover_path: coverPath || null,
+    archive_cover_path: coverPath,
     original_compaction_pending: true,
   };
   const { data, error } = await supabase!

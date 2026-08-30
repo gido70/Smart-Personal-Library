@@ -204,6 +204,7 @@ export default function Home() {
   const [booksLoading, setBooksLoading] = useState(true);
   const [booksError, setBooksError] = useState("");
   const [booksLoadToken, setBooksLoadToken] = useState(0);
+  const libraryRefreshTimerRef = useRef<number | null>(null);
   const [browserCacheReady, setBrowserCacheReady] = useState(false);
   const [activePilotBook, setActivePilotBook] = useState<PilotBook | null>(
     null,
@@ -287,11 +288,9 @@ export default function Home() {
     }
     let cancelled = false;
     setBooksLoading(true);
-    // Never leave a restored/bfcached tab showing a library snapshot that may
-    // have been deleted or changed in another tab. Hide the old snapshot while
-    // Supabase is being read again.
-    setPilotBooks([]);
-    setLibraryStats({ analysedBooks: 0, questions: 0, audioParts: 0 });
+    // Keep the last confirmed shelf visible while Supabase is revalidated.
+    // Clearing it here made every focus/visibility refresh look as though the
+    // user's books had disappeared, especially on slower mobile connections.
     setBooksError("");
     listPilotBooks()
       .then(async (books) => {
@@ -325,7 +324,16 @@ export default function Home() {
       .catch(() => setReminderCount(0));
   }, [authState, booksLoadToken, view]);
   useEffect(() => {
-    const refreshFromSupabase = () => setBooksLoadToken((n) => n + 1);
+    const refreshFromSupabase = () => {
+      // focus, pageshow and visibilitychange commonly fire together on mobile.
+      // Coalesce that burst into one read so older requests cannot make the
+      // knowledge shelf flicker between empty and populated states.
+      if (libraryRefreshTimerRef.current !== null) window.clearTimeout(libraryRefreshTimerRef.current);
+      libraryRefreshTimerRef.current = window.setTimeout(() => {
+        libraryRefreshTimerRef.current = null;
+        setBooksLoadToken((n) => n + 1);
+      }, 250);
+    };
     const refreshWhenVisible = () => {
       if (document.visibilityState === "visible") refreshFromSupabase();
     };
@@ -336,6 +344,7 @@ export default function Home() {
     window.addEventListener("focus", refreshFromSupabase);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
+      if (libraryRefreshTimerRef.current !== null) window.clearTimeout(libraryRefreshTimerRef.current);
       window.removeEventListener("pageshow", refreshFromSupabase);
       window.removeEventListener("focus", refreshFromSupabase);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
@@ -603,6 +612,7 @@ export default function Home() {
             book={activePilotBook}
             onBack={() => setView("library")}
             onOpenReader={(page) => openReaderFor(activePilotBook, page)}
+            onReuploadOriginal={openUpload}
             onBookPatched={patchPilotBook}
           />
         )}
@@ -1850,12 +1860,14 @@ function PilotWorkspace({
   book,
   onBack,
   onOpenReader,
+  onReuploadOriginal,
   onBookPatched,
 }: {
   rtl: boolean;
   book: PilotBook;
   onBack: () => void;
   onOpenReader: (page?: number) => void;
+  onReuploadOriginal: () => void;
   onBookPatched: (bookId: string, patch: Partial<PilotBook>) => void;
 }) {
   const [loading, setLoading] = useState(true);
@@ -2432,7 +2444,7 @@ function PilotWorkspace({
             ✎ {rtl ? "تحرير بطاقة الفهرسة" : "Edit catalogue card"}
           </button>
           {originalRemoved
-            ? <button className="secondary catalog-open-original" disabled>↥ {rtl ? "الأصل مؤرشف — أعد رفعه من «أضف كتابًا»" : "Original archived — re-upload from Add a book"}</button>
+            ? <button className="secondary catalog-open-original" onClick={onReuploadOriginal}>↥ {rtl ? "الأصل مؤرشف — أعد رفعه الآن" : "Original archived — re-upload now"}</button>
             : <button className="secondary catalog-open-original" onClick={() => onOpenReader()}>↗ {rtl ? "فتح الكتاب الأصلي" : "Open original book"}</button>}
         </div>}
         {catalogEditing && <form className="catalog-edit-form" onSubmit={saveCatalogEditor}>
@@ -2490,7 +2502,7 @@ function PilotWorkspace({
               ? "يقرأ النص الأصلي على جهازك بلا إرسال إلى OpenAI وبلا خصم من رصيدك."
               : "Reads the original text on your device. Nothing is sent to OpenAI and no API credit is used."}
           </p>
-          <button className="secondary" disabled={originalRemoved} onClick={() => onOpenReader()}>
+          <button className="secondary" onClick={originalRemoved ? onReuploadOriginal : () => onOpenReader()}>
             {originalRemoved ? "↥" : "◫"} {originalRemoved ? (rtl ? "أعد رفع الأصل من «أضف كتابًا»" : "Re-upload original from Add a book") : (rtl ? "فتح القارئ والصوت المجاني" : "Open free reader & voice")}
           </button>
         </div>
