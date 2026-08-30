@@ -16,7 +16,9 @@ function check(name, condition) {
 
 check("retired one-book paid gate is absent", !/PILOT_BOOK_LIMIT/.test(edge) && !/PAID_PILOT_BOOK_LIMIT_REACHED/.test(edge));
 check("six active books use safe archive instead of permanent deletion", /MAX_ACTIVE_BOOKS = 6/.test(library) && /archivePilotBook/.test(library) && /نقل الكتاب إلى الأرشيف/.test(app));
-check("six-book shelf is three-by-two on desktop and one-column on mobile", /active-book-grid\{grid-template-columns:repeat\(3/.test(styles) && /max-width:760px\)\{\.active-book-grid,\.live-book-grid\{grid-template-columns:1fr/.test(styles));
+check("six-book shelf is three-by-two on desktop and a compact swipe row on mobile", /active-book-grid\{grid-template-columns:repeat\(3/.test(styles) && /active-book-grid\{display:flex/.test(styles) && /scroll-snap-type:x mandatory/.test(styles));
+check("home shelf cards show only the book and final classification", /compact onOpen/.test(app) && /compact-live-book-card/.test(app) && /compact \? <span className=\{`book-category-chip final/.test(app));
+check("mobile category shelves require three books or an explicit filter", /denseMobileShelves/.test(app) && /books\.length >= 3/.test(app) && /adaptiveMobileShelves/.test(app) && /كتب أخرى/.test(app));
 check("seventh-book entry is blocked before the upload modal", /const openUpload/.test(app) && /activeCount >= MAX_ACTIVE_BOOKS/.test(app) && /onUpload=\{openUpload\}/.test(app));
 check("archive preserves paid outputs", /الخلاصة والتحليل والصوت والأسئلة/.test(app) && !/نعم، احذف الكتاب/.test(app));
 check("eleven fixed classification gateways are defined", /DEWEY_GATEWAYS/.test(app) && /MODERN_GATEWAY/.test(app) && /بوابات التصنيف الإحدى عشرة/.test(app));
