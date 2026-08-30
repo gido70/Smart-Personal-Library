@@ -3,10 +3,11 @@ import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import Reader, { type SavedBookRef } from "./Reader";
 import {
   getBookResults,
+  getAiLimitsSnapshot,
   getLibraryStats,
   getLegalConsentStatus,
   getPrivateAudioUrl,
-  deletePilotBook,
+  archivePilotBook,
   downloadBookFile,
   groupDuplicateBooks,
   invokeBookAI,
@@ -16,7 +17,12 @@ import {
   saveLegalConsent,
   saveManualImport,
   uploadPilotBook,
-  updateBookCategory,
+  updateBookClassification,
+  restoreArchivedBook,
+  isBookArchived,
+  MAX_ACTIVE_BOOKS,
+  type AiLimitsSnapshot,
+  type BookClassificationPatch,
   type DuplicateGroup,
   type AiUsageEvent,
   type OutputLanguage,
@@ -54,7 +60,7 @@ const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
     version: "حساب المكتبة الموحد — V0.10.4",
-    search: "ابحث في كتبك وأفكارك…",
+    search: "ابحث بالعنوان أو الموضوع أو التصنيف…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
       "مكتبتك لا تختصر الكتاب بدلًا عنك؛ بل تمنحك خريطته وتعيدك إلى المواضع التي تستحق القراءة.",
@@ -85,7 +91,7 @@ const text = {
   en: {
     name: "Smart Personal Library",
     version: "Unified library account — V0.10.4",
-    search: "Search your books and ideas…",
+    search: "Search by title, topic, or category…",
     hello: "Good morning, Abdel Rahman",
     intro:
       "Your library does not replace the book. It maps it, then leads you back to the passages worth reading.",
@@ -125,6 +131,7 @@ const navigation = {
     ["progress", "التقدم والتنبيهات", "🔔"],
     ["librarian", "أمين المكتبة", "✦"],
     ["feedback", "سجل التجربة", "✎"],
+    ["guide", "دليل الاستخدام", "؟"],
   ],
   en: [
     ["home", "Home", "⌂"],
@@ -134,6 +141,7 @@ const navigation = {
     ["progress", "Progress & alerts", "🔔"],
     ["librarian", "Library assistant", "✦"],
     ["feedback", "Research journal", "✎"],
+    ["guide", "User guide", "?"],
   ],
 } as const;
 
@@ -393,8 +401,10 @@ export default function Home() {
       setRights2(false);
     } catch (error) {
       const raw = error instanceof Error ? error.message : "Unknown error";
-      const friendly = raw === "FILE_TOO_LARGE_20MB"
-        ? (rtl ? "الحد الأقصى 20 ميجابايت لهذه التجربة." : "The acceptance pilot limit is 20 MB.")
+      const friendly = raw === "FILE_TOO_LARGE_30MB"
+        ? (rtl ? "الحد الأقصى 30 ميجابايت. أوقفنا الرفع قبل حفظ الملف أو تشغيل أي خدمة مدفوعة." : "The limit is 30 MB. Upload stopped before saving or starting any paid service.")
+        : raw === "ACTIVE_BOOK_LIMIT_REACHED"
+          ? (rtl ? "لديك ستة كتب نشطة. انقل كتابًا إلى الأرشيف أولًا؛ لن يُرفع الملف ولن يُخصم شيء." : "You already have six active books. Archive one first; nothing was uploaded or charged.")
         : raw === "TOO_MANY_PAGES_500"
           ? (rtl ? "الحد الأقصى 500 صفحة في نسخة القبول الحالية." : "The current acceptance build supports up to 500 pages.")
         : raw === "PDF_ONLY"
@@ -408,9 +418,23 @@ export default function Home() {
       setTimeout(() => setNotice(""), 7000);
     }
   };
+  const openUpload = () => {
+    const activeCount = pilotBooks.filter((book) => !isBookArchived(book)).length;
+    if (activeCount >= MAX_ACTIVE_BOOKS) {
+      setView("library");
+      setNotice(
+        rtl
+          ? "اكتمل رفك النشط بستة كتب. انقل كتابًا إلى الأرشيف أولًا لإضافة كتاب جديد؛ لن يُرفع شيء ولن يُخصم شيء."
+          : "Your active shelf is full with six books. Archive one before adding another; nothing will be uploaded or charged.",
+      );
+      setTimeout(() => setNotice(""), 7000);
+      return;
+    }
+    setUpload(true);
+  };
   const go = (id: string) => {
     if (id === "upload") {
-      setUpload(true);
+      openUpload();
     } else if (id === "reader") {
       openReaderStandalone();
     } else {
@@ -515,7 +539,7 @@ export default function Home() {
           <Dashboard
             rtl={rtl}
             t={t}
-            onUpload={() => setUpload(true)}
+            onUpload={openUpload}
             setView={setView}
             onOpenReader={openReaderStandalone}
             pilotBooks={pilotBooks}
@@ -527,7 +551,7 @@ export default function Home() {
           <Library
             rtl={rtl}
             title={pageTitle}
-            onUpload={() => setUpload(true)}
+            onUpload={openUpload}
             pilotBooks={pilotBooks}
             booksLoading={booksLoading}
             booksError={booksError}
@@ -562,10 +586,10 @@ export default function Home() {
             }}
           />
         )}
-        {view === "progress" && <Progress rtl={rtl} title={pageTitle} books={pilotBooks} />}
+        {view === "progress" && <Progress rtl={rtl} title={pageTitle} books={pilotBooks.filter((book) => !isBookArchived(book))} />}
         {view === "librarian" && <Librarian rtl={rtl} title={pageTitle} />}
         {view === "feedback" && <Feedback rtl={rtl} t={t} />}
-        {view === "guide" && <UserGuide rtl={rtl} onUpload={() => setUpload(true)} onLibrary={() => setView("library")} onActivate={activateLatestVersion} activating={activating} />}
+        {view === "guide" && <UserGuide rtl={rtl} onUpload={openUpload} onLibrary={() => setView("library")} onActivate={activateLatestVersion} activating={activating} />}
       </main>
       <nav className="mobile-nav">
         {navigation[lang].slice(0, 5).map(([id, label, icon]) => (
@@ -720,7 +744,8 @@ function Dashboard({
   libraryStats: LibraryStats;
   onOpenPilot: (book: PilotBook) => void;
 }) {
-  const current = pilotBooks[0];
+  const activePilotBooks = pilotBooks.filter((book) => !isBookArchived(book)).slice(0, MAX_ACTIVE_BOOKS);
+  const current = activePilotBooks[0];
   return (
     <div className="page">
       <section className="welcome">
@@ -833,17 +858,19 @@ function Dashboard({
           action={t.all}
           onAction={() => setView("library")}
         />
-        <div className="book-grid">
-          {pilotBooks.length > 0
-            ? pilotBooks.map((book) => (
+        <div className="book-grid active-book-grid">
+          {activePilotBooks.length > 0
+            ? activePilotBooks.map((book) => (
               <LiveBookCard key={book.id} book={book} rtl={rtl} onOpen={() => onOpenPilot(book)} />
             ))
             : <SampleShelf rtl={rtl} compact />}
-          <button className="add-book-card" onClick={onUpload}>
-            <i>＋</i>
-            <strong>{rtl ? "أضف كتابًا جديدًا" : "Add a new book"}</strong>
-                <span>PDF</span>
-          </button>
+          {activePilotBooks.length > 0 && activePilotBooks.length < MAX_ACTIVE_BOOKS && (
+            <button className="add-book-card" onClick={onUpload}>
+              <i>＋</i>
+              <strong>{rtl ? "أضف كتابًا جديدًا" : "Add a new book"}</strong>
+              <span>{rtl ? `${activePilotBooks.length}/6 كتب نشطة` : `${activePilotBooks.length}/6 active books`}</span>
+            </button>
+          )}
         </div>
       </section>
       <section className="journey">
@@ -1031,48 +1058,112 @@ const STATUS_LABELS_EN: Record<PilotBook["status"], string> = {
   failed: "Failed",
 };
 
-const BOOK_CATEGORIES = [
-  ["general", "عام", "General"],
-  ["history", "التاريخ", "History"],
-  ["geography", "الجغرافيا", "Geography"],
-  ["management", "الإدارة والقيادة", "Management & leadership"],
-  ["technology", "الذكاء الاصطناعي والتقنية", "AI & technology"],
-  ["literature", "الأدب واللغة", "Literature & language"],
-  ["science", "العلوم والصحة", "Science & health"],
-  ["thought", "الدين والفكر", "Religion & thought"],
+const DEWEY_GATEWAYS = [
+  { id: "000", ar: "المعارف العامة وعلوم الحاسوب", en: "Computer science & general works", branches: [["004", "علوم الحاسوب ومعالجة البيانات", "Computer science & data processing"], ["005.8", "أمن المعلومات والأمن السيبراني", "Information & cybersecurity"], ["006.3", "الذكاء الاصطناعي", "Artificial intelligence"], ["020", "علم المكتبات والمعلومات", "Library & information science"], ["070", "الإعلام والصحافة والنشر", "News media & publishing"]] },
+  { id: "100", ar: "الفلسفة وعلم النفس", en: "Philosophy & psychology", branches: [["110", "ما وراء الطبيعة", "Metaphysics"], ["130", "الظواهر النفسية", "Parapsychology"], ["150", "علم النفس", "Psychology"], ["170", "الأخلاق", "Ethics"]] },
+  { id: "200", ar: "الديانات", en: "Religion", branches: [["210", "فلسفة الدين", "Philosophy of religion"], ["220", "الكتب المقدسة", "Sacred texts"], ["230", "المسيحية", "Christianity"], ["290", "الديانات الأخرى والمقارنة", "Other & comparative religions"]] },
+  { id: "300", ar: "العلوم الاجتماعية", en: "Social sciences", branches: [["310", "الإحصاء", "Statistics"], ["320", "العلوم السياسية", "Political science"], ["330", "الاقتصاد", "Economics"], ["340", "القانون", "Law"], ["370", "التعليم", "Education"]] },
+  { id: "400", ar: "اللغات", en: "Language", branches: [["410", "اللسانيات", "Linguistics"], ["420", "اللغة الإنجليزية", "English"], ["490", "اللغات الأخرى والعربية", "Other languages & Arabic"], ["401", "فلسفة اللغة", "Philosophy of language"]] },
+  { id: "500", ar: "العلوم الطبيعية والرياضيات", en: "Science & mathematics", branches: [["510", "الرياضيات", "Mathematics"], ["520", "الفلك", "Astronomy"], ["530", "الفيزياء", "Physics"], ["540", "الكيمياء", "Chemistry"], ["570", "علوم الحياة", "Life sciences"]] },
+  { id: "600", ar: "التقنية والعلوم التطبيقية", en: "Technology", branches: [["610", "الطب والصحة", "Medicine & health"], ["620", "الهندسة", "Engineering"], ["630", "الزراعة", "Agriculture"], ["650", "الإدارة والأعمال", "Management & business"], ["660", "الهندسة الكيميائية", "Chemical engineering"]] },
+  { id: "700", ar: "الفنون والترفيه", en: "Arts & recreation", branches: [["710", "التخطيط والعمارة الطبيعية", "Civic & landscape art"], ["720", "العمارة", "Architecture"], ["740", "الرسم والتصميم", "Drawing & design"], ["780", "الموسيقى", "Music"], ["790", "الترفيه والرياضة", "Recreation & sport"]] },
+  { id: "800", ar: "الآداب", en: "Literature", branches: [["810", "الأدب الأمريكي", "American literature"], ["820", "الأدب الإنجليزي", "English literature"], ["890", "الآداب الأخرى والعربية", "Other literatures & Arabic"], ["808", "الكتابة والبلاغة", "Writing & rhetoric"]] },
+  { id: "900", ar: "التاريخ والجغرافيا", en: "History & geography", branches: [["910", "الجغرافيا والرحلات", "Geography & travel"], ["920", "السير والأنساب", "Biography & genealogy"], ["930", "التاريخ القديم", "Ancient history"], ["950", "تاريخ آسيا", "History of Asia"], ["960", "تاريخ أفريقيا", "History of Africa"]] },
 ] as const;
-type BookCategoryId = (typeof BOOK_CATEGORIES)[number][0];
+const MODERN_GATEWAY = { id: "modern", ar: "الموضوعات الحديثة والناشئة", en: "Modern & emerging topics" } as const;
+const MODERN_TOPICS = [
+  ["artificial-intelligence", "الذكاء الاصطناعي", "Artificial intelligence"],
+  ["cybersecurity", "الأمن السيبراني", "Cybersecurity"],
+  ["data-science", "علوم البيانات", "Data science"],
+  ["digital-transformation", "التحول الرقمي", "Digital transformation"],
+  ["cloud-computing", "الحوسبة السحابية", "Cloud computing"],
+  ["blockchain-fintech", "البلوك تشين والتقنية المالية", "Blockchain & fintech"],
+  ["sustainability", "الاستدامة والتقنيات الخضراء", "Sustainability & green tech"],
+  ["biotechnology", "التقنية الحيوية", "Biotechnology"],
+  ["innovation", "الابتكار وريادة الأعمال", "Innovation & entrepreneurship"],
+  ["future-studies", "دراسات المستقبل", "Future studies"],
+] as const;
+type DeweyGatewayId = (typeof DEWEY_GATEWAYS)[number]["id"];
 
-function categoryOptions(rtl: boolean) {
-  return BOOK_CATEGORIES.map(([id, ar, en]) => ({ id, label: rtl ? ar : en }));
-}
-
-function categoryIdForBook(book: PilotBook): BookCategoryId {
-  const saved = String(book.metadata?.category ?? "");
-  if (BOOK_CATEGORIES.some(([id]) => id === saved)) return saved as BookCategoryId;
+function inferClassification(book: PilotBook): BookClassificationPatch {
+  const savedMain = String(book.metadata?.dewey_main ?? "");
+  const knownMain = DEWEY_GATEWAYS.some((item) => item.id === savedMain);
+  if (knownMain) return {
+    deweyMain: savedMain,
+    deweyBranch: String(book.metadata?.dewey_branch ?? DEWEY_GATEWAYS.find((item) => item.id === savedMain)!.branches[0][0]),
+    modernTopic: String(book.metadata?.modern_topic ?? ""),
+  };
   const haystack = `${book.title} ${String(book.metadata?.subject ?? "")}`.toLowerCase();
-  if (/تاريخ|history|حضار|سيرة/.test(haystack)) return "history";
-  if (/جغراف|geograph|دول|بلدان|خرائط/.test(haystack)) return "geography";
-  if (/إدار|قياد|management|leadership|تحول رقمي/.test(haystack)) return "management";
-  if (/ذكاء اصطناعي|تقني|رقمي|برمج|ai\b|artificial|technology|claude|coming wave/.test(haystack)) return "technology";
-  if (/أدب|رواي|شعر|لغ|literature|novel|poetry|language/.test(haystack)) return "literature";
-  if (/علوم|صحة|طب|science|health|medicine/.test(haystack)) return "science";
-  if (/دين|فكر|فلسف|relig|thought|philosoph/.test(haystack)) return "thought";
-  return "general";
+  if (/تاريخ|history|حضار|سيرة|جغراف|geograph|رحلات/.test(haystack)) return { deweyMain: "900", deweyBranch: /سيرة|biograph/.test(haystack) ? "920" : "910" };
+  if (/إدار|قياد|management|leadership|business/.test(haystack)) return { deweyMain: "600", deweyBranch: "650", modernTopic: /تحول رقمي|digital transformation/.test(haystack) ? "digital-transformation" : undefined };
+  if (/cyber|أمن سيبراني|الأمن السيبراني|information security/.test(haystack)) return { deweyMain: "000", deweyBranch: "005.8", modernTopic: "cybersecurity" };
+  if (/ذكاء اصطناعي|\bai\b|artificial intelligence|claude|coming wave/.test(haystack)) return { deweyMain: "000", deweyBranch: "006.3", modernTopic: "artificial-intelligence" };
+  if (/research writing|كتابة بحث|منهجية البحث/.test(haystack)) return { deweyMain: "800", deweyBranch: "808" };
+  if (/أدب|رواي|شعر|literature|novel|poetry/.test(haystack)) return { deweyMain: "800", deweyBranch: "890" };
+  if (/لغ|language|linguistic/.test(haystack)) return { deweyMain: "400", deweyBranch: "410" };
+  if (/صحة|طب|health|medicine/.test(haystack)) return { deweyMain: "600", deweyBranch: "610" };
+  if (/علوم|رياض|فيزياء|كيمياء|science|math|physics|chemistry/.test(haystack)) return { deweyMain: "500", deweyBranch: "510" };
+  if (/دين|relig/.test(haystack)) return { deweyMain: "200", deweyBranch: "290" };
+  if (/فكر|فلسف|نفس|thought|philosoph|psycholog/.test(haystack)) return { deweyMain: "100", deweyBranch: "150" };
+  return { deweyMain: "", deweyBranch: "" };
 }
 
-function categoryLabel(category: BookCategoryId, rtl: boolean) {
-  const item = BOOK_CATEGORIES.find(([id]) => id === category) ?? BOOK_CATEGORIES[0];
-  return rtl ? item[1] : item[2];
+function gatewayLabel(id: string, rtl: boolean) {
+  if (!id) return rtl ? "غير مصنف" : "Unclassified";
+  if (id === MODERN_GATEWAY.id) return rtl ? MODERN_GATEWAY.ar : MODERN_GATEWAY.en;
+  const item = DEWEY_GATEWAYS.find((entry) => entry.id === id) ?? DEWEY_GATEWAYS[0];
+  return `${item.id} · ${rtl ? item.ar : item.en}`;
+}
+
+function branchLabel(main: string, branch: string, rtl: boolean) {
+  if (!main || !branch) return rtl ? "لم يُحدد التفريع" : "No subdivision selected";
+  const item = DEWEY_GATEWAYS.find((entry) => entry.id === main) ?? DEWEY_GATEWAYS[0];
+  const selected = item.branches.find((entry) => entry[0] === branch) ?? item.branches[0];
+  return `${selected[0]} · ${rtl ? selected[1] : selected[2]}`;
+}
+
+function modernTopicLabel(topic: string, rtl: boolean) {
+  const selected = MODERN_TOPICS.find((entry) => entry[0] === topic);
+  return selected ? (rtl ? selected[1] : selected[2]) : "";
+}
+
+function classificationSearchText(book: PilotBook, rtl: boolean) {
+  const classification = inferClassification(book);
+  const gateway = DEWEY_GATEWAYS.find((entry) => entry.id === classification.deweyMain);
+  const branch = gateway?.branches.find((entry) => entry[0] === classification.deweyBranch);
+  const modern = MODERN_TOPICS.find((entry) => entry[0] === classification.modernTopic);
+  return [
+    book.title,
+    classification.deweyMain,
+    gateway?.ar,
+    gateway?.en,
+    classification.deweyBranch,
+    branch?.[1],
+    branch?.[2],
+    classification.modernTopic,
+    modern?.[1],
+    modern?.[2],
+    rtl ? "" : book.source_language,
+  ].filter(Boolean).join(" ").toLowerCase();
 }
 
 function OriginalPdfCover({ book }: { book: PilotBook }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [failed, setFailed] = useState(false);
+  const [archivedCoverUrl, setArchivedCoverUrl] = useState("");
   useEffect(() => {
     let cancelled = false;
+    let objectUrl = "";
     setFailed(false);
+    setArchivedCoverUrl("");
     const render = async () => {
+      const archivedCoverPath = String(book.metadata?.archive_cover_path ?? "");
+      if (archivedCoverPath) {
+        const coverBlob = await downloadBookFile(archivedCoverPath);
+        objectUrl = URL.createObjectURL(coverBlob);
+        if (!cancelled) setArchivedCoverUrl(objectUrl);
+        return;
+      }
       // Download through the authenticated Storage client instead of asking
       // PDF.js to range-fetch a short-lived signed URL. Samsung Internet and
       // some Android WebViews can reject those cross-origin range requests and
@@ -1094,9 +1185,10 @@ function OriginalPdfCover({ book }: { book: PilotBook }) {
       canvas.dataset.ready = "true";
     };
     render().catch(() => !cancelled && setFailed(true));
-    return () => { cancelled = true; };
-  }, [book.id, book.storage_path]);
+    return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [book.id, book.storage_path, book.metadata?.archive_cover_path]);
   if (failed) return <BookCover tone={coverToneFor(book.title)} title={book.title.split(" ").slice(0, 3).join(" ")} />;
+  if (archivedCoverUrl) return <div className="book-cover original-pdf-cover"><img src={archivedCoverUrl} alt={book.title} /></div>;
   return <div className="book-cover original-pdf-cover"><canvas ref={canvasRef} aria-label={book.title} /></div>;
 }
 
@@ -1105,18 +1197,42 @@ function LiveBookCard({
   book,
   rtl,
   onOpen,
-  onDelete,
-  onCategoryChange,
+  onArchive,
+  onRestore,
+  onClassificationChange,
 }: {
   book: PilotBook;
   rtl: boolean;
   onOpen: () => void;
-  onDelete?: () => void;
-  onCategoryChange?: (category: string) => void;
+  onArchive?: () => void;
+  onRestore?: () => void;
+  onClassificationChange?: (classification: BookClassificationPatch) => Promise<boolean | void> | boolean | void;
 }) {
   const subtitle = languageLabel(book.source_language, rtl);
-  const status = rtl ? STATUS_LABELS_AR[book.status] : STATUS_LABELS_EN[book.status];
-  const category = categoryIdForBook(book);
+  const classification = inferClassification(book);
+  const archived = isBookArchived(book);
+  const status = book.status === "processing"
+    ? (rtl ? "جارٍ التحليل — يمكنك مغادرة الصفحة" : "Analysis running — you may leave this page")
+    : book.status === "failed"
+      ? (rtl ? "تعذر التحليل — لم يُخصم طلب جديد" : "Analysis failed — no new request was charged")
+      : book.analysis_ready
+        ? (rtl ? "✓ تم التحليل" : "✓ Analysis complete")
+        : (rtl ? "بانتظار التحليل" : "Awaiting analysis");
+  const [editingClassification, setEditingClassification] = useState(false);
+  const [classificationBusy, setClassificationBusy] = useState(false);
+  const [draftClassification, setDraftClassification] = useState<BookClassificationPatch>(classification);
+  useEffect(() => setDraftClassification(classification), [book.id, book.metadata?.dewey_main, book.metadata?.dewey_branch, book.metadata?.modern_topic]);
+  const selectedGateway = DEWEY_GATEWAYS.find((item) => item.id === draftClassification.deweyMain) ?? DEWEY_GATEWAYS[0];
+  const saveClassification = async () => {
+    if (!onClassificationChange || !draftClassification.deweyMain || !draftClassification.deweyBranch) return;
+    setClassificationBusy(true);
+    try {
+      const saved = await onClassificationChange(draftClassification);
+      if (saved !== false) setEditingClassification(false);
+    } finally {
+      setClassificationBusy(false);
+    }
+  };
   return (
     <article className="book-card live-book-card">
       <button className="book-card-open" onClick={onOpen} aria-label={`${rtl ? "فتح" : "Open"} ${book.title}`}>
@@ -1127,27 +1243,40 @@ function LiveBookCard({
         <button className="book-title-button" onClick={onOpen}><h4>{book.title}</h4></button>
         <p>{subtitle}</p>
         <small>{status}</small>
-        {onCategoryChange ? (
-          <select
-            className="book-category-select"
-            value={category}
-            onChange={(event) => onCategoryChange(event.target.value)}
-            aria-label={rtl ? "تصنيف الكتاب" : "Book category"}
-          >
-            {categoryOptions(rtl).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+        {onClassificationChange && editingClassification ? <div className="book-classification-editor">
+          <select value={draftClassification.deweyMain} onChange={(event) => {
+            const gateway = DEWEY_GATEWAYS.find((item) => item.id === event.target.value) ?? DEWEY_GATEWAYS[0];
+            setDraftClassification({ ...draftClassification, deweyMain: gateway.id, deweyBranch: gateway.branches[0][0] });
+          }} aria-label={rtl ? "تصنيف ديوي الرئيسي" : "Main Dewey class"}>
+            <option value="" disabled>{rtl ? "اختر التصنيف الرئيسي" : "Choose main class"}</option>
+            {DEWEY_GATEWAYS.map((item) => <option key={item.id} value={item.id}>{gatewayLabel(item.id, rtl)}</option>)}
           </select>
-        ) : <span className="book-category-chip">{categoryLabel(category, rtl)}</span>}
-        {onDelete && <button className="book-delete-button" onClick={onDelete}>⌫ {rtl ? "حذف" : "Delete"}</button>}
+          <select value={draftClassification.deweyBranch} disabled={!draftClassification.deweyMain} onChange={(event) => setDraftClassification({ ...draftClassification, deweyBranch: event.target.value })} aria-label={rtl ? "تفريع ديوي" : "Dewey subdivision"}>
+            {selectedGateway.branches.map((branch) => <option key={branch[0]} value={branch[0]}>{branchLabel(selectedGateway.id, branch[0], rtl)}</option>)}
+          </select>
+          <select value={draftClassification.modernTopic ?? ""} onChange={(event) => setDraftClassification({ ...draftClassification, modernTopic: event.target.value || undefined })} aria-label={rtl ? "موضوع حديث اختياري" : "Optional modern topic"}>
+            <option value="">{rtl ? "لا يوجد موضوع حديث إضافي" : "No additional modern topic"}</option>
+            {MODERN_TOPICS.map((topic) => <option key={topic[0]} value={topic[0]}>{rtl ? topic[1] : topic[2]}</option>)}
+          </select>
+          <div className="classification-editor-actions">
+            <button className="primary compact" disabled={classificationBusy || !draftClassification.deweyMain || !draftClassification.deweyBranch} onClick={saveClassification}>{classificationBusy ? "…" : rtl ? "حفظ التصنيف" : "Save category"}</button>
+            <button className="secondary compact" disabled={classificationBusy} onClick={() => { setDraftClassification(classification); setEditingClassification(false); }}>{rtl ? "تراجع" : "Cancel"}</button>
+          </div>
+        </div> : <button className="book-category-chips category-edit-trigger" onClick={() => { setDraftClassification(classification); setEditingClassification(true); }} aria-label={rtl ? "عرض أو تغيير تصنيف الكتاب" : "View or change book category"}><span className={`book-category-chip ${classification.deweyMain ? "" : "unclassified"}`}>{gatewayLabel(classification.deweyMain, rtl)}</span>{classification.deweyBranch && <span className="book-category-chip branch">{branchLabel(classification.deweyMain, classification.deweyBranch, rtl)}</span>}{classification.modernTopic && <span className="book-category-chip modern">{modernTopicLabel(classification.modernTopic, rtl)}</span>}<small>{rtl ? "اضغط للتغيير" : "Tap to change"}</small></button>}
+        {onArchive && !archived && <button className="book-archive-button" onClick={onArchive}>▣ {rtl ? "نقل إلى الأرشيف" : "Move to archive"}</button>}
+        {onRestore && archived && <button className="book-restore-button" onClick={onRestore}>↥ {rtl ? "إعادة إلى الكتب النشطة" : "Restore to active shelf"}</button>}
       </div>
     </article>
   );
 }
 
 const SAMPLE_BOOKS = [
-  { title: "The Coming Wave", category: "technology", tone: "navy" },
-  { title: "التحول الرقمي في الإدارة والقيادة الحديثة", category: "management", tone: "emerald" },
-  { title: "The Instant AI Agency", category: "technology", tone: "emerald" },
-  { title: "100 خطوة لإتقان Claude", category: "technology", tone: "gold" },
+  { title: "The Coming Wave", dewey: "000", modern: "artificial-intelligence", tone: "navy" },
+  { title: "التحول الرقمي في الإدارة والقيادة الحديثة", dewey: "600", modern: "digital-transformation", tone: "emerald" },
+  { title: "The Instant AI Agency", dewey: "000", modern: "artificial-intelligence", tone: "emerald" },
+  { title: "100 خطوة لإتقان Claude", dewey: "000", modern: "artificial-intelligence", tone: "gold" },
+  { title: "رحلة في تاريخ العلوم", dewey: "900", modern: "", tone: "navy" },
+  { title: "مدخل إلى علم النفس", dewey: "100", modern: "", tone: "gold" },
 ] as const;
 
 function SampleShelf({ rtl, compact = false }: { rtl: boolean; compact?: boolean }) {
@@ -1163,7 +1292,7 @@ function SampleShelf({ rtl, compact = false }: { rtl: boolean; compact?: boolean
             <div>
               <span className="sample-badge">{rtl ? "نموذج" : "Sample"}</span>
               <h4>{sample.title}</h4>
-              <span className="book-category-chip">{categoryLabel(sample.category, rtl)}</span>
+              <span className="book-category-chip">{gatewayLabel(sample.dewey, rtl)}</span>
               <small>{rtl ? "خلاصة • أفكار • فصول • صوت • أسئلة" : "Summary • ideas • chapters • audio • questions"}</small>
             </div>
           </article>
@@ -1191,10 +1320,10 @@ function DuplicateReviewPanel({
     setBusyId(book.id);
     setError("");
     try {
-      await deletePilotBook(book);
+      await archivePilotBook(book);
       onBooksChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : rtl ? "تعذر حذف السجل." : "Could not delete this record.");
+      setError(e instanceof Error ? e.message : rtl ? "تعذرت أرشفة السجل." : "Could not archive this record.");
     } finally {
       setBusyId("");
       setConfirmingId("");
@@ -1205,7 +1334,7 @@ function DuplicateReviewPanel({
     setBusyId(group.key);
     setError("");
     try {
-      for (const duplicate of ordered.slice(1)) await deletePilotBook(duplicate);
+      for (const duplicate of ordered.slice(1)) await archivePilotBook(duplicate);
       onBooksChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : rtl ? "تعذر تنظيف المجموعة." : "Could not clean this group.");
@@ -1217,11 +1346,11 @@ function DuplicateReviewPanel({
   return (
     <section className="panel duplicate-review">
       <span className="eyebrow">{rtl ? "مراجعة السجلات المكررة" : "Duplicate review"}</span>
-      <h3>{rtl ? "لم يُحذف أي كتاب تلقائيًا — راجع ثم احذف يدويًا" : "Nothing was deleted automatically — review, then delete manually"}</h3>
+      <h3>{rtl ? "لا حذف نهائي — راجع النسخ ثم انقل الزائد إلى الأرشيف" : "No permanent deletion — review copies, then archive extras"}</h3>
       <p className="disclosure-note">
         {rtl
-          ? "المجموعات المؤكدة تتطابق بمحتوى الملف نفسه (بصمة SHA-256). المجموعات غير المؤكدة تتطابق فقط بالعنوان وحجم الملف لأنها أقدم من ميزة البصمة — راجعها بعناية قبل الحذف."
-          : "Confirmed groups match on the file's own content hash (SHA-256). Unconfirmed groups match only on title + file size because they predate hashing — review carefully before deleting."}
+          ? "المجموعات المؤكدة تتطابق ببصمة الملف SHA-256. المجموعات غير المؤكدة تتطابق بالعنوان والحجم فقط. الأرشفة تحافظ على النتائج المدفوعة ولا تحذفها."
+          : "Confirmed groups match by SHA-256. Unconfirmed groups match only by title and size. Archiving preserves paid outputs."}
       </p>
       {error && <div className="reader-error inline">{error}</div>}
       {groups.map((group) => (
@@ -1235,7 +1364,7 @@ function DuplicateReviewPanel({
                 ? "غير مؤكد — تطابق بالعنوان والحجم فقط"
                 : "Unconfirmed — title + size match only"}
           </small>
-          {confirmingGroup === group.key ? <span className="dup-confirm-row"><em>{rtl ? "سنُبقي أحدث نسخة ونحذف البقية. تأكيد؟" : "Keep the newest copy and delete the rest. Confirm?"}</em><button className="danger" disabled={busyId === group.key} onClick={() => keepNewestOnly(group)}>{rtl ? "نعم، نظّف المجموعة" : "Yes, clean group"}</button><button className="secondary" onClick={() => setConfirmingGroup("")}>{rtl ? "تراجع" : "Cancel"}</button></span> : <button className="primary compact" onClick={() => setConfirmingGroup(group.key)}>{rtl ? "أبقِ نسخة واحدة فقط" : "Keep one copy only"}</button>}
+          {confirmingGroup === group.key ? <span className="dup-confirm-row"><em>{rtl ? "سنُبقي أحدث نسخة نشطة ونؤرشف البقية. تأكيد؟" : "Keep the newest active and archive the rest?"}</em><button className="primary" disabled={busyId === group.key} onClick={() => keepNewestOnly(group)}>{rtl ? "نعم، أرشف الزائد" : "Archive extras"}</button><button className="secondary" onClick={() => setConfirmingGroup("")}>{rtl ? "تراجع" : "Cancel"}</button></span> : <button className="primary compact" onClick={() => setConfirmingGroup(group.key)}>{rtl ? "أبقِ نسخة نشطة واحدة" : "Keep one active copy"}</button>}
           <ul>
             {group.books.map((book) => (
               <li key={book.id}>
@@ -1244,9 +1373,9 @@ function DuplicateReviewPanel({
                 </span>
                 {confirmingId === book.id ? (
                   <span className="dup-confirm-row">
-                    <em>{rtl ? "تأكيد الحذف؟" : "Confirm delete?"}</em>
-                    <button className="danger" disabled={busyId === book.id} onClick={() => remove(book)}>
-                      {rtl ? "نعم، احذف" : "Yes, delete"}
+                    <em>{rtl ? "تأكيد الأرشفة؟" : "Confirm archive?"}</em>
+                    <button className="primary" disabled={busyId === book.id} onClick={() => remove(book)}>
+                      {rtl ? "نعم، أرشف" : "Yes, archive"}
                     </button>
                     <button className="secondary" onClick={() => setConfirmingId("")}>
                       {rtl ? "تراجع" : "Cancel"}
@@ -1254,7 +1383,7 @@ function DuplicateReviewPanel({
                   </span>
                 ) : (
                   <button className="secondary" onClick={() => setConfirmingId(book.id)}>
-                    {rtl ? "حذف هذه النسخة" : "Delete this copy"}
+                    {rtl ? "أرشفة هذه النسخة" : "Archive this copy"}
                   </button>
                 )}
               </li>
@@ -1366,42 +1495,67 @@ function Library({
   searchQuery: string;
   onOpenPilot: (book: PilotBook) => void;
 }) {
-  const [categoryFilter, setCategoryFilter] = useState<BookCategoryId | "all">("all");
-  const [bookToDelete, setBookToDelete] = useState<PilotBook | null>(null);
-  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<DeweyGatewayId | "modern" | "all">("all");
+  const [branchFilter, setBranchFilter] = useState("all");
+  const [classificationFiltersOpen, setClassificationFiltersOpen] = useState(false);
+  const [shelf, setShelf] = useState<"active" | "archive">("active");
+  const [bookToArchive, setBookToArchive] = useState<PilotBook | null>(null);
+  const [archiveBusy, setArchiveBusy] = useState(false);
   const [libraryMessage, setLibraryMessage] = useState("");
   const query = searchQuery.trim().toLowerCase();
-  const visibleCategories = Array.from(new Set(pilotBooks.map(categoryIdForBook)));
+  const activeBooks = pilotBooks.filter((book) => !isBookArchived(book));
+  const archivedBooks = pilotBooks.filter(isBookArchived);
+  const shelfBooks = shelf === "active" ? activeBooks : archivedBooks;
   const filteredPilotBooks = pilotBooks.filter((book) => {
-    const matchesQuery = !query || book.title.toLowerCase().includes(query);
-    const matchesCategory = categoryFilter === "all" || categoryIdForBook(book) === categoryFilter;
-    return matchesQuery && matchesCategory;
+    if (shelf === "active" ? isBookArchived(book) : !isBookArchived(book)) return false;
+    const classification = inferClassification(book);
+    const matchesQuery = !query || classificationSearchText(book, rtl).includes(query);
+    const matchesCategory = categoryFilter === "all"
+      || (categoryFilter === "modern" ? Boolean(classification.modernTopic) : classification.deweyMain === categoryFilter);
+    const matchesBranch = branchFilter === "all"
+      || (categoryFilter === "modern" ? classification.modernTopic === branchFilter : classification.deweyBranch === branchFilter);
+    return matchesQuery && matchesCategory && matchesBranch;
   });
-  const changeCategory = async (book: PilotBook, category: string) => {
+  const changeClassification = async (book: PilotBook, classification: BookClassificationPatch) => {
     setLibraryMessage("");
     try {
-      await updateBookCategory(book, category);
+      await updateBookClassification(book, classification);
       onBooksChanged();
       setLibraryMessage(rtl ? "تم حفظ تصنيف الكتاب." : "Book category saved.");
+      return true;
     } catch (error) {
       setLibraryMessage(error instanceof Error ? error.message : rtl ? "تعذر حفظ التصنيف." : "Could not save category.");
+      return false;
     }
   };
-  const confirmDelete = async () => {
-    if (!bookToDelete) return;
-    setDeleteBusy(true);
+  const confirmArchive = async () => {
+    if (!bookToArchive) return;
+    setArchiveBusy(true);
     setLibraryMessage("");
     try {
-      const result = await deletePilotBook(bookToDelete);
-      setBookToDelete(null);
+      await archivePilotBook(bookToArchive);
+      setBookToArchive(null);
       onBooksChanged();
-      setLibraryMessage(result.cleanupWarning
-        ? (rtl ? "حُذف الكتاب، مع تعذر تنظيف ملف ثانوي واحد." : "Book deleted; one secondary file could not be cleaned up.")
-        : (rtl ? "حُذف الكتاب وملفاته ونتائجه بنجاح." : "Book, files and results deleted successfully."));
+      setLibraryMessage(rtl ? "نُقل الكتاب إلى الأرشيف، وحُذف PDF الأصلي لتوفير المساحة، وبقي الغلاف والخلاصة والصوت والأسئلة محفوظة. يمكنك إعادة رفع الملف نفسه لاحقًا بلا سجل مكرر." : "Book archived and the original PDF was removed to save space; cover, summary, audio and questions remain. Re-upload the same file later without creating a duplicate record.");
     } catch (error) {
-      setLibraryMessage(error instanceof Error ? error.message : rtl ? "تعذر حذف الكتاب." : "Could not delete the book.");
+      setLibraryMessage(error instanceof Error ? error.message : rtl ? "تعذرت أرشفة الكتاب." : "Could not archive the book.");
     } finally {
-      setDeleteBusy(false);
+      setArchiveBusy(false);
+    }
+  };
+  const restoreBook = async (book: PilotBook) => {
+    setLibraryMessage("");
+    try {
+      await restoreArchivedBook(book);
+      onBooksChanged();
+      setLibraryMessage(rtl ? "عاد الكتاب إلى رف الكتب النشطة." : "Book restored to the active shelf.");
+    } catch (error) {
+      const raw = error instanceof Error ? error.message : "";
+      setLibraryMessage(raw === "ACTIVE_BOOK_LIMIT_REACHED"
+        ? (rtl ? "لديك ستة كتب نشطة. أرشف كتابًا أولًا لاستعادة هذا الكتاب." : "You already have six active books. Archive one before restoring this book.")
+        : raw === "ARCHIVED_ORIGINAL_REUPLOAD_REQUIRED"
+          ? (rtl ? "PDF الأصلي غير محفوظ في الأرشيف لتوفير المساحة. أعد رفع الملف نفسه من زر «أضف كتابًا»؛ ستعود هذه البطاقة بلا خصم أو تكرار." : "The original PDF is not kept in the archive. Re-upload the same file through Add a book; this record will return without a duplicate or charge.")
+        : raw || (rtl ? "تعذرت استعادة الكتاب." : "Could not restore the book."));
     }
   };
   return (
@@ -1423,16 +1577,29 @@ function Library({
             : `Search results for "${searchQuery}": ${filteredPilotBooks.length}`}
         </p>
       )}
-      {!booksLoading && !booksError && pilotBooks.length > 0 && (
-        <div className="category-filter" role="group" aria-label={rtl ? "تصنيفات المكتبة" : "Library categories"}>
-          <button className={categoryFilter === "all" ? "active" : ""} onClick={() => setCategoryFilter("all")}>{rtl ? "الكل" : "All"} <b>{pilotBooks.length}</b></button>
-          {visibleCategories.map((category) => (
-            <button key={category} className={categoryFilter === category ? "active" : ""} onClick={() => setCategoryFilter(category)}>
-              {categoryLabel(category, rtl)} <b>{pilotBooks.filter((book) => categoryIdForBook(book) === category).length}</b>
-            </button>
-          ))}
+      {!booksLoading && !booksError && pilotBooks.length > 0 && <>
+        <div className="library-shelf-tabs">
+          <button className={shelf === "active" ? "active" : ""} onClick={() => { setShelf("active"); setCategoryFilter("all"); setBranchFilter("all"); setClassificationFiltersOpen(false); }}>{rtl ? `الكتب النشطة ${activeBooks.length}/${MAX_ACTIVE_BOOKS}` : `Active books ${activeBooks.length}/${MAX_ACTIVE_BOOKS}`}</button>
+          <button className={shelf === "archive" ? "active" : ""} onClick={() => { setShelf("archive"); setCategoryFilter("all"); setBranchFilter("all"); setClassificationFiltersOpen(false); }}>{rtl ? `الأرشيف ${archivedBooks.length}` : `Archive ${archivedBooks.length}`}</button>
         </div>
-      )}
+        <div className="classification-filter-summary">
+          <button className="classification-filter-toggle" aria-expanded={classificationFiltersOpen} onClick={() => setClassificationFiltersOpen((open) => !open)}>⌄ {rtl ? "تصفية الكتب حسب التصنيف" : "Filter books by category"}</button>
+          {categoryFilter !== "all" && <span className="active-classification-filter">{categoryFilter === "modern" ? (branchFilter === "all" ? gatewayLabel("modern", rtl) : modernTopicLabel(branchFilter, rtl)) : (branchFilter === "all" ? gatewayLabel(categoryFilter, rtl) : branchLabel(categoryFilter, branchFilter, rtl))}<button aria-label={rtl ? "مسح فلتر التصنيف" : "Clear category filter"} onClick={() => { setCategoryFilter("all"); setBranchFilter("all"); }}>×</button></span>}
+        </div>
+        {classificationFiltersOpen && <div className="classification-filter-drawer">
+          <p>{rtl ? "تصنيف ديوي العشري — اختر بوابة رئيسية ثم تفريعًا عند الحاجة" : "Dewey Decimal Classification — choose a main class, then an optional subdivision"}</p>
+          <div className="category-filter dewey-gateways" role="group" aria-label={rtl ? "بوابات التصنيف الإحدى عشرة" : "Eleven classification gateways"}>
+            {DEWEY_GATEWAYS.map((gateway) => <button key={gateway.id} className={categoryFilter === gateway.id ? "active" : ""} onClick={() => { setCategoryFilter(gateway.id); setBranchFilter("all"); }}>{gatewayLabel(gateway.id, rtl)} <b>{shelfBooks.filter((book) => inferClassification(book).deweyMain === gateway.id).length}</b></button>)}
+            <button className={categoryFilter === "modern" ? "active modern" : "modern"} onClick={() => { setCategoryFilter("modern"); setBranchFilter("all"); }}>{gatewayLabel("modern", rtl)} <b>{shelfBooks.filter((book) => Boolean(inferClassification(book).modernTopic)).length}</b></button>
+          </div>
+          {categoryFilter !== "all" && <div className="category-branches" role="group" aria-label={rtl ? "التفريعات" : "Subcategories"}>
+            <button className={branchFilter === "all" ? "active" : ""} onClick={() => { setBranchFilter("all"); setClassificationFiltersOpen(false); }}>{rtl ? "عرض كل كتب هذا التصنيف" : "Show all books in this class"}</button>
+            {categoryFilter === "modern"
+              ? MODERN_TOPICS.map((topic) => <button key={topic[0]} className={branchFilter === topic[0] ? "active" : ""} onClick={() => { setBranchFilter(topic[0]); setClassificationFiltersOpen(false); }}>{rtl ? topic[1] : topic[2]}</button>)
+              : (DEWEY_GATEWAYS.find((gateway) => gateway.id === categoryFilter)?.branches ?? []).map((branch) => <button key={branch[0]} className={branchFilter === branch[0] ? "active" : ""} onClick={() => { setBranchFilter(branch[0]); setClassificationFiltersOpen(false); }}>{branchLabel(categoryFilter, branch[0], rtl)}</button>)}
+          </div>}
+        </div>}
+      </>}
       {libraryMessage && <p className="library-action-message">{libraryMessage}</p>}
       {booksLoading && (
         <section className="panel state-panel">
@@ -1459,7 +1626,8 @@ function Library({
           <span className="eyebrow">
             {rtl ? "كتب V0.7 المحفوظة" : "Saved V0.7 books"}
           </span>
-          <h3>{rtl ? "مكتبتك الفعلية" : "Your live library"}</h3>
+          <h3>{shelf === "active" ? (rtl ? "مكتبتك الفعلية" : "Your live library") : (rtl ? "أرشيفك المحفوظ" : "Your saved archive")}</h3>
+          {shelf === "active" && <p className="active-shelf-limit">{rtl ? `يمكن عرض ستة كتب أصلية نشطة. المتاح الآن: ${MAX_ACTIVE_BOOKS - activeBooks.length}. الكتاب السابع يحتاج نقل كتاب إلى الأرشيف، دون فقد النتائج المدفوعة.` : `Six original books can remain active. Available now: ${MAX_ACTIVE_BOOKS - activeBooks.length}. A seventh requires archiving one book without losing paid outputs.`}</p>}
           <p className="pilot-session-warning">
             {rtl
               ? "تنبيه النسخة التجريبية: دخولك مرتبط بهذا المتصفح حاليًا؛ لا تمسح بيانات المتصفح قبل الترقية إلى حساب دائم أدناه."
@@ -1472,27 +1640,28 @@ function Library({
                 book={book}
                 rtl={rtl}
                 onOpen={() => onOpenPilot(book)}
-                onDelete={() => setBookToDelete(book)}
-                onCategoryChange={(category) => changeCategory(book, category)}
+                onArchive={shelf === "active" ? () => setBookToArchive(book) : undefined}
+                onRestore={shelf === "archive" ? () => restoreBook(book) : undefined}
+                onClassificationChange={(classification) => changeClassification(book, classification)}
               />
             ))}
           </div>
         </section>
       )}
       {!booksLoading && !booksError && (
-        <DuplicateReviewPanel rtl={rtl} groups={groupDuplicateBooks(pilotBooks)} onBooksChanged={onBooksChanged} />
+        <DuplicateReviewPanel rtl={rtl} groups={groupDuplicateBooks(activeBooks)} onBooksChanged={onBooksChanged} />
       )}
-      {bookToDelete && (
-        <div className="confirm-delete-backdrop" role="presentation" onMouseDown={() => !deleteBusy && setBookToDelete(null)}>
-          <section className="confirm-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-book-title" onMouseDown={(event) => event.stopPropagation()}>
-            <span className="delete-dialog-icon">⌫</span>
-            <h3 id="delete-book-title">{rtl ? "تأكيد حذف الكتاب" : "Confirm book deletion"}</h3>
+      {bookToArchive && (
+        <div className="confirm-delete-backdrop" role="presentation" onMouseDown={() => !archiveBusy && setBookToArchive(null)}>
+          <section className="confirm-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="archive-book-title" onMouseDown={(event) => event.stopPropagation()}>
+            <span className="delete-dialog-icon">▣</span>
+            <h3 id="archive-book-title">{rtl ? "نقل الكتاب إلى الأرشيف" : "Move book to archive"}</h3>
             <p>{rtl
-              ? `هل تريد حذف «${bookToDelete.title}»؟ سيُحذف ملف الكتاب وخلاصاته وأصواته وأسئلته وتنبيهاته، ولا يمكن التراجع عن ذلك.`
-              : `Delete “${bookToDelete.title}”? Its file, summaries, audio, questions and reminders will be removed and cannot be restored.`}</p>
+              ? `هل تريد أرشفة «${bookToArchive.title}»؟ ستتحرر فتحة من الستة ويُحذف PDF الأصلي لتوفير المساحة، مع بقاء الغلاف والخلاصة والتحليل والصوت والأسئلة محفوظة. لاستعادته لاحقًا أعد رفع الملف نفسه.`
+              : `Archive “${bookToArchive.title}”? One slot will be freed and the original PDF removed to save space, while its cover, summaries, analysis, audio and questions remain. Re-upload the same file to restore it later.`}</p>
             <div>
-              <button className="danger" disabled={deleteBusy} onClick={confirmDelete}>{deleteBusy ? (rtl ? "جارٍ الحذف…" : "Deleting…") : (rtl ? "نعم، احذف الكتاب" : "Yes, delete book")}</button>
-              <button className="secondary" disabled={deleteBusy} onClick={() => setBookToDelete(null)}>{rtl ? "إلغاء" : "Cancel"}</button>
+              <button className="primary" disabled={archiveBusy} onClick={confirmArchive}>{archiveBusy ? (rtl ? "جارٍ النقل…" : "Archiving…") : (rtl ? "نعم، انقل إلى الأرشيف" : "Yes, archive book")}</button>
+              <button className="secondary" disabled={archiveBusy} onClick={() => setBookToArchive(null)}>{rtl ? "إلغاء" : "Cancel"}</button>
             </div>
           </section>
         </div>
@@ -1529,7 +1698,9 @@ function PilotWorkspace({
   const [voicePreviewUrls, setVoicePreviewUrls] = useState<Partial<Record<"marin" | "cedar", string>>>({});
   const [questionHistory, setQuestionHistory] = useState<Array<{ id: string; question: string; answer: Record<string, unknown>; language: "ar" | "en"; created_at: string }>>([]);
   const [usageTotals, setUsageTotals] = useState({ calls: 0, input: 0, output: 0, textCostUsd: 0, audioCharacters: 0, unpricedCalls: 0 });
+  const [limits, setLimits] = useState<AiLimitsSnapshot | null>(null);
   const [busy, setBusy] = useState("");
+  const [recoveryMessage, setRecoveryMessage] = useState("");
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState<
     "process" | "ask" | "audio" | ""
@@ -1547,6 +1718,22 @@ function PilotWorkspace({
     setProfessionalVoice(voice);
     localStorage.setItem(`spl-professional-voice-${book.id}`, voice);
   };
+  const taskStorageKey = `spl-paid-task-${book.id}`;
+  const beginPaidTask = (action: "process" | "ask" | "audio" | "audio_preview") => {
+    const requestId = crypto.randomUUID();
+    localStorage.setItem(taskStorageKey, JSON.stringify({ requestId, action, startedAt: new Date().toISOString(), language: resultLanguage, voice: professionalVoice }));
+    setRecoveryMessage("");
+    return requestId;
+  };
+  const finishPaidTask = () => localStorage.removeItem(taskStorageKey);
+  const handlePaidFailure = (value: unknown) => {
+    const raw = value instanceof Error ? value.message : String(value ?? "");
+    if (/(PAID_AI_DISABLED|PRIVATE_PILOT_EMAIL_REQUIRED|DAILY_ANALYSIS_LIMIT_REACHED|DAILY_QUESTION_LIMIT_REACHED|PILOT_QUESTION_LIMIT_REACHED|LEGAL_CONSENT_REQUIRED|BOOK_NOT_PROCESSED|ANALYSIS_NOT_READY)/.test(raw)) {
+      finishPaidTask();
+      return;
+    }
+    setRecoveryMessage(rtl ? "انقطع الرد أو تعذر التحقق. بقيت المهمة محفوظة وسنبحث عن النتيجة دون إعادة الخصم؛ لا تضغط مرة أخرى." : "The response was interrupted or could not be verified. The task remains saved and will be checked without charging again; do not press again.");
+  };
   useEffect(() => {
     setProfessionalVoice(localStorage.getItem(`spl-professional-voice-${book.id}`) === "cedar" ? "cedar" : "marin");
   }, [book.id]);
@@ -1560,7 +1747,8 @@ function PilotWorkspace({
   const money = ([low, high]: number[]) =>
     `$${low.toFixed(2)}–$${high.toFixed(2)}`;
   const reload = async () => {
-    const data = await getBookResults(book.id);
+    const [data, limitSnapshot] = await Promise.all([getBookResults(book.id), getAiLimitsSnapshot()]);
+    setLimits(limitSnapshot);
     const paid = data.analyses.find(
       (a) =>
         ["overview", "chapters", "critical", "metadata"].includes(a.kind) &&
@@ -1603,18 +1791,59 @@ function PilotWorkspace({
       .then(setConsent)
       .catch(() => setConsent(null));
   }, [book.id, resultLanguage, professionalVoice]);
+  useEffect(() => {
+    const raw = localStorage.getItem(taskStorageKey);
+    if (!raw) return;
+    let saved: { action?: string; startedAt?: string; language?: string; voice?: string } | null = null;
+    try { saved = JSON.parse(raw); } catch { localStorage.removeItem(taskStorageKey); }
+    if (!saved?.action || !saved.startedAt) return;
+    const startedAt = Date.parse(saved.startedAt);
+    if (!Number.isFinite(startedAt) || Date.now() - startedAt > 2 * 60 * 60 * 1000) {
+      localStorage.removeItem(taskStorageKey);
+      setRecoveryMessage(rtl ? "انتهت مهلة مهمة سابقة. راجع النتائج قبل بدء طلب جديد؛ لن نضغط تلقائيًا." : "A previous task timed out. Review results before starting a new request; nothing will be retried automatically.");
+      return;
+    }
+    setBusy(saved.action);
+    setRecoveryMessage(rtl ? "تم العثور على مهمة مدفوعة سابقة. نتحقق من نتيجتها المحفوظة دون إنشاء طلب جديد." : "A previous paid task was found. Checking its saved result without creating a new request.");
+    const check = async () => {
+      try {
+        const data = await getBookResults(book.id);
+        const completed = saved?.action === "process"
+          ? data.analyses.some((item) => item.kind === "overview" && item.language === saved?.language)
+          : saved?.action === "audio"
+            ? data.audio.some((item) => item.language === saved?.language && item.voice === saved?.voice)
+            : saved?.action === "ask"
+              ? data.questions.some((item) => Date.parse(item.created_at) >= startedAt)
+              : data.usage.some((item) => item.action === "audio_preview" && Date.parse(item.created_at) >= startedAt);
+        if (completed) {
+          localStorage.removeItem(taskStorageKey);
+          setBusy("");
+          setRecoveryMessage(rtl ? "✓ اكتملت المهمة السابقة وحُفظت نتيجتها. لم يُنشأ طلب مكرر." : "✓ Previous task completed and was saved. No duplicate request was created.");
+          await reload();
+        }
+      } catch { /* keep the task marker and retry the read only */ }
+    };
+    void check();
+    const timer = window.setInterval(check, 5000);
+    return () => window.clearInterval(timer);
+  // The task is scoped to the saved book; changing UI language must not create a new task.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [book.id]);
   const process = async () => {
     if (ZERO_COST_MODE) return;
     setBusy("process");
     setError("");
+    const requestId = beginPaidTask("process");
     try {
-      await invokeBookAI(book.id, "process", { language: resultLanguage });
+      await invokeBookAI(book.id, "process", { language: resultLanguage, requestId });
       await reload();
+      finishPaidTask();
       setConfirming("");
     } catch (e) {
       setError(describeAiError(e, rtl));
+      handlePaidFailure(e);
     } finally {
-      setBusy("");
+      if (!localStorage.getItem(taskStorageKey)) setBusy("");
     }
   };
   const ask = async () => {
@@ -1622,27 +1851,33 @@ function PilotWorkspace({
     if (!q.trim()) return;
     setBusy("ask");
     setError("");
+    const requestId = beginPaidTask("ask");
     try {
       const data = await invokeBookAI(book.id, "ask", {
         question: q,
         language: resultLanguage,
+        requestId,
       });
       setAnswer(data.answer);
+      finishPaidTask();
       setConfirming("");
     } catch (e) {
       setError(describeAiError(e, rtl));
+      handlePaidFailure(e);
     } finally {
-      setBusy("");
+      if (!localStorage.getItem(taskStorageKey)) setBusy("");
     }
   };
   const audio = async () => {
     if (ZERO_COST_MODE) return;
     setBusy("audio");
     setError("");
+    const requestId = beginPaidTask("audio");
     try {
       const data = await invokeBookAI(book.id, "audio", {
         language: resultLanguage,
         voice: professionalVoice,
+        requestId,
       });
       setAudioUrls(
         await Promise.all(
@@ -1652,11 +1887,13 @@ function PilotWorkspace({
         ),
       );
       await reload();
+      finishPaidTask();
       setConfirming("");
     } catch (e) {
       setError(describeAiError(e, rtl));
+      handlePaidFailure(e);
     } finally {
-      setBusy("");
+      if (!localStorage.getItem(taskStorageKey)) setBusy("");
     }
   };
   const previewVoice = async (voice: "marin" | "cedar") => {
@@ -1664,18 +1901,22 @@ function PilotWorkspace({
     selectProfessionalVoice(voice);
     setBusy(`preview-${voice}`);
     setError("");
+    const requestId = beginPaidTask("audio_preview");
     try {
       const data = await invokeBookAI(book.id, "audio_preview", {
         language: resultLanguage,
         voice,
+        requestId,
       });
       const url = await getPrivateAudioUrl(data.storage_path);
       setVoicePreviewUrls((current) => ({ ...current, [voice]: url }));
       await reload();
+      finishPaidTask();
     } catch (e) {
       setError(describeAiError(e, rtl));
+      handlePaidFailure(e);
     } finally {
-      setBusy("");
+      if (!localStorage.getItem(taskStorageKey)) setBusy("");
     }
   };
   const runLocalAnalysis = async () => {
@@ -1793,6 +2034,14 @@ function PilotWorkspace({
         <button className="secondary" onClick={() => document.getElementById("ask-book-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{rtl ? "اسأل الكتاب" : "Ask"}</button>
         <button className="secondary" onClick={() => document.getElementById("professional-voice-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{rtl ? "اختيار الصوت" : "Choose voice"}</button>
       </div>
+      {(busy || recoveryMessage) && <section className={`panel durable-task-banner ${busy ? "running" : "complete"}`} aria-live="polite">
+        <div className="task-train" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <div><strong>{busy
+          ? (rtl ? "المحتوى قيد التجهيز — المهمة محفوظة" : "Content is being prepared — task saved")
+          : (rtl ? "تحديث حالة المهمة" : "Task status update")}</strong>
+          <p>{recoveryMessage || (rtl ? "يمكنك إبقاء الصفحة مفتوحة أو العودة لاحقًا. لا تضغط الزر مرة أخرى؛ سنعرض النتيجة المحفوظة عند اكتمالها." : "You may keep this page open or return later. Do not press again; the saved result will appear when complete.")}</p>
+        </div>
+      </section>}
       <section className="panel book-info-card">
         <span className="eyebrow">
           {rtl ? "بيانات الكتاب المحفوظ" : "Saved book details"}
@@ -2094,7 +2343,7 @@ function PilotWorkspace({
               PAID_PILOT_MAX_BOOKS * (estimates.analysis[1] + estimates.audio[1]),
             ])}
             <small>
-              {rtl ? "سقف تخطيطي لخمسة كتب مماثلة" : "planning range for five similar books"}
+              {rtl ? "سقف تخطيطي لستة كتب مماثلة" : "planning range for six similar books"}
             </small>
           </b>
           <b>
@@ -2112,6 +2361,12 @@ function PilotWorkspace({
             : `File size: ${sizeMb.toFixed(1)} MB · text tokens: ${usageTotals.input.toLocaleString()} in / ${usageTotals.output.toLocaleString()} out · audio characters sent: ${usageTotals.audioCharacters.toLocaleString()} · auto-reload is off. Text cost uses the model rate; audio remains an estimate because the speech response does not return billing-token usage.`}
         </small>
       </section>
+      {limits && <section className="panel usage-limits-card" aria-live="polite">
+        <div><span>{rtl ? "تحليلات اليوم" : "Analyses today"}</span><strong>{limits.analysesToday}/{limits.analysisLimit}</strong><small>{rtl ? `المتبقي ${Math.max(0, limits.analysisLimit - limits.analysesToday)}` : `${Math.max(0, limits.analysisLimit - limits.analysesToday)} remaining`}</small></div>
+        <div><span>{rtl ? "أسئلة اليوم" : "Questions today"}</span><strong>{limits.questionsToday}/{limits.dailyQuestionLimit}</strong><small>{rtl ? `المتبقي ${Math.max(0, limits.dailyQuestionLimit - limits.questionsToday)}` : `${Math.max(0, limits.dailyQuestionLimit - limits.questionsToday)} remaining`}</small></div>
+        <div><span>{rtl ? "إجمالي أسئلة التجربة" : "Pilot questions total"}</span><strong>{limits.questionsTotal}/{limits.totalQuestionLimit}</strong><small>{rtl ? `المتبقي ${Math.max(0, limits.totalQuestionLimit - limits.questionsTotal)}` : `${Math.max(0, limits.totalQuestionLimit - limits.questionsTotal)} remaining`}</small></div>
+        <p>{rtl ? `تتجدد الحدود اليومية في ${new Date(limits.resetsAt).toLocaleString("ar")}. عند بلوغ الحد يتوقف الطلب قبل OpenAI ولا يحدث خصم.` : `Daily limits reset at ${new Date(limits.resetsAt).toLocaleString("en")}. At the limit, the request stops before OpenAI and no charge occurs.`}</p>
+      </section>}
       {loading ? (
         <section className="panel">
           {rtl ? "جارٍ تحميل النتائج…" : "Loading results…"}
@@ -2173,7 +2428,7 @@ function PilotWorkspace({
                     </p>
                     <button
                       className="primary"
-                      disabled={busy === "process"}
+                      disabled={Boolean(busy)}
                       onClick={process}
                     >
                       {busy === "process"
@@ -2243,7 +2498,7 @@ function PilotWorkspace({
                       </p>
                       <button
                         className="primary"
-                        disabled={busy === "ask"}
+                        disabled={Boolean(busy)}
                         onClick={ask}
                       >
                         {busy === "ask"
@@ -2295,7 +2550,7 @@ function PilotWorkspace({
                           <span>{rtl ? "هادئ، دافئ، وقراءة متزنة" : "Calm, warm, balanced narration"}</span>
                           {professionalVoice === voice && <b className="voice-selected-label">{rtl ? "مختار لإنشاء الصوت الكامل" : "Selected for full audio"}</b>}
                         </button>
-                        <button className="secondary voice-preview-button" disabled={busy === `preview-${voice}`} onClick={() => previewVoice(voice)}>
+                        <button className="secondary voice-preview-button" disabled={Boolean(busy)} onClick={() => previewVoice(voice)}>
                           {busy === `preview-${voice}` ? "…" : rtl ? "أنشئ/شغّل العينة" : "Create/play sample"}
                         </button>
                         {voicePreviewUrls[voice] && <audio controls preload="metadata" src={voicePreviewUrls[voice]} />}
@@ -2322,7 +2577,7 @@ function PilotWorkspace({
                       </strong>
                       <button
                         className="primary"
-                        disabled={busy === "audio"}
+                        disabled={Boolean(busy)}
                         onClick={audio}
                       >
                         {busy === "audio"
@@ -2774,32 +3029,36 @@ function Idea({ n, title, text }: { n: string; title: string; text: string }) {
 function UserGuide({ rtl, onUpload, onLibrary, onActivate, activating }: { rtl: boolean; onUpload: () => void; onLibrary: () => void; onActivate: () => void; activating: boolean }) {
   const topics = rtl ? [
     ["1. إضافة الكتاب", "اختر PDF وحدد لغة المخرجات وأقر بحق الاستخدام. الرفع وحده لا يشغّل خدمة مدفوعة."],
-    ["2. صفحة الكتاب", "صفحة الكتاب الحالية هي القاعدة الثابتة لكل كتاب جديد، وبها القراءة والتحليل والنتائج والصوت والأسئلة."],
-    ["3. الغلاف الأصلي", "تأخذ المكتبة الغلاف من الصفحة الأولى للكتاب نفسه، مع بديل آمن فقط إذا تعذر فتح الملف."],
-    ["4. القراءة وموضع التوقف", "تُحفظ الصفحة والعلامات لتعود إلى الموضع نفسه من الكمبيوتر أو الهاتف."],
-    ["5. التحليل المجاني", "يفحص بنية الكتاب داخل المتصفح دون تكلفة AI ودون إرسال الملف إلى OpenAI."],
-    ["6. التحليل المدفوع", "يحافظ على الخلاصة والأفكار المحورية والفصول ونقاط القوة والحدود والاستنتاجات ومواضع العودة، ولا يبدأ قبل تأكيد التكلفة."],
-    ["7. تجربة الصوت", "استمع إلى صوت المرأة وصوت الرجل؛ تُنشأ العينة مرة واحدة ثم يعاد تشغيلها دون تكلفة جديدة."],
-    ["8. اختيار الصوت", "اضغط على الصوت الذي تريده؛ يظهر الاختيار بوضوح ويُحفظ لهذا الكتاب قبل تأكيد شراء الصوت الكامل."],
-    ["9. أسئلة الكتاب", "بعد اكتمال التحليل، اكتب سؤالًا أو استخدم السؤال النموذجي، ثم راجع التكلفة قبل الإرسال."],
-    ["10. التنبيهات", "اختر الكتاب والموعد، فعّل إشعارات الجهاز، ثم استخدم اختبار الآن للتأكد من ظهور التنبيه."],
-    ["11. الهاتف", "على iPhone افتح المنصة من الشاشة الرئيسية. وعلى Samsung استخدم Chrome واسمح بالإشعارات ثم حدّث الصفحة عند ظهور نسخة قديمة."],
-    ["12. الوضع الليلي", "يغيّر ألوان الواجهة المحيطة لتصبح الحروف واضحة، بينما تبقى صفحة PDF وخطها وألوانها الأصلية دون تغيير."],
-    ["13. تنشيط أحدث نسخة", "إذا بقي الهاتف أو الكمبيوتر على نسخة قديمة، اضغط تنشيط النسخة؛ تُمسح ذاكرة المنصة القديمة وتُفتح أحدث معاينة تلقائيًا."],
+    ["2. حدود الملف قبل الرفع", "تقبل النسخة حتى 30 ميجابايت و500 صفحة. يُفحص الشرطان قبل الحفظ، ورسالة الرفض تؤكد عدم تشغيل OpenAI وعدم الخصم."],
+    ["3. الكتب الستة والأرشيف", "يظهر في الرف النشط ستة كتب أصلية. قبل السابع انقل كتابًا إلى الأرشيف؛ يُحذف PDF لتوفير المساحة وتبقى البطاقة والغلاف والخلاصات والتحليل والصوت والأسئلة. أعد رفع الملف نفسه لاحقًا لاستعادته بلا تكرار."],
+    ["4. التصنيفات", "تظهر عشر بوابات ديوي وبوابة للموضوعات الحديثة. اضغط البوابة لترى تفريعاتها؛ ويمكن للكتاب أن يحمل تصنيف ديوي وموضوعًا حديثًا دون نسخة مكررة."],
+    ["5. حالة كل كتاب", "بانتظار التحليل، جارٍ التحليل، تم التحليل، أو تعذر التحليل. لا تتساوى بطاقة الكتاب المحلل مع الكتاب الذي ينتظر."],
+    ["6. صفحة الكتاب", "صفحة الكتاب الحالية هي القاعدة الثابتة لكل كتاب جديد، وبها القراءة والتحليل والنتائج والصوت والأسئلة."],
+    ["7. الغلاف الأصلي", "تأخذ المكتبة الغلاف من الصفحة الأولى للكتاب نفسه، مع بديل آمن فقط إذا تعذر فتح الملف."],
+    ["8. القراءة وموضع التوقف", "تُحفظ الصفحة والعلامات لتعود إلى الموضع نفسه من الكمبيوتر أو الهاتف."],
+    ["9. التحليل المجاني", "يفحص بنية الكتاب داخل المتصفح دون تكلفة AI ودون إرسال الملف إلى OpenAI."],
+    ["10. التحليل المدفوع", "قبل التأكيد ترى حد اليوم والمتبقي ووقت التجدد. أثناء التجهيز يظهر شريط متحرك ومهمة محفوظة؛ لا تضغط مرتين حتى لو انقطع الإنترنت."],
+    ["11. أسئلة الكتاب", "بعد اكتمال التحليل اكتب سؤالًا، ثم راجع التكلفة. إذا بلغ حد اليوم تتوقف العملية قبل OpenAI وتظهر رسالة عدم الخصم."],
+    ["12. الصوت الاحترافي", "استمع إلى Marin أو Cedar واختره بوضوح. أثناء إنشاء الصوت تظهر حالة تجهيز مستمرة، ويُعاد استخدام النتيجة المكتملة دون شراء مكرر."],
+    ["13. التنبيهات", "اضغط الجرس الأصفر، فعّل إشعارات الجهاز مرة واحدة، اختر الكتاب والموعد، ثم استخدم اختبار الآن."],
+    ["14. الهاتف والوضع الليلي", "على iPhone افتح المنصة من الشاشة الرئيسية، وعلى Samsung اسمح بالإشعارات وحدّث النسخة. ألوان النص تبقى واضحة في الوضع الليلي."],
+    ["15. تنشيط أحدث نسخة", "إذا بقي الهاتف أو الكمبيوتر على نسخة قديمة، اضغط تنشيط النسخة؛ تُمسح ذاكرة المنصة القديمة وتُفتح أحدث نسخة تلقائيًا."],
   ] : [
     ["1. Add a book", "Choose a PDF, output language, and lawful-use confirmation. Uploading does not start paid AI."],
-    ["2. Book page", "The current book page remains the fixed template for every new book."],
-    ["3. Original cover", "The cover comes from the PDF's first page, with a safe fallback only if the file cannot be opened."],
-    ["4. Reading position", "Page and bookmarks are saved across computer and phone."],
-    ["5. Free analysis", "Examines structure locally without AI cost or sending the file to OpenAI."],
-    ["6. Paid analysis", "Preserves all current summary, ideas, chapters, critical reading and return points after cost confirmation."],
-    ["7. Voice preview", "Preview female and male samples; generated samples are reused."],
-    ["8. Voice selection", "Select and save one voice per book before buying full audio."],
-    ["9. Ask the book", "After analysis, enter a question or use the sample, then review cost."],
-    ["10. Notifications", "Choose the book and time, enable device notifications, then run the test."],
-    ["11. Phones", "Use Home Screen mode on iPhone and Chrome with notification permission on Samsung."],
-    ["12. Night mode", "Improves interface contrast while preserving the original PDF page."],
-    ["13. Activate latest version", "Clears the platform's old cache and reloads the latest build on phone or computer."],
+    ["2. File limits", "Up to 30 MB and 500 pages; both are checked before storage and paid AI."],
+    ["3. Six books and archive", "Six originals stay active. Archiving removes the PDF to save space while keeping the card, cover and paid outputs. Re-upload the same file later to restore it without duplication."],
+    ["4. Classification", "Ten Dewey gateways plus one modern-topics gateway; subdivisions appear only after selection."],
+    ["5. Book status", "Awaiting, processing, complete, or failed are clearly distinguished."],
+    ["6. Book page", "The current successful book page remains the fixed template for every new book."],
+    ["7. Original cover", "The cover comes from page one, with a safe fallback only if the file cannot be opened."],
+    ["8. Reading position", "Page and bookmarks are saved across computer and phone."],
+    ["9. Free analysis", "Examines structure locally without AI cost or sending the file to OpenAI."],
+    ["10. Paid analysis", "Shows daily use, remaining allowance and reset time. A saved moving task indicator prevents repeat taps."],
+    ["11. Ask the book", "Review cost first; limit messages stop before OpenAI and explicitly confirm no charge."],
+    ["12. Professional audio", "Choose Marin or Cedar. Progress remains visible and completed output is reused."],
+    ["13. Notifications", "Use the yellow bell, enable the device once, choose book and time, then test."],
+    ["14. Phones and night mode", "Home Screen mode on iPhone; notification permission and refresh on Samsung; high-contrast text at night."],
+    ["15. Activate latest version", "Clears the old platform cache and reloads the newest build."],
   ];
   return <div className="page user-guide-page"><PageTitle title={rtl ? "دليل استخدام المكتبة" : "Library user guide"} description={rtl ? "خطوات عملية تشرح الموجود وتفعّله دون تغيير صفحة الكتاب الناجحة." : "Practical steps that activate the current experience without changing the successful book page."} /><div className="guide-actions"><button className="primary" onClick={onUpload}>＋ {rtl ? "أضف كتابًا" : "Add a book"}</button><button className="secondary" onClick={onLibrary}>▥ {rtl ? "افتح مكتبتي" : "Open my library"}</button><button className="secondary activate-version-button" disabled={activating} onClick={onActivate}>↻ {activating ? (rtl ? "جارٍ التنشيط…" : "Activating…") : (rtl ? "تنشيط أحدث نسخة" : "Activate latest version")}</button></div><section className="panel guide-topics">{topics.map(([title, body]) => <details key={title}><summary>{title}</summary><p>{body}</p></details>)}</section></div>;
 }
@@ -3152,8 +3411,8 @@ function Upload({
               <strong>{file?.name || t.choose}</strong>
               <span>
                 {rtl
-                  ? "حد أقصى 20 ميجابايت؛ يُوصى بكتاب نصي من 50 إلى 500 صفحة"
-                  : "20 MB maximum; a text-based PDF of 50–500 pages is recommended"}
+                  ? "حد أقصى 30 ميجابايت و500 صفحة؛ يُفحص الشرطان قبل الحفظ ولا يبدأ أي خصم"
+                  : "30 MB and 500 pages maximum; both are checked before saving and no charge starts"}
               </span>
             </label>
             <label className="select-label output-language">

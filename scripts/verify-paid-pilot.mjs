@@ -15,7 +15,7 @@ function check(name, condition) {
 }
 
 check("paid controls are enabled in V0.9", ZERO_COST_MODE === false);
-check("browser communicates an absolute maximum of five books", PAID_PILOT_MAX_BOOKS === 5);
+check("browser communicates six active-book slots", PAID_PILOT_MAX_BOOKS === 6);
 check("server fails closed without explicit paid enablement", /SPL_PAID_AI_ENABLED/.test(edge) && /PAID_AI_DISABLED/.test(edge));
 check("server restricts spending to the approved pilot email", /SPL_PILOT_EMAIL/.test(edge) && /PRIVATE_PILOT_EMAIL_REQUIRED/.test(edge));
 check("new books are not blocked by the retired one-book pilot gate", !/PILOT_BOOK_LIMIT/.test(edge) && !/PAID_PILOT_BOOK_LIMIT_REACHED/.test(edge));
@@ -27,6 +27,7 @@ check("professional audio reuse is isolated by voice", /eq\("voice", voice\)/.te
 check("only approved professional voices are accepted", /body\.voice === "cedar" \? "cedar" : "marin"/.test(edge));
 check("voice samples are short, cached, and never generated automatically", /action === "audio_preview"/.test(edge) && /voice-previews/.test(edge) && /onClick=\{\(\) => previewVoice\(voice\)\}/.test(app));
 check("every paid browser action has an explicit confirmation state", /confirming !== "process"/.test(app) && /confirming !== "ask"/.test(app) && /confirming !== "audio"/.test(app));
+check("paid actions send stable request identifiers", /requestId/.test(app) && /idempotency_key/.test(edge));
 check("no OpenAI secret is embedded in tracked source", !/sk-[A-Za-z0-9_-]{20,}/.test(`${app}\n${edge}`));
 check("client has no live Supabase fallback", !/supabase\.co|eyJhbGci/i.test(supabaseClient));
 check("deployment fails closed without Supabase secrets", /Require explicit Supabase configuration/.test(deploy) && /VITE_SUPABASE_URL is missing/.test(deploy) && /VITE_SUPABASE_PUBLISHABLE_KEY is missing/.test(deploy));
