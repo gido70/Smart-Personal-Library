@@ -21,7 +21,7 @@ check("archive preserves paid outputs", /الخلاصة والتحليل وال�
 check("eleven fixed classification gateways are defined", /DEWEY_GATEWAYS/.test(app) && /MODERN_GATEWAY/.test(app) && /بوابات التصنيف الإحدى عشرة/.test(app));
 check("classification supports Dewey plus modern topic on one book", /dewey_main/.test(library) && /dewey_branch/.test(library) && /modern_topic/.test(library));
 check("book classification editor stays collapsed until its category chip is pressed", /editingClassification/.test(app) && /category-edit-trigger/.test(app) && /حفظ التصنيف/.test(app));
-check("library search indexes titles, Dewey codes, branches, and modern topics", /classificationSearchText/.test(app) && /gateway\?\.ar/.test(app) && /modern\?\.\[1\]/.test(app));
+check("library search indexes only visible titles, Dewey codes, branches, and modern topics", /classificationSearchText/.test(app) && /gateway\?\.ar/.test(app) && /modern\?\.\[1\]/.test(app) && !/classificationSearchText[\s\S]{0,700}metadata\?\.subject/.test(app));
 check("unknown books remain explicitly unclassified instead of defaulting to 000\/010", /return \{ deweyMain: "", deweyBranch: "" \}/.test(app) && /غير مصنف/.test(app));
 check("empty library samples never invoke paid actions", /SAMPLE_BOOKS/.test(app) && /display-only examples/.test(app));
 check("empty library presents six samples", /رحلة في تاريخ العلوم/.test(app) && /مدخل إلى علم النفس/.test(app));
