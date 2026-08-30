@@ -530,6 +530,30 @@ export async function invokeBookAI(bookId: string, action: "process" | "ask" | "
   return data;
 }
 
+export type PaidTaskReceipt = {
+  status: "processing" | "succeeded" | "failed";
+  http_status: number | null;
+  result: Record<string, unknown> | null;
+  error_code: string | null;
+  updated_at: string;
+};
+
+/**
+ * Read-only paid-task status. The owner RLS policy prevents access to another
+ * user's receipt. Missing migration/table degrades to null rather than
+ * encouraging the browser to resend a paid operation blindly.
+ */
+export async function getPaidTaskReceipt(idempotencyKey: string): Promise<PaidTaskReceipt | null> {
+  await ensurePilotSession();
+  const { data, error } = await supabase!
+    .from("spl_ai_requests")
+    .select("status,http_status,result,error_code,updated_at")
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+  if (error) return null;
+  return data as PaidTaskReceipt | null;
+}
+
 export type StoredAnalysis = {
   kind: "overview" | "chapters" | "critical" | "metadata" | "local_structural" | "manual_import";
   language: "ar" | "en";
@@ -568,7 +592,7 @@ export async function getBookResults(bookId: string) {
       .from("spl_analyses")
       .select("kind,language,source,content,template_version,created_at")
       .eq("book_id", bookId),
-    supabase!.from("spl_audio_outputs").select("id,language,voice,storage_path,created_at").eq("book_id", bookId),
+    supabase!.from("spl_audio_outputs").select("id,language,voice,storage_path,part_no,created_at").eq("book_id", bookId).order("part_no"),
     supabase!.from("spl_questions").select("id,question,answer,language,created_at").eq("book_id", bookId).order("created_at", { ascending: false }).limit(20),
     supabase!.from("spl_ai_usage").select("action,model,input_tokens,output_tokens,metadata,created_at").eq("book_id", bookId).order("created_at", { ascending: false }),
   ]);
