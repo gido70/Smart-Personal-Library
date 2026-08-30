@@ -5,4 +5,4 @@
 // SPL_PILOT_EMAIL. There is no cumulative analysed-book gate; every paid action
 // still requires confirmation and the server keeps its daily spending limits.
 export const ZERO_COST_MODE = false;
-export const PAID_PILOT_MAX_BOOKS = 5;
+export const PAID_PILOT_MAX_BOOKS = 6;
