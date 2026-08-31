@@ -26,8 +26,12 @@ check("professional audio is reused instead of charged twice", /completedParts\.
 check("professional audio reuse is isolated by voice", /eq\("voice", voice\)/.test(edge));
 check("only approved professional voices are accepted", /PROFESSIONAL_VOICES = \["marin", "cedar", "coral", "onyx", "nova", "sage"\]/.test(edge) && /professionalVoice\(body\.voice\)/.test(edge));
 check("speech uses a pinned improved model and one-narrator instructions", /gpt-4o-mini-tts-2025-12-15/.test(edge) && /صوت راوٍ واحد ثابت/.test(edge) && /ممنوع تبديل الشخصية/.test(edge));
-check("new paid audio requires listening to the selected sample", /voice-quality-gate/.test(app) && /!voicePreviewUrls\[professionalVoice\]/.test(app));
+check("new paid audio requires listening to the selected sample through the end", /voice-quality-gate/.test(app) && /heardPreviewVoice !== professionalVoice/.test(app) && /onEnded=\{\(\) => setHeardPreviewVoice\(voice\)\}/.test(app));
 check("voice samples are short, cached, and never generated automatically", /action === "audio_preview"/.test(edge) && /voice-previews/.test(edge) && /onClick=\{\(\) => previewVoice\(voice\)\}/.test(app));
+check("preview and full audio reject a mismatched returned voice", /VOICE_PREVIEW_MISMATCH/.test(app) && /FULL_AUDIO_VOICE_MISMATCH/.test(app));
+check("audio players stop other samples before playback", /keepOnlyThisAudioPlaying/.test(app) && /onPlay=\{\(event\) => keepOnlyThisAudioPlaying/.test(app));
+check("speech chunks stay below the API input limit and split overlong sentences", /TTS_CHUNK_MAX_CHARACTERS = 3900/.test(edge) && /splitTextForSpeech/.test(edge) && /lastIndexOf\(" ", room\)/.test(edge));
+check("voice preview cache version is invalidated after consistency changes", /voice-previews\/v3-\$\{language\}-\$\{voice\}\.mp3/.test(edge));
 check("every paid browser action has an explicit confirmation state", /confirming !== "process"/.test(app) && /confirming !== "ask"/.test(app) && /confirming !== "audio"/.test(app));
 check("paid actions send stable request identifiers", /requestId/.test(app) && /idempotency_key/.test(edge));
 check("no OpenAI secret is embedded in tracked source", !/sk-[A-Za-z0-9_-]{20,}/.test(`${app}\n${edge}`));
