@@ -22,6 +22,7 @@ import {
   updateBookCatalogMetadata,
   updateBookClassification,
   restoreArchivedBook,
+  saveCoverThumbnail,
   isBookArchived,
   MAX_ACTIVE_BOOKS,
   type AiLimitsSnapshot,
@@ -1225,49 +1226,99 @@ function classificationSearchText(book: PilotBook, rtl: boolean) {
   ].filter(Boolean).join(" ").toLowerCase();
 }
 
+const MAX_CONCURRENT_PDF_COVER_RENDERS = 2;
+let activePdfCoverRenders = 0;
+const pdfCoverRenderQueue: Array<() => void> = [];
+function acquirePdfCoverRenderSlot(): Promise<() => void> {
+  return new Promise((resolve) => {
+    const acquire = () => {
+      activePdfCoverRenders += 1;
+      resolve(() => {
+        activePdfCoverRenders -= 1;
+        pdfCoverRenderQueue.shift()?.();
+      });
+    };
+    if (activePdfCoverRenders < MAX_CONCURRENT_PDF_COVER_RENDERS) acquire();
+    else pdfCoverRenderQueue.push(acquire);
+  });
+}
+
 function OriginalPdfCover({ book }: { book: PilotBook }) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [failed, setFailed] = useState(false);
-  const [archivedCoverUrl, setArchivedCoverUrl] = useState("");
+  const [coverImageUrl, setCoverImageUrl] = useState("");
+  const [isNearViewport, setIsNearViewport] = useState(false);
   useEffect(() => {
+    const node = wrapperRef.current;
+    if (!node) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setIsNearViewport(true);
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setIsNearViewport(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: "600px 0px" });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!isNearViewport) return;
     let cancelled = false;
     let objectUrl = "";
     setFailed(false);
-    setArchivedCoverUrl("");
+    setCoverImageUrl("");
     const render = async () => {
       const archivedCoverPath = String(book.metadata?.archive_cover_path ?? "");
-      if (archivedCoverPath) {
-        const coverBlob = await downloadBookFile(archivedCoverPath);
-        objectUrl = URL.createObjectURL(coverBlob);
-        if (!cancelled) setArchivedCoverUrl(objectUrl);
-        return;
+      const cachedCoverPath = String(book.metadata?.cover_path ?? "");
+      const cachedPath = archivedCoverPath || cachedCoverPath;
+      if (cachedPath) {
+        try {
+          const coverBlob = await downloadBookFile(cachedPath);
+          if (cancelled) return;
+          objectUrl = URL.createObjectURL(coverBlob);
+          setCoverImageUrl(objectUrl);
+          return;
+        } catch {
+          // A stale thumbnail path must not prevent recovery from the PDF.
+          if (archivedCoverPath) throw new Error("ARCHIVED_COVER_UNAVAILABLE");
+        }
       }
-      // Download through the authenticated Storage client instead of asking
-      // PDF.js to range-fetch a short-lived signed URL. Samsung Internet and
-      // some Android WebViews can reject those cross-origin range requests and
-      // leave an empty canvas even though the book itself is available.
-      const fileBlob = await downloadBookFile(book.storage_path);
-      const pdfjs = await import("pdfjs-dist");
-      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-      const pdf = await pdfjs.getDocument({ data: new Uint8Array(await fileBlob.arrayBuffer()), disableFontFace: true }).promise;
-      const first = await pdf.getPage(1);
-      const base = first.getViewport({ scale: 1 });
-      const viewport = first.getViewport({ scale: Math.max(0.34, Math.min(1.2, 420 / base.width)) });
-      if (cancelled || !canvasRef.current) return;
-      const canvas = canvasRef.current;
-      const context = canvas.getContext("2d", { alpha: false });
-      if (!context) throw new Error("COVER_CANVAS_UNAVAILABLE");
-      canvas.width = Math.floor(viewport.width);
-      canvas.height = Math.floor(viewport.height);
-      await first.render({ canvasContext: context, viewport, canvas }).promise;
-      canvas.dataset.ready = "true";
+      const releaseSlot = await acquirePdfCoverRenderSlot();
+      try {
+        if (cancelled) return;
+        const fileBlob = await downloadBookFile(book.storage_path);
+        const pdfjs = await import("pdfjs-dist");
+        pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+        const pdf = await pdfjs.getDocument({ data: new Uint8Array(await fileBlob.arrayBuffer()), disableFontFace: true }).promise;
+        const first = await pdf.getPage(1);
+        const base = first.getViewport({ scale: 1 });
+        const viewport = first.getViewport({ scale: Math.max(0.34, Math.min(1.2, 420 / base.width)) });
+        if (cancelled || !canvasRef.current) return;
+        const canvas = canvasRef.current;
+        const context = canvas.getContext("2d", { alpha: false });
+        if (!context) throw new Error("COVER_CANVAS_UNAVAILABLE");
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        await first.render({ canvasContext: context, viewport, canvas }).promise;
+        canvas.dataset.ready = "true";
+        canvas.toBlob((blob) => {
+          if (blob) void saveCoverThumbnail(book, blob);
+        }, "image/jpeg", 0.82);
+      } finally {
+        releaseSlot();
+      }
     };
     render().catch(() => !cancelled && setFailed(true));
     return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [book.id, book.storage_path, book.metadata?.archive_cover_path]);
+  }, [book.id, book.storage_path, book.metadata?.archive_cover_path, book.metadata?.cover_path, isNearViewport]);
   if (failed) return <BookCover tone={coverToneFor(book.title)} title={book.title.split(" ").slice(0, 3).join(" ")} />;
-  if (archivedCoverUrl) return <div className="book-cover original-pdf-cover"><img src={archivedCoverUrl} alt={book.title} /></div>;
-  return <div className="book-cover original-pdf-cover"><canvas ref={canvasRef} aria-label={book.title} /></div>;
+  if (coverImageUrl) return <div className="book-cover original-pdf-cover"><img src={coverImageUrl} alt={book.title} /></div>;
+  return <div ref={wrapperRef} className="book-cover original-pdf-cover"><canvas ref={canvasRef} aria-label={book.title} /></div>;
 }
 
 /** A real saved book; page one is rendered as its cover with a safe fallback. */
