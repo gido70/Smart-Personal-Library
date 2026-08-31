@@ -2097,10 +2097,14 @@ function PilotWorkspace({
   useEffect(() => {
     const savedVoice = localStorage.getItem(`spl-professional-voice-${book.id}`);
     setProfessionalVoice(isProfessionalVoice(savedVoice) ? savedVoice : "marin");
+    // BookView stays mounted while the selected book changes. Reset the
+    // results language so a choice inherited from the previous book cannot
+    // make this book's already-paid analysis appear to be missing.
+    setResultLanguage(book.output_language === "en" ? "en" : rtl ? "ar" : "en");
     setHeardPreviewVoice(null);
     setCatalogEditing(false);
     setCatalogMessage("");
-  }, [book.id]);
+  }, [book.id, book.output_language, rtl]);
   const sizeMb = Math.max(0.1, (book.file_size || 0) / 1048576);
   const band = sizeMb < 5 ? "small" : sizeMb < 20 ? "medium" : "large";
   const estimates = {
@@ -2113,12 +2117,22 @@ function PilotWorkspace({
   const reload = async () => {
     const [data, limitSnapshot] = await Promise.all([getBookResults(book.id), getAiLimitsSnapshot()]);
     setLimits(limitSnapshot);
-    const paid = data.analyses.find(
+    const paidAnalyses = data.analyses.filter(
       (a) =>
         ["overview", "chapters", "critical", "metadata"].includes(a.kind) &&
-        (!a.source || a.source === "openai") &&
-        a.language === resultLanguage,
+        (!a.source || a.source === "openai"),
     );
+    const paid = paidAnalyses.find((a) => a.language === resultLanguage);
+    // Older paid results may use a different result language from the current
+    // selector. Prefer the saved result instead of presenting a new-purchase
+    // prompt. The effect reruns once with the recovered language.
+    if (!paid && paidAnalyses.length) {
+      const savedLanguage = paidAnalyses[0].language;
+      if (savedLanguage !== resultLanguage) {
+        setResultLanguage(savedLanguage);
+        return;
+      }
+    }
     setResults((paid?.content as Record<string, unknown>) ?? null);
     const local = data.analyses.find((a) => a.kind === "local_structural");
     setLocalAnalysis(
@@ -2136,9 +2150,19 @@ function PilotWorkspace({
       audioCharacters: cost.audioCharacters,
       unpricedCalls: cost.unpricedCalls,
     });
-    const languageAudio = data.audio.filter(
-      (item) => item.language === resultLanguage && item.voice === professionalVoice,
-    );
+    const allLanguageAudio = data.audio.filter((item) => item.language === resultLanguage);
+    let languageAudio = allLanguageAudio.filter((item) => item.voice === professionalVoice);
+    // Do not hide already-paid audio merely because the current/local voice
+    // selector differs from the voice used for the stored parts. Recover the
+    // saved voice, show its players immediately, and keep the selector aligned.
+    if (!languageAudio.length && allLanguageAudio.length) {
+      const savedAudioVoice = allLanguageAudio.find((item) => isProfessionalVoice(item.voice))?.voice;
+      if (isProfessionalVoice(savedAudioVoice)) {
+        languageAudio = allLanguageAudio.filter((item) => item.voice === savedAudioVoice);
+        setProfessionalVoice(savedAudioVoice);
+        localStorage.setItem(`spl-professional-voice-${book.id}`, savedAudioVoice);
+      }
+    }
     if (languageAudio.length)
       setAudioUrls(
         await Promise.all(
