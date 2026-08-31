@@ -597,7 +597,7 @@ export default function Home() {
         {view === "home" && (
           <nav className="mobile-home-toolbar" aria-label={rtl ? "أدوات الصفحة الرئيسية" : "Home page tools"}>
             <button className="tool-home active" aria-current="page" onClick={() => setView("home")}><i>⌂</i><span>{rtl ? "الرئيسية" : "Home"}</span></button>
-            <button className="tool-index" onClick={() => setView("library")}><i>▥</i><span>{rtl ? "الدليل" : "Index"}</span></button>
+            <button className="tool-index" onClick={() => setView("library")}><i>▥</i><span>{rtl ? "مكتبتي" : "My library"}</span></button>
             <button className="tool-guide" onClick={() => setView("guide")}><i>؟</i><span>{rtl ? "دليل الاستخدام" : "User guide"}</span></button>
             <button className="tool-refresh" onClick={activateLatestVersion} disabled={activating}><i>↻</i><span>{activating ? (rtl ? "جارٍ التنشيط" : "Activating") : (rtl ? "تنشيط الصفحة" : "Refresh page")}</span></button>
             <button className="tool-version" onClick={() => setNotice(rtl ? `النسخة الحالية: ${t.version}` : `Current version: ${t.version}`)}><i>V</i><span>{rtl ? "النسخة" : "Version"}</span></button>
