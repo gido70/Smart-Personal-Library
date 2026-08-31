@@ -495,6 +495,37 @@ export async function downloadBookFile(storagePath: string): Promise<Blob> {
 }
 
 /**
+ * Saves a small first-page JPEG for an active book. This is intentionally
+ * best-effort: a cache failure must never hide a cover that was rendered
+ * successfully in the current session.
+ */
+export async function saveCoverThumbnail(
+  book: Pick<PilotBook, "id" | "storage_path" | "metadata">,
+  coverBlob: Blob,
+): Promise<string | null> {
+  try {
+    const session = await ensurePilotSession();
+    const expectedPrefix = `${session.user.id}/${book.id}/`;
+    if (!book.storage_path.startsWith(expectedPrefix)) return null;
+    const coverPath = `${expectedPrefix}cover.jpg`;
+    const { error: uploadError } = await supabase!.storage
+      .from("spl-books")
+      .upload(coverPath, coverBlob, { contentType: "image/jpeg", upsert: true });
+    if (uploadError) throw uploadError;
+    const metadata = { ...(book.metadata ?? {}), cover_path: coverPath };
+    const { error: updateError } = await supabase!
+      .from("spl_books")
+      .update({ metadata })
+      .eq("id", book.id);
+    if (updateError) throw updateError;
+    return coverPath;
+  } catch (error) {
+    console.warn("SPL: cover thumbnail cache skipped", error);
+    return null;
+  }
+}
+
+/**
  * A time-limited, owner-scoped URL to read a saved book directly from Supabase
  * Storage — this is what lets Reader open a saved book without asking the user
  * to re-pick the file from disk. RLS on storage.objects still applies to the
