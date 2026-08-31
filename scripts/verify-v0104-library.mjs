@@ -41,6 +41,10 @@ check("unknown books remain explicitly unclassified instead of defaulting to 000
 check("empty library samples never invoke paid actions", /SAMPLE_BOOKS/.test(app) && /display-only examples/.test(app));
 check("empty library presents six samples", /رحلة في تاريخ العلوم/.test(app) && /مدخل إلى علم النفس/.test(app));
 check("Samsung cover path downloads authenticated bytes", /downloadBookFile/.test(app) && /fileBlob\.arrayBuffer/.test(app));
+check("active covers lazy-load near the viewport with bounded PDF concurrency", /IntersectionObserver/.test(app) && /MAX_CONCURRENT_PDF_COVER_RENDERS = 2/.test(app) && /acquirePdfCoverRenderSlot/.test(app));
+check("active cover thumbnails use a deterministic owner-scoped cache path", /activeCoverThumbnailPath/.test(app) && /cover\.jpg/.test(app) && /saveCoverThumbnail/.test(library));
+check("thumbnail caching cannot overwrite catalogue or archive metadata", !/saveCoverThumbnail[\s\S]*?update\(\{ metadata \}\)/.test(library));
+check("missing active thumbnails fall back to PDF and pdf.js memory is released", /for \(const cachedPath of cachedPaths\)/.test(app) && /if \(isBookArchived\(book\)\) throw/.test(app) && /first\?\.cleanup\(\)/.test(app) && /await loadingTask\.destroy\(\)/.test(app));
 check("notification bell and mobile destination are enabled", /🔔/.test(app) && !/disabled=\{id === "progress"\}/.test(app));
 check("service worker cache advances to V0.10.4", /smart-personal-library-v0\.10\.4/.test(worker));
 check("upload accepts 30 MB while preserving 500-page cap", /MAX_UPLOAD_BYTES = 30/.test(library) && /TOO_MANY_PAGES_500/.test(library) && /31457280/.test(requestMigration));
@@ -50,7 +54,7 @@ check("paid-task lock blocks repeat requests before React can rerender", /paidTa
 check("paid-task lock is released after recovery completion or timeout", /localStorage\.removeItem\(taskStorageKey\);\s*paidTaskLockRef\.current = false;/.test(app));
 check("server-side idempotency receipt is additive and owner-scoped", /spl_ai_requests/.test(requestMigration) && /unique \(user_id, idempotency_key\)/.test(requestMigration) && /enable row level security/.test(requestMigration));
 check("partial audio resumes missing parts instead of treating one part as complete", !/if \(existingAudio\?\.length\) return/.test(edge) && /completedParts\.has\(partNo\)/.test(edge) && /completedParts: completedParts\.size/.test(edge));
-check("full audio uses a stable operation key and read-only receipt polling", /`audio-\$\{book\.id\}-\$\{resultLanguage\}-\$\{professionalVoice\}`/.test(app) && /getPaidTaskReceipt/.test(app) && /receipt\.status === "succeeded"/.test(app));
+check("full audio uses a stable operation key and read-only receipt polling", /`audio-\$\{book\.id\}-\$\{resultLanguage\}-\$\{taskVoice\}`/.test(app) && /getPaidTaskReceipt/.test(app) && /receipt\.status === "succeeded"/.test(app));
 check("paid work has an unmistakable animated activity indicator", /task-motion/.test(app) && /spl-task-spin/.test(styles) && /animation:spl-task-spin/.test(styles));
 check("audio progress names every saved and pending part", /paid-task-parts/.test(app) && /الجزء \$\{index \+ 1\}/.test(app) && /paid-task-parts \.done/.test(styles));
 check("voice selection survives refresh and stays locked to the running task", /setProfessionalVoice\(saved\.voice\)/.test(app) && /if \(busy\) return/.test(app) && /requestedVoice = professionalVoice/.test(app));
