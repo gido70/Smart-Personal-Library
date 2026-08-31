@@ -30,6 +30,36 @@ const TEXT_MODEL = () => Deno.env.get("OPENAI_TEXT_MODEL") ?? "gpt-5.6-terra";
 // Pin the improved decoder so every independently generated part uses the
 // same speech model instead of changing when the floating alias advances.
 const TTS_MODEL = "gpt-4o-mini-tts-2025-12-15";
+const TTS_CHUNK_MAX_CHARACTERS = 3900;
+const splitTextForSpeech = (text: string, limit = TTS_CHUNK_MAX_CHARACTERS) => {
+  const chunks: string[] = [];
+  let current = "";
+  for (const rawSentence of text.split(/(?<=[.!؟?])\s+/u)) {
+    let remaining = rawSentence.trim();
+    while (remaining) {
+      const separator = current ? 1 : 0;
+      const room = limit - current.length - separator;
+      if (room <= 0) {
+        chunks.push(current);
+        current = "";
+        continue;
+      }
+      if (remaining.length <= room) {
+        current += `${current ? " " : ""}${remaining}`;
+        remaining = "";
+        continue;
+      }
+      let cut = remaining.lastIndexOf(" ", room);
+      if (cut < Math.floor(room * 0.6)) cut = room;
+      current += `${current ? " " : ""}${remaining.slice(0, cut).trim()}`;
+      if (current) chunks.push(current);
+      current = "";
+      remaining = remaining.slice(cut).trim();
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+};
 const PROFESSIONAL_VOICES = ["marin", "cedar", "coral", "onyx", "nova", "sage"] as const;
 type ProfessionalVoice = typeof PROFESSIONAL_VOICES[number];
 const professionalVoice = (value: unknown): ProfessionalVoice =>
@@ -296,7 +326,9 @@ Deno.serve(async (request) => {
       const sample = language === "ar"
         ? "في هذه المكتبة نقرأ بهدوء، ونمنح كل فكرة وقتها. هذا نموذج قصير لتختار الصوت الأقرب إليك قبل إنشاء الخلاصة الصوتية الكاملة."
         : "In this library, we read calmly and give every idea the time it deserves. This short sample helps you choose a voice before creating the full audio summary.";
-      const path = `${userData.user.id}/${bookId}/voice-previews/v2-${language}-${voice}.mp3`;
+      // v3 deliberately invalidates older cached samples created before the
+      // client/server voice-matching gate was added.
+      const path = `${userData.user.id}/${bookId}/voice-previews/v3-${language}-${voice}.mp3`;
       const { data: cached } = await supabase.storage.from("spl-audio").download(path);
       if (cached) return await finish({ ok: true, reused: true, storage_path: path, voice, language });
       const instructions = language === "ar"
@@ -323,8 +355,7 @@ Deno.serve(async (request) => {
       const instructions = language === "ar"
         ? "اقرأ بصوت راوٍ واحد ثابت في كل الأجزاء من البداية إلى النهاية. ممنوع تبديل الشخصية أو الجنس أو طبقة الصوت أو اللهجة، وممنوع تمثيل الاقتباسات أو الحوارات بأصوات أخرى. استخدم عربية فصحى واضحة، ونبرة كتاب صوتي هادئة وحيوية باعتدال، مع وقفات طبيعية وسرعة مريحة. انطق الكلمات الإنجليزية داخل النص بوضوح دون تغيير هوية الراوي. هذه خلاصة كتاب وليست قراءة حرفية للكتاب."
         : "Read like a calm, warm audiobook narrator at a slightly slower pace, without theatrical exaggeration, using natural pauses and clear English pronunciation. Pronounce any Arabic words carefully. This is a book summary, not a verbatim audiobook.";
-      const sentences = spoken.split(/(?<=[.!؟?])\s+/u);const chunks:string[]=[];let current="";
-      for(const sentence of sentences){if(current&&current.length+sentence.length>3400){chunks.push(current);current=""}current+=`${current?" ":""}${sentence}`}if(current)chunks.push(current);
+      const chunks = splitTextForSpeech(spoken);
       const totalParts = Math.min(chunks.length, 8);
       const { data: existingAudio, error: existingAudioError } = await supabase.from("spl_audio_outputs").select("id,language,voice,storage_path,part_no,created_at").eq("book_id", bookId).eq("language", language).eq("voice", voice).order("part_no");
       if (existingAudioError) throw existingAudioError;
