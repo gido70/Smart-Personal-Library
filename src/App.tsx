@@ -22,6 +22,7 @@ import {
   updateBookCatalogMetadata,
   updateBookClassification,
   restoreArchivedBook,
+  saveCoverThumbnail,
   isBookArchived,
   MAX_ACTIVE_BOOKS,
   type AiLimitsSnapshot,
@@ -53,6 +54,36 @@ type ProfessionalVoice = "marin" | "cedar" | "coral" | "onyx" | "nova" | "sage";
 const PROFESSIONAL_VOICES: ProfessionalVoice[] = ["marin", "cedar", "coral", "onyx", "nova", "sage"];
 const isProfessionalVoice = (value: unknown): value is ProfessionalVoice =>
   PROFESSIONAL_VOICES.includes(value as ProfessionalVoice);
+const TTS_CHUNK_MAX_CHARACTERS = 3900;
+const splitTextForSpeech = (text: string, limit = TTS_CHUNK_MAX_CHARACTERS) => {
+  const chunks: string[] = [];
+  let current = "";
+  for (const rawSentence of text.split(/(?<=[.!؟?])\s+/u)) {
+    let remaining = rawSentence.trim();
+    while (remaining) {
+      const separator = current ? 1 : 0;
+      const room = limit - current.length - separator;
+      if (room <= 0) {
+        chunks.push(current);
+        current = "";
+        continue;
+      }
+      if (remaining.length <= room) {
+        current += `${current ? " " : ""}${remaining}`;
+        remaining = "";
+        continue;
+      }
+      let cut = remaining.lastIndexOf(" ", room);
+      if (cut < Math.floor(room * 0.6)) cut = room;
+      current += `${current ? " " : ""}${remaining.slice(0, cut).trim()}`;
+      if (current) chunks.push(current);
+      current = "";
+      remaining = remaining.slice(cut).trim();
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+};
 const voiceLabel = (voice: ProfessionalVoice, rtl: boolean) => {
   const recommended = voice === "marin" || voice === "cedar";
   const name = `${voice[0].toUpperCase()}${voice.slice(1)}`;
@@ -62,18 +93,7 @@ const audioPartCount = (results: Record<string, unknown> | null) => {
   const overview = results?.overview as Record<string, unknown> | undefined;
   const spoken = String(overview?.summary ?? results?.summary ?? "").slice(0, 24000);
   if (!spoken) return 0;
-  const sentences = spoken.split(/(?<=[.!؟?])\s+/u);
-  let parts = 0;
-  let current = "";
-  for (const sentence of sentences) {
-    if (current && current.length + sentence.length > 3400) {
-      parts += 1;
-      current = "";
-    }
-    current += `${current ? " " : ""}${sentence}`;
-  }
-  if (current) parts += 1;
-  return Math.min(parts, 8);
+  return Math.min(splitTextForSpeech(spoken).length, 8);
 };
 type View =
   | "home"
@@ -1225,49 +1245,141 @@ function classificationSearchText(book: PilotBook, rtl: boolean) {
   ].filter(Boolean).join(" ").toLowerCase();
 }
 
+// Caps how many books can render a FULL pdf.js cover (download + decode +
+// canvas + Worker) at the same time. Without this, opening a library with
+// many books fires one full-PDF download and one pdf.js Worker per visible
+// card simultaneously — the main cause of covers failing to appear on
+// Samsung/Android browsers, whose per-tab memory budget is much tighter than
+// desktop or iPhone Safari. Cached thumbnails (the common case after the
+// first render) never touch this limiter at all.
+const MAX_CONCURRENT_PDF_COVER_RENDERS = 2;
+let activePdfCoverRenders = 0;
+const pdfCoverRenderQueue: Array<() => void> = [];
+function acquirePdfCoverRenderSlot(): Promise<() => void> {
+  return new Promise((resolve) => {
+    const tryAcquire = () => {
+      activePdfCoverRenders += 1;
+      resolve(() => {
+        activePdfCoverRenders -= 1;
+        const next = pdfCoverRenderQueue.shift();
+        if (next) next();
+      });
+    };
+    if (activePdfCoverRenders < MAX_CONCURRENT_PDF_COVER_RENDERS) tryAcquire();
+    else pdfCoverRenderQueue.push(tryAcquire);
+  });
+}
+
+function activeCoverThumbnailPath(book: PilotBook): string {
+  const separator = book.storage_path.lastIndexOf("/");
+  return separator >= 0 ? `${book.storage_path.slice(0, separator)}/cover.jpg` : "";
+}
+
 function OriginalPdfCover({ book }: { book: PilotBook }) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [failed, setFailed] = useState(false);
-  const [archivedCoverUrl, setArchivedCoverUrl] = useState("");
+  const [coverImageUrl, setCoverImageUrl] = useState("");
+  // Lazy-load: only start any network/PDF work once the card is actually
+  // near the viewport, instead of every card firing at once on mount. This
+  // is the other half of the Samsung fix — mobile screens show far fewer
+  // cards at a time than the whole library, so most work is deferred until
+  // the user scrolls near it.
+  const [isNearViewport, setIsNearViewport] = useState(false);
   useEffect(() => {
+    const node = wrapperRef.current;
+    if (!node) return;
+    if (typeof IntersectionObserver === "undefined") { setIsNearViewport(true); return; }
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries.some((entry) => entry.isIntersecting)) { setIsNearViewport(true); observer.disconnect(); } },
+      { rootMargin: "600px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!isNearViewport) return;
     let cancelled = false;
     let objectUrl = "";
     setFailed(false);
-    setArchivedCoverUrl("");
+    setCoverImageUrl("");
+    const archivedCoverPath = String(book.metadata?.archive_cover_path ?? "");
+    const cachedCoverPath = String(book.metadata?.cover_path ?? "") || activeCoverThumbnailPath(book);
     const render = async () => {
-      const archivedCoverPath = String(book.metadata?.archive_cover_path ?? "");
-      if (archivedCoverPath) {
-        const coverBlob = await downloadBookFile(archivedCoverPath);
-        objectUrl = URL.createObjectURL(coverBlob);
-        if (!cancelled) setArchivedCoverUrl(objectUrl);
-        return;
+      // 1) Archived books: a small cover JPEG was already saved when they
+      //    were archived — just show it.
+      // 2) Active books that already went through this component once: a
+      //    small cover JPEG was cached to metadata.cover_path (see below) —
+      //    show it directly, no PDF download or Worker involved.
+      const cachedPaths = [...new Set([archivedCoverPath, cachedCoverPath].filter(Boolean))];
+      for (const cachedPath of cachedPaths) {
+        try {
+          const coverBlob = await downloadBookFile(cachedPath);
+          objectUrl = URL.createObjectURL(coverBlob);
+          if (!cancelled) setCoverImageUrl(objectUrl);
+          return;
+        } catch {
+          // An active thumbnail is only a cache. If it is missing or corrupt,
+          // render from the original PDF and recreate it below. Archived books
+          // have no original to fall back to and will use BookCover safely.
+        }
       }
-      // Download through the authenticated Storage client instead of asking
-      // PDF.js to range-fetch a short-lived signed URL. Samsung Internet and
-      // some Android WebViews can reject those cross-origin range requests and
-      // leave an empty canvas even though the book itself is available.
-      const fileBlob = await downloadBookFile(book.storage_path);
-      const pdfjs = await import("pdfjs-dist");
-      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-      const pdf = await pdfjs.getDocument({ data: new Uint8Array(await fileBlob.arrayBuffer()), disableFontFace: true }).promise;
-      const first = await pdf.getPage(1);
-      const base = first.getViewport({ scale: 1 });
-      const viewport = first.getViewport({ scale: Math.max(0.34, Math.min(1.2, 420 / base.width)) });
-      if (cancelled || !canvasRef.current) return;
-      const canvas = canvasRef.current;
-      const context = canvas.getContext("2d", { alpha: false });
-      if (!context) throw new Error("COVER_CANVAS_UNAVAILABLE");
-      canvas.width = Math.floor(viewport.width);
-      canvas.height = Math.floor(viewport.height);
-      await first.render({ canvasContext: context, viewport, canvas }).promise;
-      canvas.dataset.ready = "true";
+      if (isBookArchived(book)) throw new Error("ARCHIVED_COVER_UNAVAILABLE");
+      // First time this book's cover is needed: fall back to the full
+      // render, but only MAX_CONCURRENT_PDF_COVER_RENDERS at a time so a
+      // large library doesn't spike memory on low-RAM Android devices.
+      const releaseSlot = await acquirePdfCoverRenderSlot();
+      try {
+        if (cancelled) return;
+        // Download through the authenticated Storage client instead of asking
+        // PDF.js to range-fetch a short-lived signed URL. Samsung Internet and
+        // some Android WebViews can reject those cross-origin range requests
+        // and leave an empty canvas even though the book itself is available.
+        const fileBlob = await downloadBookFile(book.storage_path);
+        const pdfjs = await import("pdfjs-dist");
+        pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+        const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await fileBlob.arrayBuffer()), disableFontFace: true });
+        const pdf = await loadingTask.promise;
+        let first: Awaited<ReturnType<typeof pdf.getPage>> | null = null;
+        try {
+          first = await pdf.getPage(1);
+          const base = first.getViewport({ scale: 1 });
+          const viewport = first.getViewport({ scale: Math.max(0.34, Math.min(1.2, 420 / base.width)) });
+          if (cancelled || !canvasRef.current) return;
+          const canvas = canvasRef.current;
+          const context = canvas.getContext("2d", { alpha: false });
+          if (!context) throw new Error("COVER_CANVAS_UNAVAILABLE");
+          canvas.width = Math.floor(viewport.width);
+          canvas.height = Math.floor(viewport.height);
+          await first.render({ canvasContext: context, viewport, canvas }).promise;
+          canvas.dataset.ready = "true";
+          // Cache a small JPEG so every future load of this book (this device
+          // or any other) uses the cheap path above instead of re-downloading
+          // and re-decoding the whole PDF. Fire-and-forget: a caching failure
+          // must not affect the cover that already rendered successfully.
+          canvas.toBlob((blob) => { if (blob) void saveCoverThumbnail(book, blob); }, "image/jpeg", 0.82);
+        } finally {
+          first?.cleanup();
+          await loadingTask.destroy();
+        }
+      } finally {
+        releaseSlot();
+      }
     };
     render().catch(() => !cancelled && setFailed(true));
     return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [book.id, book.storage_path, book.metadata?.archive_cover_path]);
+  }, [book.id, book.storage_path, book.metadata?.archive_cover_path, book.metadata?.cover_path, isNearViewport]);
+  // wrapperRef only needs to sit on the placeholder box below: that's the
+  // only state rendered before isNearViewport flips to true, at which point
+  // the observer has already done its job and disconnected. Attaching it
+  // there (rather than a synthetic outer wrapper) keeps the exact original
+  // .book-cover DOM structure intact, so the CSS grid sizing rules that
+  // target `.book-cover` as a direct child (e.g. `.book-card .book-cover`)
+  // and BookCover's own `.book-cover` div are unaffected.
   if (failed) return <BookCover tone={coverToneFor(book.title)} title={book.title.split(" ").slice(0, 3).join(" ")} />;
-  if (archivedCoverUrl) return <div className="book-cover original-pdf-cover"><img src={archivedCoverUrl} alt={book.title} /></div>;
-  return <div className="book-cover original-pdf-cover"><canvas ref={canvasRef} aria-label={book.title} /></div>;
+  if (coverImageUrl) return <div className="book-cover original-pdf-cover"><img src={coverImageUrl} alt={book.title} /></div>;
+  return <div ref={wrapperRef} className="book-cover original-pdf-cover"><canvas ref={canvasRef} aria-label={book.title} /></div>;
 }
 
 /** A real saved book; page one is rendered as its cover with a safe fallback. */
@@ -1886,6 +1998,7 @@ function PilotWorkspace({
     return isProfessionalVoice(saved) ? saved : "marin";
   });
   const [voicePreviewUrls, setVoicePreviewUrls] = useState<Partial<Record<ProfessionalVoice, string>>>({});
+  const [heardPreviewVoice, setHeardPreviewVoice] = useState<ProfessionalVoice | null>(null);
   const [questionHistory, setQuestionHistory] = useState<Array<{ id: string; question: string; answer: Record<string, unknown>; language: "ar" | "en"; created_at: string }>>([]);
   const [usageTotals, setUsageTotals] = useState({ calls: 0, input: 0, output: 0, textCostUsd: 0, audioCharacters: 0, unpricedCalls: 0 });
   const [limits, setLimits] = useState<AiLimitsSnapshot | null>(null);
@@ -1926,13 +2039,14 @@ function PilotWorkspace({
       // selected voice is being loaded from private storage.
       setAudioUrls([]);
       setConfirming("");
+      setHeardPreviewVoice(null);
     }
     setProfessionalVoice(voice);
     localStorage.setItem(`spl-professional-voice-${book.id}`, voice);
   };
   const taskStorageKey = `spl-paid-task-${book.id}`;
   const expectedAudioParts = audioPartCount(results);
-  const beginPaidTask = (action: "process" | "ask" | "audio" | "audio_preview") => {
+  const beginPaidTask = (action: "process" | "ask" | "audio" | "audio_preview", voiceOverride?: ProfessionalVoice) => {
     if (paidTaskLockRef.current || localStorage.getItem(taskStorageKey)) {
       setRecoveryMessage(rtl ? "الطلب مسجّل بالفعل وما زال قيد المتابعة. انتظر ولا تضغط مرة أخرى حتى لا يتكرر الطلب." : "This request is already registered and still being monitored. Wait and do not press again to avoid a duplicate request.");
       return null;
@@ -1940,10 +2054,11 @@ function PilotWorkspace({
     paidTaskLockRef.current = true;
     // A full-audio operation has one stable identity per book/language/voice.
     // A retry therefore resumes missing parts instead of buying a second copy.
+    const taskVoice = voiceOverride ?? professionalVoice;
     const requestId = action === "audio"
-      ? `audio-${book.id}-${resultLanguage}-${professionalVoice}`
+      ? `audio-${book.id}-${resultLanguage}-${taskVoice}`
       : crypto.randomUUID();
-    localStorage.setItem(taskStorageKey, JSON.stringify({ requestId, action, startedAt: new Date().toISOString(), language: resultLanguage, voice: professionalVoice }));
+    localStorage.setItem(taskStorageKey, JSON.stringify({ requestId, action, startedAt: new Date().toISOString(), language: resultLanguage, voice: taskVoice }));
     setPaidTaskProgress(null);
     setRecoveryMessage("");
     return requestId;
@@ -1964,6 +2079,7 @@ function PilotWorkspace({
   useEffect(() => {
     const savedVoice = localStorage.getItem(`spl-professional-voice-${book.id}`);
     setProfessionalVoice(isProfessionalVoice(savedVoice) ? savedVoice : "marin");
+    setHeardPreviewVoice(null);
     setCatalogEditing(false);
     setCatalogMessage("");
   }, [book.id]);
@@ -2167,6 +2283,9 @@ function PilotWorkspace({
         voice: requestedVoice,
         requestId,
       });
+      if (data.voice !== requestedVoice || data.audio.some((item: { voice?: string }) => item.voice !== requestedVoice)) {
+        throw new Error("FULL_AUDIO_VOICE_MISMATCH");
+      }
       setAudioUrls(
         await Promise.all(
           data.audio.map((item: { storage_path: string }) =>
@@ -2188,7 +2307,7 @@ function PilotWorkspace({
     if (ZERO_COST_MODE) return;
     selectProfessionalVoice(voice);
     setError("");
-    const requestId = beginPaidTask("audio_preview");
+    const requestId = beginPaidTask("audio_preview", voice);
     if (!requestId) return;
     setBusy(`preview-${voice}`);
     try {
@@ -2197,6 +2316,7 @@ function PilotWorkspace({
         voice,
         requestId,
       });
+      if (data.voice !== voice || data.language !== resultLanguage) throw new Error("VOICE_PREVIEW_MISMATCH");
       const url = await getPrivateAudioUrl(data.storage_path);
       setVoicePreviewUrls((current) => ({ ...current, [voice]: url }));
       await reload();
@@ -2207,6 +2327,11 @@ function PilotWorkspace({
     } finally {
       if (!localStorage.getItem(taskStorageKey)) setBusy("");
     }
+  };
+  const keepOnlyThisAudioPlaying = (current: HTMLAudioElement) => {
+    document.querySelectorAll("audio").forEach((player) => {
+      if (player !== current && !player.paused) player.pause();
+    });
   };
   const runLocalAnalysis = async () => {
     setLocalBusy(true);
@@ -2386,7 +2511,7 @@ function PilotWorkspace({
       <button className="secondary voice-preview-button" disabled={Boolean(busy)} onClick={() => previewVoice(voice)}>
         {busy === `preview-${voice}` ? (rtl ? "جارٍ إنشاء العينة" : "Generating sample") : rtl ? "أنشئ/شغّل العينة" : "Create/play sample"}
       </button>
-      {voicePreviewUrls[voice] && <audio controls preload="metadata" src={voicePreviewUrls[voice]} />}
+      {voicePreviewUrls[voice] && <audio controls preload="metadata" src={voicePreviewUrls[voice]} onPlay={(event) => keepOnlyThisAudioPlaying(event.currentTarget)} onEnded={() => setHeardPreviewVoice(voice)} />}
     </div>
   );
   return (
@@ -2932,6 +3057,9 @@ function PilotWorkspace({
                       ? "استمع إلى عينة قصيرة أولًا. تُنشأ العينة مرة واحدة بتكلفة ضئيلة جدًا، ثم يعاد تشغيلها دون تكلفة."
                       : "Listen to a short sample first. It has a tiny one-time generation cost, then replays at no cost."}
                   </p>
+                  <p className="voice-preview-note">{rtl
+                    ? "تنبيه: أصوات OpenAI مولدة بالذكاء الاصطناعي ومحسّنة أساسًا للإنجليزية؛ لا نضمن وصفًا جندريًا ثابتًا للعربية. اختر بالاستماع إلى العينة العربية نفسها."
+                    : "Note: OpenAI voices are AI-generated and primarily optimized for English; a fixed gender description is not guaranteed in Arabic. Choose by listening to the Arabic sample itself."}</p>
                   <div className="voice-choice-grid">
                     {PROFESSIONAL_VOICES.slice(0, 2).map(renderVoiceChoice)}
                   </div>
@@ -2946,11 +3074,11 @@ function PilotWorkspace({
                   <p className="audio-parts-disclosure">{rtl
                     ? `سيُقسّم الملخص إلى ${expectedAudioParts || "عدة"} أجزاء صوتية قصيرة. سيظهر كل جزء بعلامة ✓ فور حفظه، ويمكن استكمال الناقص دون إعادة الأجزاء المحفوظة.`
                     : `The summary will be split into ${expectedAudioParts || "several"} short audio parts. Each part gets a ✓ as soon as it is saved, and missing parts can resume without recreating saved ones.`}</p>
-                  {!audioUrls.length && !voicePreviewUrls[professionalVoice] && <p className="voice-quality-gate">{rtl ? "اختبر الصوت المختار واستمع إليه قبل تفعيل الشراء الكامل." : "Test and listen to the selected voice before enabling the full purchase."}</p>}
+                  {!audioUrls.length && heardPreviewVoice !== professionalVoice && <p className="voice-quality-gate">{rtl ? "استمع إلى عينة الصوت المختار حتى نهايتها قبل تفعيل الشراء الكامل." : "Listen to the selected voice sample to the end before enabling the full purchase."}</p>}
                   {confirming !== "audio" ? (
                     <button
                       className="secondary"
-                      disabled={!results || (!audioUrls.length && !voicePreviewUrls[professionalVoice])}
+                      disabled={!results || (!audioUrls.length && heardPreviewVoice !== professionalVoice)}
                       onClick={() => setConfirming("audio")}
                     >
                       {audioUrls.length > 0 ? (rtl ? "راجع استكمال الصوت الناقص" : "Review missing-audio resume") : (rtl ? "راجع التكلفة" : "Review cost")}
@@ -2981,7 +3109,7 @@ function PilotWorkspace({
                       </button>
                     </div>
                   )}
-                  {audioUrls.length > 0 && <div className="professional-audio-list">{audioUrls.map((url, index) => <label key={url}><span>{rtl ? `الجزء ${index + 1}` : `Part ${index + 1}`}</span><audio controls preload="metadata" src={url} /></label>)}<small>{rtl ? "هذه الأصوات مولدة بالذكاء الاصطناعي." : "These voices are AI-generated."}</small></div>}
+                  {audioUrls.length > 0 && <div className="professional-audio-list">{audioUrls.map((url, index) => <label key={url}><span>{rtl ? `الجزء ${index + 1}` : `Part ${index + 1}`}</span><audio controls preload="metadata" src={url} onPlay={(event) => keepOnlyThisAudioPlaying(event.currentTarget)} /></label>)}<small>{rtl ? "هذه الأصوات مولدة بالذكاء الاصطناعي." : "These voices are AI-generated."}</small></div>}
                 </>
               )}
             </section>
