@@ -577,12 +577,12 @@ export default function Home() {
             <button type="submit" aria-label={rtl ? "تنفيذ البحث" : "Run search"} title={rtl ? "بحث" : "Search"}>⌕</button>
           </form>
           <div className="top-actions">
-            <button onClick={() => setView("guide")} title={rtl ? "دليل الاستخدام" : "User guide"}>؟</button>
-            <button onClick={activateLatestVersion} disabled={activating} title={rtl ? "تنشيط أحدث نسخة" : "Activate latest version"}>↻</button>
+            <button className="desktop-utility" onClick={() => setView("guide")} title={rtl ? "دليل الاستخدام" : "User guide"}>؟</button>
+            <button className="desktop-utility" onClick={activateLatestVersion} disabled={activating} title={rtl ? "تنشيط أحدث نسخة" : "Activate latest version"}>↻</button>
             <button onClick={switchLang} className="lang-switch">
               {rtl ? "EN" : "ع"}
             </button>
-            <button onClick={() => setDark(!dark)}>{dark ? "☀" : "◐"}</button>
+            <button className="desktop-utility" onClick={() => setDark(!dark)}>{dark ? "☀" : "◐"}</button>
             <button
               className={`bell ${reminderCount > 0 ? "has-alerts" : ""}`}
               title={rtl ? "التنبيهات" : "Notifications"}
@@ -592,6 +592,14 @@ export default function Home() {
               🔔
               {reminderCount > 0 && <b>{reminderCount > 9 ? "9+" : reminderCount}</b>}
             </button>
+            <details className="mobile-more-actions">
+              <summary aria-label={rtl ? "المزيد من الأدوات" : "More tools"}>•••</summary>
+              <div>
+                <button onClick={() => setView("guide")}>{rtl ? "دليل الاستخدام" : "User guide"} <i>؟</i></button>
+                <button onClick={activateLatestVersion} disabled={activating}>{rtl ? "تنشيط النسخة" : "Refresh version"} <i>↻</i></button>
+                <button onClick={() => setDark(!dark)}>{rtl ? "مظهر الصفحة" : "Appearance"} <i>{dark ? "☀" : "◐"}</i></button>
+              </div>
+            </details>
           </div>
         </header>
         {view === "home" && (
@@ -807,6 +815,8 @@ function Dashboard({
   const activePilotBooks = pilotBooks.filter((book) => !isBookArchived(book)).slice(0, MAX_ACTIVE_BOOKS);
   const knowledgeCopies = pilotBooks.filter(isBookArchived);
   const [homeShelf, setHomeShelf] = useState<"active" | "archive">(() => localStorage.getItem("spl-preferred-library-shelf") === "archive" ? "archive" : "active");
+  const [mobileLibrarianOpen, setMobileLibrarianOpen] = useState(false);
+  const [mobileJourneyOpen, setMobileJourneyOpen] = useState(false);
   const previewBooks = (homeShelf === "active" ? activePilotBooks : knowledgeCopies).slice(0, MAX_ACTIVE_BOOKS);
   const chooseHomeShelf = (nextShelf: "active" | "archive") => {
     setHomeShelf(nextShelf);
@@ -814,7 +824,7 @@ function Dashboard({
   };
   const current = activePilotBooks[0];
   return (
-    <div className="page">
+    <div className="page dashboard-page">
       <section className="welcome">
         <div>
           <span className="eyebrow">
@@ -894,28 +904,33 @@ function Dashboard({
             </div>
           </div> : <p className="disclosure-note">{rtl ? "لم تضف كتابًا حقيقيًا بعد." : "No real book has been added yet."}</p>}
         </article>
-        <article className="panel librarian-card">
+        <article className={`panel librarian-card ${mobileLibrarianOpen ? "mobile-expanded" : ""}`}>
           <div className="librarian-icon">✦</div>
           <span className="eyebrow">
             {rtl ? "توصية شخصية" : "Personal recommendation"}
           </span>
           <h3>{t.suggestion}</h3>
-          <p>{current
-            ? (rtl
-              ? `ابدأ بتحليل «${current.title}» ثم اسأل أمين المكتبة عن الأفكار والفصول التي تستحق العودة إلى المصدر.`
-              : `Analyze “${current.title}”, then ask the librarian which ideas and chapters deserve a return to the source.`)
-            : (rtl ? "أضف أول كتاب حقيقي ليبدأ الاقتراح من بيانات مكتبتك، لا من أمثلة وهمية." : "Add your first real book so recommendations use your library—not placeholder examples.")}</p>
-          <div className="source-note">
-            <b>{rtl ? "سبب الاقتراح" : "Why this suggestion"}</b>
-            <span>
-              {rtl
-                ? "يتفعّل من تحليلات كتبك المحفوظة فقط"
-                : "Enabled only from your saved book analyses"}
-            </span>
+          <button className="mobile-section-toggle" onClick={() => setMobileLibrarianOpen((open) => !open)} aria-expanded={mobileLibrarianOpen}>
+            {mobileLibrarianOpen ? (rtl ? "إخفاء" : "Hide") : (rtl ? "عرض الاقتراح" : "Show suggestion")}
+          </button>
+          <div className="mobile-collapsible-content">
+            <p>{current
+              ? (rtl
+                ? `ابدأ بتحليل «${current.title}» ثم اسأل أمين المكتبة عن الأفكار والفصول التي تستحق العودة إلى المصدر.`
+                : `Analyze “${current.title}”, then ask the librarian which ideas and chapters deserve a return to the source.`)
+              : (rtl ? "أضف أول كتاب حقيقي ليبدأ الاقتراح من بيانات مكتبتك، لا من أمثلة وهمية." : "Add your first real book so recommendations use your library—not placeholder examples.")}</p>
+            <div className="source-note">
+              <b>{rtl ? "سبب الاقتراح" : "Why this suggestion"}</b>
+              <span>
+                {rtl
+                  ? "يتفعّل من تحليلات كتبك المحفوظة فقط"
+                  : "Enabled only from your saved book analyses"}
+              </span>
+            </div>
+            {current && <button className="text-button" onClick={() => onOpenPilot(current)}>
+              {rtl ? "حلّل الكتاب واسأله" : "Analyze and ask this book"}
+            </button>}
           </div>
-          {current && <button className="text-button" onClick={() => onOpenPilot(current)}>
-            {rtl ? "حلّل الكتاب واسأله" : "Analyze and ask this book"}
-          </button>}
         </article>
       </section>
       <section className="panel library-preview">
@@ -949,12 +964,15 @@ function Dashboard({
           )}
         </div>
       </section>
-      <section className="journey">
+      <section className={`journey ${mobileJourneyOpen ? "mobile-expanded" : ""}`}>
         <SectionHead
           over={rtl ? "من الملف إلى المعرفة" : "From file to knowledge"}
           title={t.journey}
         />
-        <div className="steps">
+        <button className="mobile-section-toggle journey-toggle" onClick={() => setMobileJourneyOpen((open) => !open)} aria-expanded={mobileJourneyOpen}>
+          {mobileJourneyOpen ? (rtl ? "إخفاء الخطوات" : "Hide steps") : (rtl ? "عرض الخطوات الخمس" : "Show five steps")}
+        </button>
+        <div className="steps mobile-collapsible-content">
           {[
             [
               "01",
