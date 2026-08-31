@@ -592,16 +592,18 @@ export default function Home() {
               🔔
               {reminderCount > 0 && <b>{reminderCount > 9 ? "9+" : reminderCount}</b>}
             </button>
-            <details className="mobile-more-actions">
-              <summary aria-label={rtl ? "المزيد من الأدوات" : "More tools"}>•••</summary>
-              <div>
-                <button onClick={() => setView("guide")}>{rtl ? "دليل الاستخدام" : "User guide"} <i>؟</i></button>
-                <button onClick={activateLatestVersion} disabled={activating}>{rtl ? "تنشيط النسخة" : "Refresh version"} <i>↻</i></button>
-                <button onClick={() => setDark(!dark)}>{rtl ? "مظهر الصفحة" : "Appearance"} <i>{dark ? "☀" : "◐"}</i></button>
-              </div>
-            </details>
           </div>
         </header>
+        {view === "home" && (
+          <nav className="mobile-home-toolbar" aria-label={rtl ? "أدوات الصفحة الرئيسية" : "Home page tools"}>
+            <button className="tool-home active" aria-current="page" onClick={() => setView("home")}><i>⌂</i><span>{rtl ? "الرئيسية" : "Home"}</span></button>
+            <button className="tool-index" onClick={() => setView("library")}><i>▥</i><span>{rtl ? "مكتبتي" : "My library"}</span></button>
+            <button className="tool-guide" onClick={() => setView("guide")}><i>؟</i><span>{rtl ? "دليل الاستخدام" : "User guide"}</span></button>
+            <button className="tool-refresh" onClick={activateLatestVersion} disabled={activating}><i>↻</i><span>{activating ? (rtl ? "جارٍ التنشيط" : "Activating") : (rtl ? "تنشيط الصفحة" : "Refresh page")}</span></button>
+            <button className="tool-version" onClick={() => setNotice(rtl ? `النسخة الحالية: ${t.version}` : `Current version: ${t.version}`)}><i>V</i><span>{rtl ? "النسخة" : "Version"}</span></button>
+            <button className={`tool-theme ${dark ? "active" : ""}`} aria-pressed={dark} onClick={() => setDark(!dark)}><i>{dark ? "☀" : "◐"}</i><span>{rtl ? "المظهر" : "Appearance"}</span></button>
+          </nav>
+        )}
         {view === "home" && (
           <Dashboard
             rtl={rtl}
