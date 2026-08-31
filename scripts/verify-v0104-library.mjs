@@ -8,6 +8,7 @@ const edge = read("supabase/functions/spl-ai/index.ts");
 const worker = read("public/sw.js");
 const styles = read("src/v0103.css");
 const requestMigration = read("supabase/migrations/20260830_0005_spl_v0104_idempotent_ai_requests.sql");
+const coverMigration = read("supabase/migrations/20260831_0006_spl_cover_thumbnails.sql");
 let failed = 0;
 function check(name, condition) {
   console.log(`${condition ? "PASS" : "FAIL"}  ${name}`);
@@ -43,6 +44,7 @@ check("empty library presents six samples", /رحلة في تاريخ العلو
 check("Samsung cover path downloads authenticated bytes", /downloadBookFile/.test(app) && /fileBlob\.arrayBuffer/.test(app));
 check("active covers lazy-load near the viewport with bounded PDF concurrency", /IntersectionObserver/.test(app) && /MAX_CONCURRENT_PDF_COVER_RENDERS = 2/.test(app) && /acquirePdfCoverRenderSlot/.test(app));
 check("active cover thumbnails use a deterministic owner-scoped cache path", /activeCoverThumbnailPath/.test(app) && /cover\.jpg/.test(app) && /saveCoverThumbnail/.test(library));
+check("private book bucket accepts JPEG cover thumbnails", /update storage\.buckets/.test(coverMigration) && /image\/jpeg/.test(coverMigration) && /SPL_COVER_JPEG_MIME_NOT_ENABLED/.test(coverMigration));
 check("thumbnail caching cannot overwrite catalogue or archive metadata", !/saveCoverThumbnail[\s\S]*?update\(\{ metadata \}\)/.test(library));
 check("missing active thumbnails fall back to PDF and pdf.js memory is released", /for \(const cachedPath of cachedPaths\)/.test(app) && /if \(isBookArchived\(book\)\) throw/.test(app) && /first\?\.cleanup\(\)/.test(app) && /await loadingTask\.destroy\(\)/.test(app));
 check("notification bell and mobile destination are enabled", /🔔/.test(app) && !/disabled=\{id === "progress"\}/.test(app));
