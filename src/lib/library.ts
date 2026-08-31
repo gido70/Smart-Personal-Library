@@ -494,6 +494,46 @@ export async function downloadBookFile(storagePath: string): Promise<Blob> {
   return data;
 }
 
+// ---------------------------------------------------------------------------
+// Cover thumbnails for ACTIVE books (mobile reliability fix, V0.10.5).
+//
+// Before this, every library render re-downloaded the FULL original PDF
+// (up to MAX_UPLOAD_BYTES = 30MB) for every visible book just to rasterize
+// page 1 as a cover, in parallel for every card on screen. That is fine on
+// desktop/iPhone, but on Samsung/Android browsers with tighter per-tab memory
+// budgets it routinely exhausts memory and the tab drops most covers (and, on
+// low-memory devices, the whole page reloads mid-render) — this is the
+// reported "most books don't show on Samsung" bug.
+//
+// Fix: generate a small JPEG (~420px wide, same size already used for
+// archived-book covers) once, store it next to the book under
+// `<user>/<book>/cover.jpg`. The path is deterministic from `storage_path`, so
+// the UI can reuse it without rewriting the entire metadata JSON object. That
+// avoids a last-writer-wins race with catalogue or archive metadata updates.
+// ---------------------------------------------------------------------------
+
+/** Persists a pre-rendered cover JPEG for an active book. Best-effort: failures
+ * here must never break the on-the-fly cover render that produced `coverBlob`.
+ * No database update is needed because the cache path is deterministic. */
+export async function saveCoverThumbnail(book: Pick<PilotBook, "id" | "storage_path">, coverBlob: Blob): Promise<string | null> {
+  try {
+    const session = await ensurePilotSession();
+    const expectedPrefix = `${session.user.id}/${book.id}/`;
+    if (!book.storage_path.startsWith(expectedPrefix)) return null;
+    const coverPath = `${expectedPrefix}cover.jpg`;
+    const { error: uploadError } = await supabase!.storage
+      .from("spl-books")
+      .upload(coverPath, coverBlob, { contentType: "image/jpeg", upsert: true });
+    if (uploadError) throw uploadError;
+    return coverPath;
+  } catch (error) {
+    // Best-effort cache write; the visible cover already rendered successfully
+    // for this session, so a failure here just means we retry next time.
+    console.warn("SPL: cover thumbnail cache skipped", error);
+    return null;
+  }
+}
+
 /**
  * A time-limited, owner-scoped URL to read a saved book directly from Supabase
  * Storage — this is what lets Reader open a saved book without asking the user
