@@ -110,3 +110,9 @@
 - Add a standard yellow notification bell and enable the mobile notifications destination.
 - Expand the user guide for classification, archive, limits, progress, failure and no-charge messages.
 - Improve dark-mode contrast for gold panels and newly added controls.
+# V0.10.5-candidate
+
+- جعل الكتب المكتملة صوتيًا في وضع التشغيل فقط، دون عرض إنشاء أو شراء أو اختيار صوت مرة أخرى.
+- تحديث اختصار الهاتف إلى «تشغيل الصوت المحفوظ» عند اكتمال الصوت.
+- إضافة اختبار دائم لحالة اكتمال الصوت.
+- إضافة التصور التنفيذي الآمن لنسخة المشرف والمراجعين.
