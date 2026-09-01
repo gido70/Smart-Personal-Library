@@ -104,6 +104,7 @@ type View =
   | "progress"
   | "librarian"
   | "feedback"
+  | "reviewer"
   | "guide";
 
 const text = {
@@ -547,6 +548,9 @@ export default function Home() {
               ? "مكتبتك قابلة للنمو. لا يبدأ التحليل أو السؤال أو الصوت الاحترافي إلا بعد تأكيدك."
               : "Your library can grow. Analysis, questions, and professional audio start only after your confirmation."}
           </p>
+          <button className="reviewer-preview-link" onClick={() => setView("reviewer")}>
+            ◉ {rtl ? "معاينة نسخة المشرف" : "Preview reviewer view"}
+          </button>
         </div>
         <div className="profile">
           <span>ع</span>
@@ -659,6 +663,7 @@ export default function Home() {
         {view === "progress" && <Progress rtl={rtl} title={pageTitle} books={pilotBooks.filter((book) => !isBookArchived(book))} />}
         {view === "librarian" && <Librarian rtl={rtl} title={pageTitle} />}
         {view === "feedback" && <Feedback rtl={rtl} t={t} />}
+        {view === "reviewer" && <ReviewerPreview rtl={rtl} books={pilotBooks} onBack={() => setView("home")} />}
         {view === "guide" && <UserGuide rtl={rtl} onUpload={openUpload} onLibrary={() => setView("library")} onActivate={activateLatestVersion} activating={activating} />}
       </main>
       <nav className="mobile-nav">
@@ -692,6 +697,86 @@ export default function Home() {
         />
       )}
       {notice && <div className="toast">✓ {notice}</div>}
+    </div>
+  );
+}
+
+function ReviewerPreview({ rtl, books, onBack }: { rtl: boolean; books: PilotBook[]; onBack: () => void }) {
+  const visibleBooks = books.filter((book) => !isBookArchived(book));
+  const [selectedBookId, setSelectedBookId] = useState(visibleBooks[0]?.id ?? "");
+  const [results, setResults] = useState<Record<string, unknown> | null>(null);
+  const [audioUrls, setAudioUrls] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const selectedBook = visibleBooks.find((book) => book.id === selectedBookId) ?? visibleBooks[0];
+
+  useEffect(() => {
+    if (!selectedBook && visibleBooks[0]) setSelectedBookId(visibleBooks[0].id);
+  }, [selectedBook, visibleBooks]);
+
+  useEffect(() => {
+    if (!selectedBook) {
+      setResults(null);
+      setAudioUrls([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    getBookResults(selectedBook.id)
+      .then(async (data) => {
+        if (cancelled) return;
+        const paid = data.analyses.find((item) => item.kind === "overview" && item.language === selectedBook.output_language)
+          ?? data.analyses.find((item) => item.kind === "overview")
+          ?? data.analyses[0];
+        setResults((paid?.content as Record<string, unknown>) ?? null);
+        const urls = await Promise.all(data.audio.map((item) => getPrivateAudioUrl(item.storage_path)));
+        if (!cancelled) setAudioUrls(urls);
+      })
+      .catch((value) => {
+        if (!cancelled) setError(value instanceof Error ? value.message : String(value));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [selectedBook?.id, selectedBook?.output_language]);
+
+  return (
+    <div className="page reviewer-preview-page">
+      <button className="back" onClick={onBack}>→ {rtl ? "العودة إلى حساب المالك" : "Back to owner account"}</button>
+      <section className="reviewer-hero">
+        <span className="eyebrow">{rtl ? "نسخة المشرف والمراجع" : "Supervisor and reviewer view"}</span>
+        <h2>{rtl ? "مرحبًا بك في المكتبة الشخصية الذكية" : "Welcome to the Smart Personal Library"}</h2>
+        <p>{rtl ? "تصفح الكتب المختارة، راجع المخرجات، واستمع إلى الصوت المحفوظ، ثم دوّن تقييمك وملاحظاتك." : "Review selected books and saved outputs, listen to saved audio, then record your evaluation."}</p>
+        <b>{rtl ? "معاينة المالك — لا توجد صلاحيات مشاركة خارجية بعد" : "Owner preview — external sharing is not enabled yet"}</b>
+      </section>
+      <div className="reviewer-layout">
+        <aside className="panel reviewer-books">
+          <h3>{rtl ? "الكتب المتاحة للمراجعة" : "Books available for review"}</h3>
+          {visibleBooks.length ? visibleBooks.map((book, index) => <button key={book.id} className={selectedBook?.id === book.id ? "active" : ""} onClick={() => setSelectedBookId(book.id)}>
+            <span>{String(index + 1).padStart(2, "0")}</span><strong>{book.title}</strong>
+          </button>) : <p>{rtl ? "لا توجد كتب مختارة حاليًا." : "No books are selected yet."}</p>}
+        </aside>
+        <main className="reviewer-content">
+          {selectedBook && <>
+            <section className="panel reviewer-book-heading"><OriginalPdfCover book={selectedBook} /><div><span className="eyebrow">{rtl ? "كتاب مختار" : "Selected book"}</span><h3>{selectedBook.title}</h3><p>{rtl ? "النتائج المعروضة محفوظة مسبقًا ولا يبدأ فتح هذه الصفحة أي معالجة جديدة." : "These results are already saved; opening this page starts no new processing."}</p></div></section>
+            {loading && <section className="panel">{rtl ? "جارٍ تحميل النتائج المحفوظة…" : "Loading saved results…"}</section>}
+            {!loading && results && <section className="panel reviewer-results"><h3>{rtl ? "الخلاصة والتحليل" : "Summary and analysis"}</h3><PaidResultView result={results} rtl={rtl} /></section>}
+            {!loading && !results && <section className="panel"><p>{rtl ? "لا توجد خلاصة محفوظة لهذا الكتاب." : "No saved summary is available for this book."}</p></section>}
+            {audioUrls.length > 0 && <section className="panel reviewer-audio"><span className="eyebrow">{rtl ? "محفوظ وجاهز" : "Saved and ready"}</span><h3>{rtl ? "الاستماع إلى الصوت المحفوظ" : "Listen to saved audio"}</h3><div className="professional-audio-list saved-audio-only">{audioUrls.map((url, index) => <label key={url}><span>{rtl ? `الجزء ${index + 1}` : `Part ${index + 1}`}</span><audio controls preload="metadata" src={url} /></label>)}</div></section>}
+            {error && <div className="reader-error inline">{error}</div>}
+            <section className="panel reviewer-feedback-form">
+              <span className="eyebrow">{rtl ? "التقييم والملاحظات" : "Evaluation and notes"}</span>
+              <h3>{rtl ? "رأي المشرف أو المراجع" : "Reviewer feedback"}</h3>
+              <label>{rtl ? "التقييم العام" : "Overall rating"}<select defaultValue=""><option value="" disabled>{rtl ? "اختر من 1 إلى 5" : "Choose 1 to 5"}</option>{[1,2,3,4,5].map((n) => <option key={n}>{n}</option>)}</select></label>
+              <label>{rtl ? "أبرز ملاحظة" : "Main observation"}<textarea placeholder={rtl ? "اكتب ملاحظتك حول الفكرة أو الاستخدام أو النتائج…" : "Write your observation about the idea, usability, or results…"} /></label>
+              <label>{rtl ? "اقتراح للتطوير" : "Improvement suggestion"}<textarea placeholder={rtl ? "ما الذي تقترح إضافته أو تغييره؟" : "What should be added or changed?"} /></label>
+              <button className="primary" disabled>{rtl ? "إرسال التقييم — يتفعّل بعد ربط حساب المشرف" : "Submit — enabled after reviewer access is connected"}</button>
+            </section>
+          </>}
+        </main>
+      </div>
     </div>
   );
 }
