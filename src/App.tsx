@@ -931,6 +931,9 @@ function Dashboard({
             <button className="secondary" onClick={() => setView("library")}>
               ▥ {rtl ? "افتح مكتبتي" : "Open my library"}
             </button>
+            <button className="secondary reviewer-home-button" onClick={() => setView("reviewer")}>
+              ◉ {rtl ? "نسخة المشرف" : "Reviewer view"}
+            </button>
           </div>
         </div>
         <div className="quote-mark">

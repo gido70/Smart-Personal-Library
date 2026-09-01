@@ -114,6 +114,7 @@
   .dashboard-page .welcome-actions{margin-top:9px;gap:6px;flex-wrap:nowrap}
   .dashboard-page .welcome-actions button{min-height:36px;flex:1;padding:6px 7px;font-size:9px;white-space:nowrap}
   .dashboard-page .welcome-actions button:nth-child(3){display:none}
+  .dashboard-page .welcome-actions .reviewer-home-button{display:block}
 
   .dashboard-page .library-preview{padding:13px 12px;border-radius:16px}
   .dashboard-page .library-preview .section-head{margin-bottom:9px}
