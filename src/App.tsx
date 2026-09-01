@@ -2098,6 +2098,7 @@ function PilotWorkspace({
   const [q, setQ] = useState("");
   const [answer, setAnswer] = useState<Record<string, unknown> | null>(null);
   const [audioUrls, setAudioUrls] = useState<string[]>([]);
+  const [audioVerified, setAudioVerified] = useState(false);
   const [resultLanguage, setResultLanguage] = useState<"ar" | "en">(
     book.output_language === "en" ? "en" : rtl ? "ar" : "en",
   );
@@ -2266,9 +2267,13 @@ function PilotWorkspace({
     else setAudioUrls([]);
   };
   useEffect(() => {
+    setAudioVerified(false);
     reload()
       .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setAudioVerified(true);
+        setLoading(false);
+      });
     getLegalConsentStatus(book.id)
       .then(setConsent)
       .catch(() => setConsent(null));
@@ -2675,7 +2680,7 @@ function PilotWorkspace({
       </section>}
       <div className="mobile-book-tools" aria-label={rtl ? "اختصارات وظائف الكتاب" : "Book feature shortcuts"}>
         <button className="secondary" onClick={() => document.getElementById("ask-book-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{rtl ? "اسأل الكتاب" : "Ask"}</button>
-        <button className="secondary" onClick={() => document.getElementById("professional-voice-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{audioIsComplete ? (rtl ? "تشغيل الصوت المحفوظ" : "Play saved audio") : (rtl ? "اختيار الصوت" : "Choose voice")}</button>
+        <button className="secondary" disabled={!audioVerified} onClick={() => document.getElementById("professional-voice-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{!audioVerified ? (rtl ? "جارٍ التحقق من الصوت…" : "Checking saved audio…") : audioIsComplete ? (rtl ? "تشغيل الصوت المحفوظ" : "Play saved audio") : (rtl ? "اختيار الصوت" : "Choose voice")}</button>
       </div>
       {(busy || recoveryMessage) && <section className={`panel durable-task-banner ${busy ? "running" : "complete"}`} aria-live="polite">
         <div className="task-motion" aria-hidden="true"><span>↻</span><div className="task-train"><i></i><i></i><i></i><i></i><i></i></div></div>
