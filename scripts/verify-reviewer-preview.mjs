@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 const migration = readFileSync(new URL("../supabase/migrations/20260901_0007_spl_reviewer_access_draft.sql", import.meta.url), "utf8");
 
-for (const required of ["معاينة نسخة المشرف", "ReviewerPreview", "مرحبًا بك في المكتبة الشخصية الذكية", "الاستماع إلى الصوت المحفوظ", "التقييم والملاحظات"]) {
+for (const required of ["معاينة نسخة المشرف", "نسخة المشرف", "ReviewerPreview", "مرحبًا بك في المكتبة الشخصية الذكية", "الاستماع إلى الصوت المحفوظ", "التقييم والملاحظات"]) {
   if (!app.includes(required)) throw new Error(`Reviewer preview is missing: ${required}`);
 }
 for (const forbidden of ["onUpload={", "invokeBookAI("]) {
