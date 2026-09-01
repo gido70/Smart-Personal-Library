@@ -109,7 +109,7 @@ type View =
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "حساب المكتبة الموحد — V0.10.4",
+    version: "حساب المكتبة الموحد — V0.10.5",
     search: "ابحث بالعنوان أو المؤلف أو الناشر أو الموضوع أو التصنيف…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -140,7 +140,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Unified library account — V0.10.4",
+    version: "Unified library account — V0.10.5",
     search: "Search by title, author, publisher, topic, or category…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -540,7 +540,7 @@ export default function Home() {
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "حساب موحد وآمن V0.10.4" : "Secure unified account V0.10.4"}
+            {rtl ? "حساب موحد وآمن V0.10.5" : "Secure unified account V0.10.5"}
           </strong>
           <p>
             {rtl
@@ -2066,6 +2066,10 @@ function PilotWorkspace({
   };
   const taskStorageKey = `spl-paid-task-${book.id}`;
   const expectedAudioParts = audioPartCount(results);
+  // A completed narration is a finished library asset, not a purchase flow.
+  // Once every expected part is present, the UI becomes playback-only and
+  // cannot offer voice selection, previews, confirmation, or regeneration.
+  const audioIsComplete = expectedAudioParts > 0 && audioUrls.length >= expectedAudioParts;
   const beginPaidTask = (action: "process" | "ask" | "audio" | "audio_preview", voiceOverride?: ProfessionalVoice) => {
     if (paidTaskLockRef.current || localStorage.getItem(taskStorageKey)) {
       setRecoveryMessage(rtl ? "الطلب مسجّل بالفعل وما زال قيد المتابعة. انتظر ولا تضغط مرة أخرى حتى لا يتكرر الطلب." : "This request is already registered and still being monitored. Wait and do not press again to avoid a duplicate request.");
@@ -2583,7 +2587,7 @@ function PilotWorkspace({
       </section>}
       <div className="mobile-book-tools" aria-label={rtl ? "اختصارات وظائف الكتاب" : "Book feature shortcuts"}>
         <button className="secondary" onClick={() => document.getElementById("ask-book-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{rtl ? "اسأل الكتاب" : "Ask"}</button>
-        <button className="secondary" onClick={() => document.getElementById("professional-voice-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{rtl ? "اختيار الصوت" : "Choose voice"}</button>
+        <button className="secondary" onClick={() => document.getElementById("professional-voice-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{audioIsComplete ? (rtl ? "تشغيل الصوت المحفوظ" : "Play saved audio") : (rtl ? "اختيار الصوت" : "Choose voice")}</button>
       </div>
       {(busy || recoveryMessage) && <section className={`panel durable-task-banner ${busy ? "running" : "complete"}`} aria-live="polite">
         <div className="task-motion" aria-hidden="true"><span>↻</span><div className="task-train"><i></i><i></i><i></i><i></i><i></i></div></div>
@@ -3079,6 +3083,16 @@ function PilotWorkspace({
               )}
             </section>
             <section className="panel" id="professional-voice-panel">
+              {audioIsComplete ? (
+                <>
+                  <span className="eyebrow">{rtl ? "محفوظ وجاهز للاستماع" : "Saved and ready to play"}</span>
+                  <h3>{rtl ? "الصوت المحفوظ" : "Saved audio"}</h3>
+                  <p>{rtl
+                    ? "اكتملت النسخة الصوتية لهذا الكتاب. يمكنك تشغيل الأجزاء المحفوظة مباشرة، ولن يظهر أي خيار لإنشائها أو شرائها مرة أخرى."
+                    : "This book's audio is complete. Play the saved parts directly; no regenerate or purchase action is available."}</p>
+                  <div className="professional-audio-list saved-audio-only">{audioUrls.map((url, index) => <label key={url}><span>{rtl ? `الجزء ${index + 1}` : `Part ${index + 1}`}</span><audio controls preload="metadata" src={url} onPlay={(event) => keepOnlyThisAudioPlaying(event.currentTarget)} /></label>)}<small>{rtl ? "هذه الأصوات مولدة بالذكاء الاصطناعي ومحفوظة في مكتبتك." : "These AI-generated audio parts are saved in your library."}</small></div>
+                </>
+              ) : <>
               <h3>
                 {rtl ? "الصوت الاحترافي — مدفوع" : "Professional voice — paid"}
               </h3>
@@ -3156,6 +3170,7 @@ function PilotWorkspace({
                   {audioUrls.length > 0 && <div className="professional-audio-list">{audioUrls.map((url, index) => <label key={url}><span>{rtl ? `الجزء ${index + 1}` : `Part ${index + 1}`}</span><audio controls preload="metadata" src={url} onPlay={(event) => keepOnlyThisAudioPlaying(event.currentTarget)} /></label>)}<small>{rtl ? "هذه الأصوات مولدة بالذكاء الاصطناعي." : "These voices are AI-generated."}</small></div>}
                 </>
               )}
+              </>}
             </section>
             {error && <div className="reader-error inline">{error}</div>}
           </aside>
