@@ -104,12 +104,13 @@ type View =
   | "progress"
   | "librarian"
   | "feedback"
+  | "reviewer"
   | "guide";
 
 const text = {
   ar: {
     name: "المكتبة الشخصية الذكية",
-    version: "حساب المكتبة الموحد — V0.10.4",
+    version: "حساب المكتبة الموحد — V0.10.5",
     search: "ابحث بالعنوان أو المؤلف أو الناشر أو الموضوع أو التصنيف…",
     hello: "صباح المعرفة، عبدالرحمن",
     intro:
@@ -140,7 +141,7 @@ const text = {
   },
   en: {
     name: "Smart Personal Library",
-    version: "Unified library account — V0.10.4",
+    version: "Unified library account — V0.10.5",
     search: "Search by title, author, publisher, topic, or category…",
     hello: "Good morning, Abdel Rahman",
     intro:
@@ -540,13 +541,16 @@ export default function Home() {
         </nav>
         <div className="prototype-note">
           <strong>
-            {rtl ? "حساب موحد وآمن V0.10.4" : "Secure unified account V0.10.4"}
+            {rtl ? "حساب موحد وآمن V0.10.5" : "Secure unified account V0.10.5"}
           </strong>
           <p>
             {rtl
               ? "مكتبتك قابلة للنمو. لا يبدأ التحليل أو السؤال أو الصوت الاحترافي إلا بعد تأكيدك."
               : "Your library can grow. Analysis, questions, and professional audio start only after your confirmation."}
           </p>
+          <button className="reviewer-preview-link" onClick={() => setView("reviewer")}>
+            ◉ {rtl ? "معاينة نسخة المشرف" : "Preview reviewer view"}
+          </button>
         </div>
         <div className="profile">
           <span>ع</span>
@@ -659,6 +663,7 @@ export default function Home() {
         {view === "progress" && <Progress rtl={rtl} title={pageTitle} books={pilotBooks.filter((book) => !isBookArchived(book))} />}
         {view === "librarian" && <Librarian rtl={rtl} title={pageTitle} />}
         {view === "feedback" && <Feedback rtl={rtl} t={t} />}
+        {view === "reviewer" && <ReviewerPreview rtl={rtl} books={pilotBooks} onBack={() => setView("home")} />}
         {view === "guide" && <UserGuide rtl={rtl} onUpload={openUpload} onLibrary={() => setView("library")} onActivate={activateLatestVersion} activating={activating} />}
       </main>
       <nav className="mobile-nav">
@@ -692,6 +697,86 @@ export default function Home() {
         />
       )}
       {notice && <div className="toast">✓ {notice}</div>}
+    </div>
+  );
+}
+
+function ReviewerPreview({ rtl, books, onBack }: { rtl: boolean; books: PilotBook[]; onBack: () => void }) {
+  const visibleBooks = books.filter((book) => !isBookArchived(book));
+  const [selectedBookId, setSelectedBookId] = useState(visibleBooks[0]?.id ?? "");
+  const [results, setResults] = useState<Record<string, unknown> | null>(null);
+  const [audioUrls, setAudioUrls] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const selectedBook = visibleBooks.find((book) => book.id === selectedBookId) ?? visibleBooks[0];
+
+  useEffect(() => {
+    if (!selectedBook && visibleBooks[0]) setSelectedBookId(visibleBooks[0].id);
+  }, [selectedBook, visibleBooks]);
+
+  useEffect(() => {
+    if (!selectedBook) {
+      setResults(null);
+      setAudioUrls([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    getBookResults(selectedBook.id)
+      .then(async (data) => {
+        if (cancelled) return;
+        const paid = data.analyses.find((item) => item.kind === "overview" && item.language === selectedBook.output_language)
+          ?? data.analyses.find((item) => item.kind === "overview")
+          ?? data.analyses[0];
+        setResults((paid?.content as Record<string, unknown>) ?? null);
+        const urls = await Promise.all(data.audio.map((item) => getPrivateAudioUrl(item.storage_path)));
+        if (!cancelled) setAudioUrls(urls);
+      })
+      .catch((value) => {
+        if (!cancelled) setError(value instanceof Error ? value.message : String(value));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [selectedBook?.id, selectedBook?.output_language]);
+
+  return (
+    <div className="page reviewer-preview-page">
+      <button className="back" onClick={onBack}>→ {rtl ? "العودة إلى حساب المالك" : "Back to owner account"}</button>
+      <section className="reviewer-hero">
+        <span className="eyebrow">{rtl ? "نسخة المشرف والمراجع" : "Supervisor and reviewer view"}</span>
+        <h2>{rtl ? "مرحبًا بك في المكتبة الشخصية الذكية" : "Welcome to the Smart Personal Library"}</h2>
+        <p>{rtl ? "تصفح الكتب المختارة، راجع المخرجات، واستمع إلى الصوت المحفوظ، ثم دوّن تقييمك وملاحظاتك." : "Review selected books and saved outputs, listen to saved audio, then record your evaluation."}</p>
+        <b>{rtl ? "معاينة المالك — لا توجد صلاحيات مشاركة خارجية بعد" : "Owner preview — external sharing is not enabled yet"}</b>
+      </section>
+      <div className="reviewer-layout">
+        <aside className="panel reviewer-books">
+          <h3>{rtl ? "الكتب المتاحة للمراجعة" : "Books available for review"}</h3>
+          {visibleBooks.length ? visibleBooks.map((book, index) => <button key={book.id} className={selectedBook?.id === book.id ? "active" : ""} onClick={() => setSelectedBookId(book.id)}>
+            <span>{String(index + 1).padStart(2, "0")}</span><strong>{book.title}</strong>
+          </button>) : <p>{rtl ? "لا توجد كتب مختارة حاليًا." : "No books are selected yet."}</p>}
+        </aside>
+        <main className="reviewer-content">
+          {selectedBook && <>
+            <section className="panel reviewer-book-heading"><OriginalPdfCover book={selectedBook} /><div><span className="eyebrow">{rtl ? "كتاب مختار" : "Selected book"}</span><h3>{selectedBook.title}</h3><p>{rtl ? "النتائج المعروضة محفوظة مسبقًا ولا يبدأ فتح هذه الصفحة أي معالجة جديدة." : "These results are already saved; opening this page starts no new processing."}</p></div></section>
+            {loading && <section className="panel">{rtl ? "جارٍ تحميل النتائج المحفوظة…" : "Loading saved results…"}</section>}
+            {!loading && results && <section className="panel reviewer-results"><h3>{rtl ? "الخلاصة والتحليل" : "Summary and analysis"}</h3><PaidResultView result={results} rtl={rtl} /></section>}
+            {!loading && !results && <section className="panel"><p>{rtl ? "لا توجد خلاصة محفوظة لهذا الكتاب." : "No saved summary is available for this book."}</p></section>}
+            {audioUrls.length > 0 && <section className="panel reviewer-audio"><span className="eyebrow">{rtl ? "محفوظ وجاهز" : "Saved and ready"}</span><h3>{rtl ? "الاستماع إلى الصوت المحفوظ" : "Listen to saved audio"}</h3><div className="professional-audio-list saved-audio-only">{audioUrls.map((url, index) => <label key={url}><span>{rtl ? `الجزء ${index + 1}` : `Part ${index + 1}`}</span><audio controls preload="metadata" src={url} /></label>)}</div></section>}
+            {error && <div className="reader-error inline">{error}</div>}
+            <section className="panel reviewer-feedback-form">
+              <span className="eyebrow">{rtl ? "التقييم والملاحظات" : "Evaluation and notes"}</span>
+              <h3>{rtl ? "رأي المشرف أو المراجع" : "Reviewer feedback"}</h3>
+              <label>{rtl ? "التقييم العام" : "Overall rating"}<select defaultValue=""><option value="" disabled>{rtl ? "اختر من 1 إلى 5" : "Choose 1 to 5"}</option>{[1,2,3,4,5].map((n) => <option key={n}>{n}</option>)}</select></label>
+              <label>{rtl ? "أبرز ملاحظة" : "Main observation"}<textarea placeholder={rtl ? "اكتب ملاحظتك حول الفكرة أو الاستخدام أو النتائج…" : "Write your observation about the idea, usability, or results…"} /></label>
+              <label>{rtl ? "اقتراح للتطوير" : "Improvement suggestion"}<textarea placeholder={rtl ? "ما الذي تقترح إضافته أو تغييره؟" : "What should be added or changed?"} /></label>
+              <button className="primary" disabled>{rtl ? "إرسال التقييم — يتفعّل بعد ربط حساب المشرف" : "Submit — enabled after reviewer access is connected"}</button>
+            </section>
+          </>}
+        </main>
+      </div>
     </div>
   );
 }
@@ -845,6 +930,9 @@ function Dashboard({
             </button>
             <button className="secondary" onClick={() => setView("library")}>
               ▥ {rtl ? "افتح مكتبتي" : "Open my library"}
+            </button>
+            <button className="secondary reviewer-home-button" onClick={() => setView("reviewer")}>
+              ◉ {rtl ? "نسخة المشرف" : "Reviewer view"}
             </button>
           </div>
         </div>
@@ -2010,6 +2098,7 @@ function PilotWorkspace({
   const [q, setQ] = useState("");
   const [answer, setAnswer] = useState<Record<string, unknown> | null>(null);
   const [audioUrls, setAudioUrls] = useState<string[]>([]);
+  const [audioVerified, setAudioVerified] = useState(false);
   const [resultLanguage, setResultLanguage] = useState<"ar" | "en">(
     book.output_language === "en" ? "en" : rtl ? "ar" : "en",
   );
@@ -2066,6 +2155,10 @@ function PilotWorkspace({
   };
   const taskStorageKey = `spl-paid-task-${book.id}`;
   const expectedAudioParts = audioPartCount(results);
+  // A completed narration is a finished library asset, not a purchase flow.
+  // Once every expected part is present, the UI becomes playback-only and
+  // cannot offer voice selection, previews, confirmation, or regeneration.
+  const audioIsComplete = expectedAudioParts > 0 && audioUrls.length >= expectedAudioParts;
   const beginPaidTask = (action: "process" | "ask" | "audio" | "audio_preview", voiceOverride?: ProfessionalVoice) => {
     if (paidTaskLockRef.current || localStorage.getItem(taskStorageKey)) {
       setRecoveryMessage(rtl ? "الطلب مسجّل بالفعل وما زال قيد المتابعة. انتظر ولا تضغط مرة أخرى حتى لا يتكرر الطلب." : "This request is already registered and still being monitored. Wait and do not press again to avoid a duplicate request.");
@@ -2174,9 +2267,13 @@ function PilotWorkspace({
     else setAudioUrls([]);
   };
   useEffect(() => {
+    setAudioVerified(false);
     reload()
       .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setAudioVerified(true);
+        setLoading(false);
+      });
     getLegalConsentStatus(book.id)
       .then(setConsent)
       .catch(() => setConsent(null));
@@ -2583,7 +2680,7 @@ function PilotWorkspace({
       </section>}
       <div className="mobile-book-tools" aria-label={rtl ? "اختصارات وظائف الكتاب" : "Book feature shortcuts"}>
         <button className="secondary" onClick={() => document.getElementById("ask-book-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{rtl ? "اسأل الكتاب" : "Ask"}</button>
-        <button className="secondary" onClick={() => document.getElementById("professional-voice-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{rtl ? "اختيار الصوت" : "Choose voice"}</button>
+        <button className="secondary" disabled={!audioVerified} onClick={() => document.getElementById("professional-voice-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{!audioVerified ? (rtl ? "جارٍ التحقق من الصوت…" : "Checking saved audio…") : audioIsComplete ? (rtl ? "تشغيل الصوت المحفوظ" : "Play saved audio") : (rtl ? "اختيار الصوت" : "Choose voice")}</button>
       </div>
       {(busy || recoveryMessage) && <section className={`panel durable-task-banner ${busy ? "running" : "complete"}`} aria-live="polite">
         <div className="task-motion" aria-hidden="true"><span>↻</span><div className="task-train"><i></i><i></i><i></i><i></i><i></i></div></div>
@@ -3079,6 +3176,16 @@ function PilotWorkspace({
               )}
             </section>
             <section className="panel" id="professional-voice-panel">
+              {audioIsComplete ? (
+                <>
+                  <span className="eyebrow">{rtl ? "محفوظ وجاهز للاستماع" : "Saved and ready to play"}</span>
+                  <h3>{rtl ? "الصوت المحفوظ" : "Saved audio"}</h3>
+                  <p>{rtl
+                    ? "اكتملت النسخة الصوتية لهذا الكتاب. يمكنك تشغيل الأجزاء المحفوظة مباشرة، ولن يظهر أي خيار لإنشائها أو شرائها مرة أخرى."
+                    : "This book's audio is complete. Play the saved parts directly; no regenerate or purchase action is available."}</p>
+                  <div className="professional-audio-list saved-audio-only">{audioUrls.map((url, index) => <label key={url}><span>{rtl ? `الجزء ${index + 1}` : `Part ${index + 1}`}</span><audio controls preload="metadata" src={url} onPlay={(event) => keepOnlyThisAudioPlaying(event.currentTarget)} /></label>)}<small>{rtl ? "هذه الأصوات مولدة بالذكاء الاصطناعي ومحفوظة في مكتبتك." : "These AI-generated audio parts are saved in your library."}</small></div>
+                </>
+              ) : <>
               <h3>
                 {rtl ? "الصوت الاحترافي — مدفوع" : "Professional voice — paid"}
               </h3>
@@ -3156,6 +3263,7 @@ function PilotWorkspace({
                   {audioUrls.length > 0 && <div className="professional-audio-list">{audioUrls.map((url, index) => <label key={url}><span>{rtl ? `الجزء ${index + 1}` : `Part ${index + 1}`}</span><audio controls preload="metadata" src={url} onPlay={(event) => keepOnlyThisAudioPlaying(event.currentTarget)} /></label>)}<small>{rtl ? "هذه الأصوات مولدة بالذكاء الاصطناعي." : "These voices are AI-generated."}</small></div>}
                 </>
               )}
+              </>}
             </section>
             {error && <div className="reader-error inline">{error}</div>}
           </aside>

@@ -1,6 +1,6 @@
 {
   "name": "smart-personal-library",
-  "version": "0.10.4-library-organisation",
+  "version": "0.10.5-reviewer-foundation",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,9 @@
     "test:ui-baseline": "node scripts/verify-v0103-ui-baseline.mjs",
     "test:reminders": "node scripts/verify-v0103-reminders.mjs",
     "test:v0104": "node scripts/verify-v0104-library.mjs",
-    "test": "npm run test:unit && npm run test:paid-pilot && npm run test:release && npm run test:ui-baseline && npm run test:reminders && npm run test:v0104"
+    "test:audio-complete": "node scripts/verify-audio-complete-ui.mjs",
+    "test:reviewer": "node scripts/verify-reviewer-preview.mjs",
+    "test": "npm run test:unit && npm run test:paid-pilot && npm run test:release && npm run test:ui-baseline && npm run test:reminders && npm run test:v0104 && npm run test:audio-complete && npm run test:reviewer"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
