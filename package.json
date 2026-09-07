@@ -15,7 +15,8 @@
     "test:v0104": "node scripts/verify-v0104-library.mjs",
     "test:audio-complete": "node scripts/verify-audio-complete-ui.mjs",
     "test:reviewer": "node scripts/verify-reviewer-preview.mjs",
-    "test": "npm run test:unit && npm run test:paid-pilot && npm run test:release && npm run test:ui-baseline && npm run test:reminders && npm run test:v0104 && npm run test:audio-complete && npm run test:reviewer"
+    "test:v0191": "node scripts/verify-v0191-index-exports.mjs",
+    "test": "npm run test:unit && npm run test:paid-pilot && npm run test:release && npm run test:ui-baseline && npm run test:reminders && npm run test:v0104 && npm run test:audio-complete && npm run test:reviewer && npm run test:v0191"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",

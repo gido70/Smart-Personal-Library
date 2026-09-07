@@ -14,15 +14,18 @@ import {
   groupDuplicateBooks,
   invokeBookAI,
   listPilotBooks,
+  listLibraryAuthors,
   rollbackPilotBook,
   saveFeedback,
   saveLegalConsent,
   saveManualImport,
   uploadPilotBook,
   updateBookCatalogMetadata,
+  updateAuthorBiography,
   updateBookClassification,
   restoreArchivedBook,
   saveCoverThumbnail,
+  syncBookAuthor,
   isBookArchived,
   MAX_ACTIVE_BOOKS,
   type AiLimitsSnapshot,
@@ -34,7 +37,9 @@ import {
   type PilotBook,
   type StoredAnalysis,
   type LibraryStats,
+  type LibraryAuthor,
 } from "./lib/library";
+import { downloadPdfReport, downloadSavedAudio, downloadWordReport } from "./lib/exports";
 import { signInLibraryAccount, signOutLibraryAccount, signUpLibraryAccount, supabase, supabaseConfigured } from "./lib/supabase";
 import { PAID_PILOT_MAX_BOOKS, ZERO_COST_MODE } from "./lib/config";
 import { runLocalStructuralAnalysis, type LocalAnalysisProgress } from "./lib/localAnalysis";
@@ -98,6 +103,7 @@ const audioPartCount = (results: Record<string, unknown> | null) => {
 type View =
   | "home"
   | "library"
+  | "indexes"
   | "book"
   | "pilot"
   | "reader"
@@ -177,6 +183,7 @@ const navigation = {
   ar: [
     ["home", "الرئيسية", "⌂"],
     ["library", "مكتبتي", "▥"],
+    ["indexes", "فهارس المكتبة", "⌕"],
     ["reader", "القارئ والصوت المجاني", "◫"],
     ["upload", "أضف كتابًا", "＋"],
     ["progress", "التقدم والتنبيهات", "🔔"],
@@ -187,6 +194,7 @@ const navigation = {
   en: [
     ["home", "Home", "⌂"],
     ["library", "My library", "▥"],
+    ["indexes", "Library indexes", "⌕"],
     ["reader", "Free reader & voice", "◫"],
     ["upload", "Add a book", "＋"],
     ["progress", "Progress & alerts", "🔔"],
@@ -236,6 +244,7 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const [activating, setActivating] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [indexAuthorQuery, setIndexAuthorQuery] = useState("");
   const [authState, setAuthState] = useState<"loading" | "signed_out" | "authenticated">("loading");
   const [accountEmail, setAccountEmail] = useState("");
   const [reminderCount, setReminderCount] = useState(0);
@@ -637,6 +646,14 @@ export default function Home() {
             }}
           />
         )}
+        {view === "indexes" && (
+          <LibraryIndexes
+            rtl={rtl}
+            books={pilotBooks}
+            initialAuthorName={indexAuthorQuery}
+            onOpenBook={(book) => { setActivePilotBook(book); setView("pilot"); }}
+          />
+        )}
         {view === "book" && (
           <BookDetail rtl={rtl} onBack={() => setView("library")} />
         )}
@@ -648,6 +665,7 @@ export default function Home() {
             onOpenReader={(page) => openReaderFor(activePilotBook, page)}
             onReuploadOriginal={openUpload}
             onBookPatched={patchPilotBook}
+            onOpenAuthor={(name) => { setIndexAuthorQuery(name); setView("indexes"); }}
           />
         )}
         {view === "reader" && (
@@ -1784,6 +1802,79 @@ function PaidResultView({ result, rtl }: { result: Record<string, unknown>; rtl:
   );
 }
 
+function LibraryIndexes({
+  rtl,
+  books,
+  initialAuthorName,
+  onOpenBook,
+}: {
+  rtl: boolean;
+  books: PilotBook[];
+  initialAuthorName: string;
+  onOpenBook: (book: PilotBook) => void;
+}) {
+  const [tab, setTab] = useState<"titles" | "authors">("authors");
+  const [authors, setAuthors] = useState<LibraryAuthor[]>([]);
+  const [selectedAuthorId, setSelectedAuthorId] = useState("");
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [editingBio, setEditingBio] = useState(false);
+  const [bioDraft, setBioDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const reloadAuthors = async () => {
+    setLoading(true); setError("");
+    try {
+      const rows = await listLibraryAuthors();
+      setAuthors(rows);
+      const requested = initialAuthorName ? rows.find((row) => row.authorized_name === initialAuthorName) : null;
+      setSelectedAuthorId((current) => requested?.id ?? (current && rows.some((row) => row.id === current) ? current : rows[0]?.id ?? ""));
+      if (requested) { setTab("authors"); setQuery(initialAuthorName); }
+    } catch (value) {
+      setError(value instanceof Error ? value.message : String(value));
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { void reloadAuthors(); }, [initialAuthorName]);
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const titles = [...books].sort((a,b) => a.title.localeCompare(b.title, rtl ? "ar" : "en"));
+  const visibleTitles = titles.filter((book) => !normalizedQuery || `${book.title} ${String(book.metadata?.author ?? "")}`.toLocaleLowerCase().includes(normalizedQuery));
+  const visibleAuthors = authors.filter((author) => !normalizedQuery || author.authorized_name.toLocaleLowerCase().includes(normalizedQuery));
+  const selectedAuthor = authors.find((author) => author.id === selectedAuthorId) ?? visibleAuthors[0];
+  const authorBooks = selectedAuthor ? selectedAuthor.book_ids.map((id) => books.find((book) => book.id === id)).filter(Boolean) as PilotBook[] : [];
+  const openBioEditor = () => { if (!selectedAuthor) return; setBioDraft(selectedAuthor.biography); setEditingBio(true); };
+  const saveBio = async () => {
+    if (!selectedAuthor || saving) return;
+    setSaving(true); setError("");
+    try { await updateAuthorBiography(selectedAuthor.id, bioDraft); await reloadAuthors(); setEditingBio(false); }
+    catch (value) { setError(value instanceof Error ? value.message : String(value)); }
+    finally { setSaving(false); }
+  };
+  return <div className="page library-indexes-page">
+    <PageTitle title={rtl ? "فهارس المكتبة" : "Library indexes"} description={rtl ? "استرجع مجموعتك بالعنوان أو بالمؤلف، بما في ذلك الكتب المؤرشفة." : "Retrieve your collection by title or author, including archived books."} />
+    <div className="index-tabs" role="tablist">
+      <button className={tab === "authors" ? "active" : ""} onClick={() => setTab("authors")}>{rtl ? `فهرس المؤلفين (${authors.length})` : `Author index (${authors.length})`}</button>
+      <button className={tab === "titles" ? "active" : ""} onClick={() => setTab("titles")}>{rtl ? `فهرس العناوين (${books.length})` : `Title index (${books.length})`}</button>
+    </div>
+    <label className="index-search"><span>{rtl ? "بحث داخل الفهرس" : "Search this index"}</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === "authors" ? (rtl ? "اسم المؤلف…" : "Author name…") : (rtl ? "عنوان الكتاب أو المؤلف…" : "Title or author…")} /></label>
+    {loading && <section className="panel state-panel">{rtl ? "جارٍ بناء فهرس المؤلفين…" : "Building author index…"}</section>}
+    {error && <section className="panel state-panel error"><p>{rtl ? "يحتاج فهرس المؤلفين إلى تطبيق Migration الجديدة، ثم إعادة المحاولة." : "The author index needs the new migration, then retry."}</p><small>{error}</small><button className="secondary" onClick={reloadAuthors}>{rtl ? "إعادة المحاولة" : "Retry"}</button></section>}
+    {!loading && tab === "titles" && <section className="panel title-index-list">
+      <h3>{rtl ? "العناوين" : "Titles"}</h3>
+      {visibleTitles.map((book) => <button key={book.id} onClick={() => onOpenBook(book)}><strong>{book.title}</strong><span>{String(book.metadata?.author ?? (rtl ? "مؤلف غير محدد" : "Unknown author"))}</span><em>{isBookArchived(book) ? (rtl ? "نسخة معرفية مؤرشفة" : "Archived knowledge copy") : (rtl ? "كتاب نشط" : "Active book")}</em></button>)}
+      {!visibleTitles.length && <p>{rtl ? "لا توجد عناوين مطابقة." : "No matching titles."}</p>}
+    </section>}
+    {!loading && tab === "authors" && !error && <div className="author-index-layout">
+      <aside className="panel author-index-list"><h3>{rtl ? "المؤلفون" : "Authors"}</h3>{visibleAuthors.map((author) => <button key={author.id} className={selectedAuthor?.id === author.id ? "active" : ""} onClick={() => { setSelectedAuthorId(author.id); setEditingBio(false); }}><strong>{author.authorized_name}</strong><span>{rtl ? `${author.book_ids.length} عنوان` : `${author.book_ids.length} title(s)`}</span></button>)}{!visibleAuthors.length && <p>{rtl ? "لا يوجد مؤلف مطابق." : "No matching author."}</p>}</aside>
+      <section className="panel author-record">{selectedAuthor ? <>
+        <span className="eyebrow">{rtl ? "السجل الاستنادي للمؤلف" : "Author authority record"}</span><h2>{selectedAuthor.authorized_name}</h2>
+        {!editingBio ? <><h3>{rtl ? "نبذة عن المؤلف" : "About the author"}</h3><p className={selectedAuthor.biography ? "" : "empty-author-bio"}>{selectedAuthor.biography || (rtl ? "لم تُضف نبذة موثقة بعد. لا تنشئ المنصة سيرة تلقائية حتى لا تنسب معلومات غير مؤكدة للمؤلف." : "No verified biography has been added. The platform does not invent one automatically.")}</p><button className="secondary" onClick={openBioEditor}>✎ {rtl ? "إضافة أو تحرير النبذة" : "Add or edit biography"}</button></> : <div className="author-bio-editor"><label>{rtl ? "نبذة موثقة عن المؤلف" : "Verified author biography"}<textarea value={bioDraft} onChange={(event) => setBioDraft(event.target.value)} maxLength={4000} /></label><div><button className="primary" disabled={saving} onClick={saveBio}>{saving ? "…" : rtl ? "حفظ النبذة" : "Save biography"}</button><button className="secondary" disabled={saving} onClick={() => setEditingBio(false)}>{rtl ? "إلغاء" : "Cancel"}</button></div></div>}
+        <h3>{rtl ? "مؤلفات داخل مكتبتي" : "Works in my library"}</h3><div className="author-works">{authorBooks.map((book) => <button key={book.id} onClick={() => onOpenBook(book)}><strong>{book.title}</strong><span>{isBookArchived(book) ? (rtl ? "في الأرشيف" : "Archived") : (rtl ? "نشط" : "Active")}</span></button>)}{!authorBooks.length && <p>{rtl ? "لا توجد عناوين مرتبطة حاليًا؛ بقي سجل المؤلف محفوظًا." : "No titles are currently linked; the author record remains preserved."}</p>}</div>
+      </> : <p>{rtl ? "اختر مؤلفًا لعرض سجله." : "Select an author to view the record."}</p>}</section>
+    </div>}
+  </div>;
+}
+
 function Library({
   rtl,
   title,
@@ -2082,6 +2173,7 @@ function PilotWorkspace({
   onOpenReader,
   onReuploadOriginal,
   onBookPatched,
+  onOpenAuthor,
 }: {
   rtl: boolean;
   book: PilotBook;
@@ -2089,6 +2181,7 @@ function PilotWorkspace({
   onOpenReader: (page?: number) => void;
   onReuploadOriginal: () => void;
   onBookPatched: (bookId: string, patch: Partial<PilotBook>) => void;
+  onOpenAuthor: (name: string) => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [results, setResults] = useState<Record<string, unknown> | null>(null);
@@ -2131,6 +2224,8 @@ function PilotWorkspace({
   const [catalogEditing, setCatalogEditing] = useState(false);
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [catalogMessage, setCatalogMessage] = useState("");
+  const [exportMessage, setExportMessage] = useState("");
+  const [audioDownloadBusy, setAudioDownloadBusy] = useState(-1);
   const [catalogDraft, setCatalogDraft] = useState<BookCatalogPatch>({
     title: "",
     author: "",
@@ -2228,7 +2323,10 @@ function PilotWorkspace({
         return;
       }
     }
-    setResults((paid?.content as Record<string, unknown>) ?? null);
+    const paidContent = (paid?.content as Record<string, unknown>) ?? null;
+    setResults(paidContent);
+    const analysedAuthor = String((paidContent?.metadata as Record<string, unknown> | undefined)?.author ?? "").trim();
+    if (analysedAuthor) await syncBookAuthor(book.id, analysedAuthor);
     const local = data.analyses.find((a) => a.kind === "local_structural");
     setLocalAnalysis(
       (local?.content as unknown as LocalStructuralAnalysis) ?? null,
@@ -2702,7 +2800,7 @@ function PilotWorkspace({
         <div className="catalog-card-layout">
           <OriginalPdfCover book={book} />
           <dl className="book-info-grid catalog-info-grid">
-            {catalogRows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+            {catalogRows.map(([label, value], index) => <div key={label}><dt>{label}</dt><dd>{index === 1 && value !== (rtl ? "غير متاح بعد" : "Not available yet") ? <button className="catalog-author-link" onClick={() => onOpenAuthor(value)}>⌕ {value}</button> : value}</dd></div>)}
           </dl>
         </div>
         {!catalogEditing && <div className="catalog-card-actions">
@@ -3110,6 +3208,12 @@ function PilotWorkspace({
               )
             )}
             {results && <PaidResultView result={results} rtl={rtl} />}
+            {results && <section className="result-downloads" aria-label={rtl ? "تنزيل المخرجات" : "Download outputs"}>
+              <div><strong>{rtl ? "احتفظ بمخرجاتك" : "Keep your outputs"}</strong><small>{rtl ? "ملفان منسقان من اليمين إلى اليسار للمخرجات التحليلية، وليس نسخة من نص الكتاب الأصلي." : "Formatted analytical outputs, not a copy of the original book text."}</small></div>
+              <button className="secondary" onClick={() => { setExportMessage(""); downloadWordReport(book, results, rtl, questionHistory); }}>W {rtl ? "تنزيل Word" : "Download Word"}</button>
+              <button className="secondary" onClick={() => { setExportMessage(""); void downloadPdfReport(book, results, rtl, questionHistory).catch((value) => setExportMessage(value instanceof Error ? value.message : String(value))); }}>PDF {rtl ? "تنزيل PDF" : "Download PDF"}</button>
+              {exportMessage && <p className="reader-error inline">{exportMessage}</p>}
+            </section>}
           </article>
           <aside className="detail-aside">
             <section className="panel" id="ask-book-panel">
@@ -3183,7 +3287,7 @@ function PilotWorkspace({
                   <p>{rtl
                     ? "اكتملت النسخة الصوتية لهذا الكتاب. يمكنك تشغيل الأجزاء المحفوظة مباشرة، ولن يظهر أي خيار لإنشائها أو شرائها مرة أخرى."
                     : "This book's audio is complete. Play the saved parts directly; no regenerate or purchase action is available."}</p>
-                  <div className="professional-audio-list saved-audio-only">{audioUrls.map((url, index) => <label key={url}><span>{rtl ? `الجزء ${index + 1}` : `Part ${index + 1}`}</span><audio controls preload="metadata" src={url} onPlay={(event) => keepOnlyThisAudioPlaying(event.currentTarget)} /></label>)}<small>{rtl ? "هذه الأصوات مولدة بالذكاء الاصطناعي ومحفوظة في مكتبتك." : "These AI-generated audio parts are saved in your library."}</small></div>
+                  <div className="professional-audio-list saved-audio-only">{audioUrls.map((url, index) => <label key={url}><span>{rtl ? `الجزء ${index + 1}` : `Part ${index + 1}`}</span><audio controls preload="metadata" src={url} onPlay={(event) => keepOnlyThisAudioPlaying(event.currentTarget)} /><button className="secondary audio-download-button" disabled={audioDownloadBusy === index} onClick={() => { setAudioDownloadBusy(index); setExportMessage(""); void downloadSavedAudio(url, book.title, index).catch((value) => setExportMessage(value instanceof Error ? value.message : String(value))).finally(() => setAudioDownloadBusy(-1)); }}>{audioDownloadBusy === index ? "…" : rtl ? "تنزيل هذا الجزء" : "Download this part"}</button></label>)}<small>{rtl ? "هذه الأصوات مولدة بالذكاء الاصطناعي ومحفوظة في مكتبتك." : "These AI-generated audio parts are saved in your library."}</small></div>
                 </>
               ) : <>
               <h3>
@@ -3260,7 +3364,7 @@ function PilotWorkspace({
                       </button>
                     </div>
                   )}
-                  {audioUrls.length > 0 && <div className="professional-audio-list">{audioUrls.map((url, index) => <label key={url}><span>{rtl ? `الجزء ${index + 1}` : `Part ${index + 1}`}</span><audio controls preload="metadata" src={url} onPlay={(event) => keepOnlyThisAudioPlaying(event.currentTarget)} /></label>)}<small>{rtl ? "هذه الأصوات مولدة بالذكاء الاصطناعي." : "These voices are AI-generated."}</small></div>}
+                  {audioUrls.length > 0 && <div className="professional-audio-list">{audioUrls.map((url, index) => <label key={url}><span>{rtl ? `الجزء ${index + 1}` : `Part ${index + 1}`}</span><audio controls preload="metadata" src={url} onPlay={(event) => keepOnlyThisAudioPlaying(event.currentTarget)} /><button className="secondary audio-download-button" disabled={audioDownloadBusy === index} onClick={() => { setAudioDownloadBusy(index); setExportMessage(""); void downloadSavedAudio(url, book.title, index).catch((value) => setExportMessage(value instanceof Error ? value.message : String(value))).finally(() => setAudioDownloadBusy(-1)); }}>{audioDownloadBusy === index ? "…" : rtl ? "تنزيل هذا الجزء" : "Download this part"}</button></label>)}<small>{rtl ? "هذه الأصوات مولدة بالذكاء الاصطناعي." : "These voices are AI-generated."}</small></div>}
                 </>
               )}
               </>}
