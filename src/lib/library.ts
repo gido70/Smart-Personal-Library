@@ -20,6 +20,15 @@ export type PilotBook = {
   analysis_ready?: boolean;
 };
 
+export type LibraryAuthor = {
+  id: string;
+  authorized_name: string;
+  biography: string;
+  created_at: string;
+  updated_at: string;
+  book_ids: string[];
+};
+
 export const MAX_ACTIVE_BOOKS = 6;
 export const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 
@@ -91,6 +100,67 @@ export async function listPilotBooks(): Promise<PilotBook[]> {
     metadata: { ...(catalogMetadata.get(row.id) ?? {}), ...(row.metadata ?? {}) },
     analysis_ready: analysedIds.has(row.id) || row.status === "ready",
   }));
+}
+
+function normalizedAuthorName(name: string) {
+  return name.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+export async function syncBookAuthor(bookId: string, authorName: string) {
+  const session = await ensurePilotSession();
+  const authorizedName = authorName.trim().replace(/\s+/g, " ").slice(0, 300);
+  if (!authorizedName) {
+    const { error } = await supabase!.from("spl_book_authors").delete().eq("book_id", bookId).eq("role", "author");
+    if (error) throw error;
+    return;
+  }
+  const { data: author, error: authorError } = await supabase!
+    .from("spl_authors")
+    .upsert({
+      owner_id: session.user.id,
+      authorized_name: authorizedName,
+      normalized_name: normalizedAuthorName(authorizedName),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "owner_id,normalized_name" })
+    .select("id")
+    .single();
+  if (authorError) throw authorError;
+  const { error: linkError } = await supabase!
+    .from("spl_book_authors")
+    .upsert({ book_id: bookId, author_id: author.id, role: "author", position: 1 }, { onConflict: "book_id,author_id,role" });
+  if (linkError) throw linkError;
+  const { error: unlinkError } = await supabase!
+    .from("spl_book_authors")
+    .delete()
+    .eq("book_id", bookId)
+    .eq("role", "author")
+    .neq("author_id", author.id);
+  if (unlinkError) throw unlinkError;
+}
+
+export async function listLibraryAuthors(): Promise<LibraryAuthor[]> {
+  await ensurePilotSession();
+  const [{ data: authors, error: authorsError }, { data: links, error: linksError }] = await Promise.all([
+    supabase!.from("spl_authors").select("id,authorized_name,biography,created_at,updated_at").order("authorized_name"),
+    supabase!.from("spl_book_authors").select("book_id,author_id,position").eq("role", "author").order("position"),
+  ]);
+  if (authorsError) throw authorsError;
+  if (linksError) throw linksError;
+  const ids = new Map<string, string[]>();
+  for (const link of links ?? []) ids.set(link.author_id, [...(ids.get(link.author_id) ?? []), link.book_id]);
+  return (authors ?? []).map((author) => ({ ...author, book_ids: ids.get(author.id) ?? [] })) as LibraryAuthor[];
+}
+
+export async function updateAuthorBiography(authorId: string, biography: string) {
+  await ensurePilotSession();
+  const { data, error } = await supabase!
+    .from("spl_authors")
+    .update({ biography: biography.trim().slice(0, 4000), updated_at: new Date().toISOString() })
+    .eq("id", authorId)
+    .select("id,authorized_name,biography,created_at,updated_at")
+    .single();
+  if (error) throw error;
+  return data;
 }
 
 export function isBookArchived(book: Pick<PilotBook, "metadata">) {
@@ -355,6 +425,7 @@ export async function updateBookCatalogMetadata(book: PilotBook, patch: BookCata
     .select("id,title,file_name,file_size,storage_path,source_language,output_language,status,content_sha256,metadata,created_at")
     .single();
   if (error) throw error;
+  await syncBookAuthor(book.id, patch.author);
   return data as PilotBook;
 }
 
