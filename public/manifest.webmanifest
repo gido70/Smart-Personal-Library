@@ -2,13 +2,21 @@
   "name": "المكتبة الشخصية الذكية",
   "short_name": "مكتبتي الذكية",
   "description": "قارئ ومكتبة شخصية ذكية تعيد القارئ إلى الكتاب.",
-  "start_url": "./",
+  "id": "./",
+  "start_url": "./?source=pwa",
   "scope": "./",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
   "background_color": "#f8f5ed",
   "theme_color": "#123f33",
   "lang": "ar",
   "dir": "rtl",
+  "categories": ["books", "education", "productivity"],
+  "shortcuts": [
+    { "name": "مكتبتي", "short_name": "مكتبتي", "url": "./?source=pwa&view=library", "icons": [{ "src": "./favicon.svg", "sizes": "any", "type": "image/svg+xml" }] },
+    { "name": "القارئ", "short_name": "القارئ", "url": "./?source=pwa&view=reader", "icons": [{ "src": "./favicon.svg", "sizes": "any", "type": "image/svg+xml" }] }
+  ],
   "icons": [
     { "src": "./favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]
