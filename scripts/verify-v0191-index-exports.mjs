@@ -5,6 +5,7 @@ const lib = fs.readFileSync("src/lib/library.ts", "utf8");
 const exportsSource = fs.readFileSync("src/lib/exports.ts", "utf8");
 const migration = fs.readFileSync("supabase/migrations/20260907_0008_spl_author_title_indexes.sql", "utf8");
 const css = fs.readFileSync("src/v0103.css", "utf8");
+const serviceWorker = fs.readFileSync("public/sw.js", "utf8");
 
 const checks = [
   [app.includes('"indexes"'), "indexes view is registered"],
@@ -24,7 +25,9 @@ const checks = [
   [exportsSource.includes("الأسئلة والإجابات المحفوظة") && app.includes("questionHistory"), "saved questions are included in report downloads"],
   [!exportsSource.includes("original_file") && !exportsSource.includes("book.file"), "report downloads exclude the original book file"],
   [exportsSource.includes("contentPages") && exportsSource.includes("pages.filter((page)=>contentPages.has(page))"), "blank PDF canvases are removed before export"],
+  [exportsSource.includes("newPage() replaces the context") && exportsSource.includes("ctx.fillStyle=color; ctx.direction=rtl"), "PDF text styles survive every page break"],
   [exportsSource.includes("الصفحة ${index+1} من ${renderedPages.length}"), "Arabic PDF pagination is unambiguous"],
+  [serviceWorker.includes("smart-personal-library-v0.10.5-pdf-2") && app.includes("spl-worker-prepared-v0105-pdf-2") && !app.includes("spl-worker-prepared-v0103-3"), "devices discard the pre-fix PDF bundle"],
   [css.includes(".author-index-layout") && css.includes(".result-downloads"), "responsive index and export styles exist"],
 ];
 
