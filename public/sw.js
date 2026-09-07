@@ -1,5 +1,5 @@
-// Mobile cache revision: force iPhone and Samsung to adopt V0.10.4.
-const CACHE_NAME = "smart-personal-library-v0.10.4-1";
+// Cache revision: force every installed app to discard the pre-PDF-fix bundle.
+const CACHE_NAME = "smart-personal-library-v0.10.5-pdf-2";
 const APP_SHELL = ["./", "./manifest.webmanifest", "./favicon.svg"];
 
 self.addEventListener("install", (event) => {
