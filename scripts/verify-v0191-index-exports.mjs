@@ -23,6 +23,8 @@ const checks = [
   [app.includes("downloadSavedAudio") && app.includes("تنزيل هذا الجزء"), "saved audio downloads exist"],
   [exportsSource.includes("الأسئلة والإجابات المحفوظة") && app.includes("questionHistory"), "saved questions are included in report downloads"],
   [!exportsSource.includes("original_file") && !exportsSource.includes("book.file"), "report downloads exclude the original book file"],
+  [exportsSource.includes("contentPages") && exportsSource.includes("pages.filter((page)=>contentPages.has(page))"), "blank PDF canvases are removed before export"],
+  [exportsSource.includes("الصفحة ${index+1} من ${renderedPages.length}"), "Arabic PDF pagination is unambiguous"],
   [css.includes(".author-index-layout") && css.includes(".result-downloads"), "responsive index and export styles exist"],
 ];
 
