@@ -13,6 +13,7 @@ type PdfDocument = { numPages: number; getPage: (page: number) => Promise<PdfPag
 type Theme = "linen" | "paper" | "library" | "night";
 type Direction = "auto" | "rtl" | "ltr";
 type Speed = "slow" | "normal" | "fast";
+type PageLayout = "single" | "spread";
 type Compatibility = "untested" | "passed" | "failed";
 type DeviceSpeechLanguage = "ar-SA" | "en-US";
 
@@ -87,12 +88,17 @@ export default function Reader({
   rtl,
   savedBook,
   onExitSavedBook,
+  onHome,
+  onLibrary,
 }: {
   rtl: boolean;
   savedBook?: SavedBookRef | null;
   onExitSavedBook?: () => void;
+  onHome?: () => void;
+  onLibrary?: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const secondCanvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [document, setDocument] = useState<PdfDocument | null>(null);
@@ -115,6 +121,10 @@ export default function Reader({
   const [direction, setDirection] = useState<Direction>("auto");
   const [speed, setSpeed] = useState<Speed>("normal");
   const [sound, setSound] = useState(true);
+  const [pageLayout, setPageLayout] = useState<PageLayout>(() =>
+    window.matchMedia?.("(orientation: landscape) and (min-width: 700px)").matches ? "spread" : "single",
+  );
+  const [listenOnly, setListenOnly] = useState(false);
   const [turning, setTurning] = useState<"out-next" | "out-prev" | "in-next" | "in-prev" | "">("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -264,24 +274,28 @@ export default function Reader({
     if (!document || !canvasRef.current || viewMode !== "book") return;
     let cancelled = false;
     const render = async () => {
-      const pdfPage = await document.getPage(page);
-      if (cancelled || !canvasRef.current) return;
-      const viewport = pdfPage.getViewport({ scale });
-      const canvas = canvasRef.current;
-      const context = canvas.getContext("2d", { alpha: false });
-      if (!context) return;
-      canvas.width = Math.floor(viewport.width);
-      canvas.height = Math.floor(viewport.height);
-      canvas.style.width = `${Math.floor(viewport.width)}px`;
-      canvas.style.height = "auto";
-      await pdfPage.render({ canvasContext: context, viewport, canvas }).promise;
+      const renderPage = async (pageNumber: number, canvas: HTMLCanvasElement | null) => {
+        if (!canvas || pageNumber > document.numPages) return;
+        const pdfPage = await document.getPage(pageNumber);
+        if (cancelled) return;
+        const viewport = pdfPage.getViewport({ scale });
+        const context = canvas.getContext("2d", { alpha: false });
+        if (!context) return;
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        canvas.style.width = `${Math.floor(viewport.width)}px`;
+        canvas.style.height = "auto";
+        await pdfPage.render({ canvasContext: context, viewport, canvas }).promise;
+      };
+      await renderPage(page, canvasRef.current);
+      if (pageLayout === "spread") await renderPage(page + 1, secondCanvasRef.current);
       if (source === "local" && fileKey) localStorage.setItem(`${fileKey}:page`, String(page));
     };
     render().catch(() => setError(rtl ? "تعذر رسم هذه الصفحة؛ استخدم العرض المطابق للأصل." : "This page could not be rendered; use Original view."));
     return () => {
       cancelled = true;
     };
-  }, [document, page, scale, fileKey, rtl, viewMode, source]);
+  }, [document, page, scale, fileKey, rtl, viewMode, source, pageLayout]);
 
   // --- persist reading progress for a *saved* book to Supabase (debounced) ---
   useEffect(() => {
@@ -392,7 +406,8 @@ export default function Reader({
 
   const turn = (delta: number) => {
     if (!document || turning || compatibility !== "passed") return;
-    const target = Math.min(Math.max(page + delta, 1), document.numPages);
+    const step = pageLayout === "spread" ? 2 : 1;
+    const target = Math.min(Math.max(page + delta * step, 1), document.numPages);
     if (target === page) return;
     const kind = delta > 0 ? "next" : "prev";
     const duration = speedMs[speed];
@@ -650,6 +665,7 @@ export default function Reader({
     setFileUrl(""); setRemoteUrl(""); setRemoteUrlExpiresAt(0); setSavedBookError("");
     setDocument(null); setFileName(""); setFileKey(""); setPage(1); setError("");
     setCompatibility("untested"); setBookmarks([]); setAmbientUrl(""); setAmbientName(""); setAmbientOn(false);
+    setListenOnly(false);
     setSavedProgressReady(false);
     setSuggestedTextPage(null); setScanningForText(false);
     setSource("none");
@@ -680,7 +696,19 @@ export default function Reader({
     if (language !== "auto" && selected && !voiceMatchesLanguage(selected, language)) setSelectedVoiceURI("");
   };
 
+  const leaveReader = (destination: "back" | "library" | "home") => {
+    stopSpeech();
+    if (destination === "home") onHome?.();
+    else if (destination === "library") onLibrary?.();
+    else close();
+  };
+
   return <div className="page source-reader-page">
+    <nav className="reader-return-bar" aria-label={rtl ? "العودة من القارئ" : "Leave reader"}>
+      <button onClick={() => leaveReader("home")}>⌂ <span>{rtl ? "الرئيسية" : "Home"}</span></button>
+      <button onClick={() => leaveReader("library")}>▥ <span>{rtl ? "المكتبة" : "Library"}</span></button>
+      <button onClick={() => leaveReader("back")}>↩ <span>{rtl ? "صفحة الكتاب" : "Book page"}</span></button>
+    </nav>
     <header className="page-title"><div><span>{rtl ? "القارئ والصوت المجاني — V0.7.3-candidate" : "Free reader & device voice — V0.7.3-candidate"}</span><h2>{isSaved ? (rtl ? "كتاب من مكتبتك" : "A book from your library") : (rtl ? "قارئ الكتب متعدد اللغات" : "Multilingual book reader")}</h2><p>{rtl ? "اعرض الكتاب واقرأ صفحته بصوت جهازك بلا OpenAI وبلا تكلفة API." : "View your book and hear each page through your device voice—no OpenAI call or API charge."}</p></div>{activeUrl && <button className="secondary" onClick={close}>{isSaved ? (rtl ? "العودة إلى الكتاب" : "Back to the book") : (rtl ? "إغلاق الكتاب" : "Close book")}</button>}</header>
 
     {savedBook && !activeUrl ? <section className="reader-empty panel">
@@ -714,6 +742,7 @@ export default function Reader({
         <div><b>{rtl ? "بيئة القراءة" : "Reading scene"}</b><div className="option-row themes">{(["linen","paper","library","night"] as Theme[]).map(item => <button key={item} className={theme === item ? "active" : ""} onClick={() => setTheme(item)}>{rtl ? ({linen:"هادئة",paper:"ورق",library:"مكتبة",night:"ليل"} as Record<Theme,string>)[item] : item}</button>)}</div></div>
         <div><b>{rtl ? "اتجاه الكتاب" : "Book direction"}</b><div className="option-row">{(["auto","rtl","ltr"] as Direction[]).map(item => <button key={item} className={direction === item ? "active" : ""} onClick={() => setDirection(item)}>{item === "auto" ? (rtl ? "تلقائي" : "Auto") : item.toUpperCase()}</button>)}</div></div>
         <div><b>{rtl ? "سرعة التقليب" : "Turn speed"}</b><div className="option-row">{(["slow","normal","fast"] as Speed[]).map(item => <button key={item} className={speed === item ? "active" : ""} onClick={() => setSpeed(item)}>{rtl ? ({slow:"هادئ",normal:"طبيعي",fast:"سريع"} as Record<Speed,string>)[item] : item}</button>)}</div></div>
+        <div><b>{rtl ? "عرض الصفحات" : "Page layout"}</b><div className="option-row"><button className={pageLayout === "single" ? "active" : ""} onClick={() => setPageLayout("single")}>{rtl ? "صفحة واحدة" : "Single page"}</button><button className={pageLayout === "spread" ? "active" : ""} onClick={() => setPageLayout("spread")}>{rtl ? "صفحتان" : "Two pages"}</button><button className={listenOnly ? "active" : ""} disabled={!document || compatibility !== "passed"} onClick={() => { setListenOnly((value) => !value); setContinuousSpeech(true); }}>{rtl ? "استماع فقط" : "Listen only"}</button></div><small>{rtl ? "صفحة واحدة أنسب للهاتف الرأسي، وصفحتان للأفقي والتابلت." : "Single page suits portrait phones; two pages suit landscape and tablets."}</small></div>
         <div className="device-speech-settings"><b>{rtl ? "صوت الجهاز — مجاني" : "Device voice — free"}</b><div className="option-row device-speech-controls">
           <select value={speechLanguage} onChange={(event) => changeSpeechLanguage(event.target.value as "auto" | DeviceSpeechLanguage)} aria-label={rtl ? "لغة القراءة" : "Reading language"}><option value="auto">{rtl ? "تلقائي: عربي/إنجليزي لكل مقطع" : "Auto: Arabic/English per segment"}</option><option value="ar-SA">العربية</option><option value="en-US">English</option></select>
           <select value={selectedVoiceURI} onChange={(event) => setSelectedVoiceURI(event.target.value)} aria-label={rtl ? "صوت القراءة" : "Reading voice"}><option value="">{rtl ? "أفضل صوت تلقائيًا" : "Best voice automatically"}</option>{(speechLanguage === "en-US" ? englishVoices : speechLanguage === "ar-SA" ? arabicVoices : [...arabicVoices, ...englishVoices]).map((voice) => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.name} — {voice.lang}</option>)}</select>
@@ -734,9 +763,9 @@ export default function Reader({
       {viewMode === "native" ? <div className="native-reader-stage" ref={stageRef}>
         <div className="fidelity-note">✓ {rtl ? "العرض الأصلي مرجع بصري فقط. للصوت المتزامن استخدم وضع الكتاب." : "Original view is the visual reference only. Use Book mode for synchronized speech."}<button onClick={chooseBookMode}>{rtl?"انتقل إلى وضع الكتاب والصوت":"Switch to Book mode & speech"}</button></div>
         <iframe title={fileName} src={`${activeUrl}#view=FitH&toolbar=1&navpanes=0`} />
-      </div> : document ? <><div className="reader-stage" ref={stageRef} style={{"--turn-duration": `${speedMs[speed]}ms`} as React.CSSProperties}>
+      </div> : document ? <><div className={`reader-stage layout-${pageLayout}${listenOnly ? " listen-only" : ""}`} ref={stageRef} style={{"--turn-duration": `${speedMs[speed]}ms`} as React.CSSProperties}>
         <button className="page-arrow previous" onClick={() => turn(-1)} disabled={page === 1 || compatibility !== "passed"} aria-label={rtl ? "الصفحة السابقة" : "Previous page"}>‹</button>
-        <div className="book-bed"><div className={`paper-page ${turning}`}><canvas ref={canvasRef}/><span className="page-number">{page}</span><span className="paper-shine"/></div></div>
+        {listenOnly ? <section className="listen-only-panel"><span>♫</span><small>{rtl ? "استماع هادئ دون عرض النص" : "Calm listening without page text"}</small><h3>{fileName}</h3><p>{rtl ? `الصفحة ${page} من ${document.numPages}` : `Page ${page} of ${document.numPages}`}</p><button className={speaking ? "active" : ""} onClick={speakPage}>{speechFooterLabel}</button><em>{rtl ? "فعّل التشغيل قبل القيادة، ولا تستخدم الشاشة أثناء تحرك السيارة." : "Start playback before driving; do not use the screen while the vehicle is moving."}</em></section> : <div className="book-spread"><div className="book-bed"><div className={`paper-page ${turning}`}><canvas ref={canvasRef}/><span className="page-number">{page}</span><span className="paper-shine"/></div></div>{pageLayout === "spread" && page < document.numPages && <div className="book-bed second-page"><div className={`paper-page ${turning}`}><canvas ref={secondCanvasRef}/><span className="page-number">{page + 1}</span><span className="paper-shine"/></div></div>}</div>}
         <button className="page-arrow next" onClick={() => turn(1)} disabled={page === document.numPages || compatibility !== "passed"} aria-label={rtl ? "الصفحة التالية" : "Next page"}>›</button>
         {compatibility === "untested" && <div className="compatibility-gate"><span>{rtl ? "اختبار سلامة النص" : "Text fidelity check"}</span><h3>{rtl ? "هل هذه الصفحة مطابقة للنص في العرض الأصلي؟" : "Does this page match the Original view?"}</h3><p>{rtl ? "افحص اتصال الحروف، ترتيب الكلمات، الأرقام، والخطوط اللاتينية. لن يعمل التقليب قبل إجابتك." : "Check character rendering, word order, numbers, and mixed-language text. Page turning stays locked until you confirm."}</p><div><button className="approve" onClick={approveCompatibility}>✓ {rtl ? "نعم، الصفحة صحيحة" : "Yes, it matches"}</button><button className="reject" onClick={rejectCompatibility}>× {rtl ? "لا، يوجد تشويه" : "No, text is distorted"}</button></div></div>}
       </div>
