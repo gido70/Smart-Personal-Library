@@ -1,3 +1,69 @@
+import { readFileSync } from "node:fs";
+
+const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+const app = read("src/App.tsx");
+const reader = read("src/Reader.tsx");
+const library = read("src/lib/library.ts");
+const edge = read("supabase/functions/spl-ai/index.ts");
+const worker = read("public/sw.js");
+const styles = read("src/v0103.css");
+const requestMigration = read("supabase/migrations/20260830_0005_spl_v0104_idempotent_ai_requests.sql");
+const coverMigration = read("supabase/migrations/20260831_0006_spl_cover_thumbnails.sql");
+let failed = 0;
+function check(name, condition) {
+  console.log(`${condition ? "PASS" : "FAIL"}  ${name}`);
+  if (!condition) failed += 1;
+}
+
+check("retired one-book paid gate is absent", !/PILOT_BOOK_LIMIT/.test(edge) && !/PAID_PILOT_BOOK_LIMIT_REACHED/.test(edge));
+check("six active books use safe archive instead of permanent deletion", /MAX_ACTIVE_BOOKS = 6/.test(library) && /archivePilotBook/.test(library) && /نقل الكتاب إلى الأرشيف/.test(app));
+check("six-book shelf is three-by-two on desktop and a compact swipe row on mobile", /active-book-grid\{grid-template-columns:repeat\(3/.test(styles) && /active-book-grid\{display:flex/.test(styles) && /scroll-snap-type:x mandatory/.test(styles));
+check("home shelf cards show only the book and final classification", /compact onOpen/.test(app) && /compact-live-book-card/.test(app) && /compact \? <span className=\{`book-category-chip final/.test(app));
+check("mobile category shelves require three books or an explicit filter", /denseMobileShelves/.test(app) && /books\.length >= 3/.test(app) && /adaptiveMobileShelves/.test(app) && /كتب أخرى/.test(app));
+check("seventh-book entry is blocked before the upload modal", /const openUpload/.test(app) && /activeCount >= MAX_ACTIVE_BOOKS/.test(app) && /onUpload=\{openUpload\}/.test(app));
+check("archive explains preservation and requires confirmation", /ستتحرر فتحة من الستة/.test(app) && /نعم، انقل إلى الأرشيف/.test(app) && /الخلاصة والتحليل والصوت والأسئلة/.test(app));
+check("permanent deletion is isolated to archived records and explicitly confirmed", /onDelete=\{isBookArchived\(book\)/.test(app) && /حذف نهائي لا يمكن التراجع عنه/.test(app) && /نعم، احذف نهائيًا/.test(app) && /deletePilotBook/.test(app));
+check("original books and knowledge copies can be selected independently", /spl-preferred-library-shelf/.test(app) && /الكتب الأصلية/.test(app) && /النسخ المعرفية/.test(app) && /مكتبة النسخ المعرفية/.test(app));
+check("archived cards identify the saved knowledge-copy state", /نسخة معرفية محفوظة — الأصل مؤرشف/.test(app) && /book-status-badge knowledge/.test(app) && /original_removed/.test(app));
+check("eleven fixed classification gateways are defined", /DEWEY_GATEWAYS/.test(app) && /MODERN_GATEWAY/.test(app) && /بوابات التصنيف الإحدى عشرة/.test(app));
+check("classification supports Dewey plus modern topic on one book", /dewey_main/.test(library) && /dewey_branch/.test(library) && /modern_topic/.test(library));
+check("book classification editor stays collapsed until its category chip is pressed", /editingClassification/.test(app) && /category-edit-trigger/.test(app) && /حفظ التصنيف/.test(app));
+check("library search indexes catalogue-card data and classifications", /classificationSearchText/.test(app) && /gateway\?\.ar/.test(app) && /modern\?\.\[1\]/.test(app) && /book\.metadata\?\.author/.test(app) && /book\.metadata\?\.publisher/.test(app) && /book\.metadata\?\.subject/.test(app));
+check("book cards show one final classification until editing", /finalClassificationLabel/.test(app) && /book-category-chip final/.test(app) && !/book-category-chip branch/.test(app));
+check("mobile library uses horizontally swipeable category shelves", /mobileShelfLayout/.test(app) && /mobile-category-shelves/.test(app) && /mobile-shelf-track/.test(styles) && /scroll-snap-type:x mandatory/.test(styles));
+check("book page contains a bibliographic catalogue card", /بطاقة فهرسة الكتاب/.test(app) && /مكان النشر/.test(app) && /سنة النشر/.test(app) && /تصنيف ديوي/.test(app) && /ISBN/.test(app));
+check("catalogue card corrections can be saved without a schema change", /updateBookCatalogMetadata/.test(library) && /catalog_corrected_at/.test(library) && /تحرير بطاقة الفهرسة/.test(app) && /catalog-edit-form/.test(styles));
+check("catalogue card is compact by default and editor opens on demand", /catalog-card-layout/.test(styles) && /catalog-info-grid>div\{display:grid/.test(styles) && /catalog-card-actions/.test(app) && /!catalogEditing/.test(app));
+check("book readiness is explicit and visible on compact mobile cards", /جاهز للأرشفة/.test(app) && /بانتظار التحليل/.test(app) && /تعذر التحليل/.test(app) && /book-status-badge/.test(styles) && /mobile-shelf-track \.book-status-badge/.test(styles));
+check("device reader routes Arabic and English per speech chunk", /detectSpeechLanguage\(chunk/.test(reader) && /bestDeviceVoice/.test(reader) && /utterance\.lang = chunkLanguage/.test(reader));
+check("Samsung and mobile users can refresh and test installed voices", /SamsungBrowser/.test(reader) && /تحديث الأصوات/.test(reader) && /اختبار الصوت/.test(reader) && /refreshDeviceVoices/.test(reader));
+check("free device speech can continue through following book pages", /continuousSpeech/.test(reader) && /continueSpeechRef/.test(reader) && /اقرأ من هنا وتابع/.test(reader));
+check("unknown books remain explicitly unclassified instead of defaulting to 000\/010", /return \{ deweyMain: "", deweyBranch: "" \}/.test(app) && /غير مصنف/.test(app));
+check("empty library samples never invoke paid actions", /SAMPLE_BOOKS/.test(app) && /display-only examples/.test(app));
+check("empty library presents six samples", /رحلة في تاريخ العلوم/.test(app) && /مدخل إلى علم النفس/.test(app));
+check("Samsung cover path downloads authenticated bytes", /downloadBookFile/.test(app) && /fileBlob\.arrayBuffer/.test(app));
+check("active covers lazy-load near the viewport with bounded PDF concurrency", /IntersectionObserver/.test(app) && /MAX_CONCURRENT_PDF_COVER_RENDERS = 2/.test(app) && /acquirePdfCoverRenderSlot/.test(app));
+check("active cover thumbnails use a deterministic owner-scoped cache path", /activeCoverThumbnailPath/.test(app) && /cover\.jpg/.test(app) && /saveCoverThumbnail/.test(library));
+check("private book bucket accepts JPEG cover thumbnails", /update storage\.buckets/.test(coverMigration) && /image\/jpeg/.test(coverMigration) && /SPL_COVER_JPEG_MIME_NOT_ENABLED/.test(coverMigration));
+check("thumbnail caching cannot overwrite catalogue or archive metadata", !/saveCoverThumbnail[\s\S]*?update\(\{ metadata \}\)/.test(library));
+check("missing active thumbnails fall back to PDF and pdf.js memory is released", /for \(const cachedPath of cachedPaths\)/.test(app) && /if \(isBookArchived\(book\)\) throw/.test(app) && /first\?\.cleanup\(\)/.test(app) && /await loadingTask\.destroy\(\)/.test(app));
+check("notification bell and mobile destination are enabled", /🔔/.test(app) && !/disabled=\{id === "progress"\}/.test(app));
+check("service worker cache advances to the PDF pagination fix", /smart-personal-library-v0\.10\.5-pdf-2/.test(worker));
+check("upload accepts 30 MB while preserving 500-page cap", /MAX_UPLOAD_BYTES = 30/.test(library) && /TOO_MANY_PAGES_500/.test(library) && /31457280/.test(requestMigration));
+check("daily limits and reset time are visible", /getAiLimitsSnapshot/.test(app) && /تتجدد الحدود اليومية/.test(app));
+check("interrupted paid task has persistent visible moving progress", /durable-task-banner/.test(app) && /taskStorageKey/.test(app) && /durable-task-banner\.running\{position:fixed/.test(styles) && /انتظر ولا تغلق الصفحة/.test(app));
+check("paid-task lock blocks repeat requests before React can rerender", /paidTaskLockRef/.test(app) && /الطلب مسجّل بالفعل/.test(app) && /if \(!requestId\) return/.test(app));
+check("paid-task lock is released after recovery completion or timeout", /localStorage\.removeItem\(taskStorageKey\);\s*paidTaskLockRef\.current = false;/.test(app));
+check("server-side idempotency receipt is additive and owner-scoped", /spl_ai_requests/.test(requestMigration) && /unique \(user_id, idempotency_key\)/.test(requestMigration) && /enable row level security/.test(requestMigration));
+check("partial audio resumes missing parts instead of treating one part as complete", !/if \(existingAudio\?\.length\) return/.test(edge) && /completedParts\.has\(partNo\)/.test(edge) && /completedParts: completedParts\.size/.test(edge));
+check("full audio uses a stable operation key and read-only receipt polling", /`audio-\$\{book\.id\}-\$\{resultLanguage\}-\$\{taskVoice\}`/.test(app) && /getPaidTaskReceipt/.test(app) && /receipt\.status === "succeeded"/.test(app));
+check("paid work has an unmistakable animated activity indicator", /task-motion/.test(app) && /spl-task-spin/.test(styles) && /animation:spl-task-spin/.test(styles));
+check("audio progress names every saved and pending part", /paid-task-parts/.test(app) && /الجزء \$\{index \+ 1\}/.test(app) && /paid-task-parts \.done/.test(styles));
+check("voice selection survives refresh and stays locked to the running task", /setProfessionalVoice\(saved\.voice\)/.test(app) && /if \(busy\) return/.test(app) && /requestedVoice = professionalVoice/.test(app));
+check("six professional voices can be sampled before purchase", /PROFESSIONAL_VOICES/.test(app) && /"coral"/.test(app) && /"onyx"/.test(app) && /"nova"/.test(app) && /"sage"/.test(app));
+
+console.log(`\n${failed === 0 ? "ALL V0.10.4 LIBRARY CHECKS PASSED" : `${failed} V0.10.4 CHECK(S) FAILED`}`);
+if (failed) process.exit(1);
 import fs from "node:fs";
 
 const app = fs.readFileSync("src/App.tsx", "utf8");
