@@ -55,6 +55,10 @@ import {
 } from "./lib/reminders";
 
 type Lang = "ar" | "en";
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+};
 type ProfessionalVoice = "marin" | "cedar" | "coral" | "onyx" | "nova" | "sage";
 const PROFESSIONAL_VOICES: ProfessionalVoice[] = ["marin", "cedar", "coral", "onyx", "nova", "sage"];
 const isProfessionalVoice = (value: unknown): value is ProfessionalVoice =>
@@ -221,7 +225,13 @@ function describeReminderError(error: unknown, rtl: boolean) {
 
 export default function Home() {
   const [lang, setLang] = useState<Lang>("ar");
-  const [dark, setDark] = useState(false);
+  const [dark, setDark] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const saved = localStorage.getItem("spl-theme");
+    return saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+  });
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [standalone, setStandalone] = useState(false);
   const [view, setView] = useState<View>("home");
   const [upload, setUpload] = useState(false);
   const [rights1, setRights1] = useState(false);
@@ -250,6 +260,33 @@ export default function Home() {
   const [reminderCount, setReminderCount] = useState(0);
   const t = text[lang];
   const rtl = lang === "ar";
+  const toggleDark = () => setDark((current) => {
+    const next = !current;
+    localStorage.setItem("spl-theme", next ? "dark" : "light");
+    return next;
+  });
+  useEffect(() => {
+    const theme = dark ? "#091a16" : "#0e4b3e";
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme);
+    document.documentElement.style.colorScheme = dark ? "dark" : "light";
+  }, [dark]);
+  useEffect(() => {
+    const updateStandalone = () => setStandalone(
+      window.matchMedia("(display-mode: standalone)").matches
+      || (navigator as Navigator & { standalone?: boolean }).standalone === true,
+    );
+    const capturePrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+    updateStandalone();
+    window.addEventListener("beforeinstallprompt", capturePrompt);
+    window.addEventListener("appinstalled", updateStandalone);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", capturePrompt);
+      window.removeEventListener("appinstalled", updateStandalone);
+    };
+  }, []);
   useEffect(() => {
     const saved = localStorage.getItem("spl-lang");
     if (saved === "ar" || saved === "en") setLang(saved);
@@ -310,6 +347,12 @@ export default function Home() {
       setView("pilot");
     }
   }, [pilotBooks]);
+  useEffect(() => {
+    if (authState !== "authenticated") return;
+    const requestedView = new URLSearchParams(window.location.search).get("view");
+    if (requestedView === "library") setView("library");
+    if (requestedView === "reader") openReaderStandalone();
+  }, [authState]);
   useEffect(() => {
     if (!browserCacheReady || authState !== "authenticated") return;
     if (!supabaseConfigured) {
@@ -409,6 +452,25 @@ export default function Home() {
     } catch {
       window.location.reload();
     }
+  };
+  const installLibrary = async () => {
+    if (standalone) {
+      setNotice(rtl ? "المكتبة مثبتة وتعمل الآن كتطبيق مستقل." : "The library is already installed as a standalone app.");
+    } else if (installPrompt) {
+      await installPrompt.prompt();
+      const { outcome } = await installPrompt.userChoice;
+      if (outcome === "accepted") setStandalone(true);
+      setInstallPrompt(null);
+      setNotice(outcome === "accepted"
+        ? (rtl ? "تمت إضافة المكتبة إلى جهازك." : "The library was added to your device.")
+        : (rtl ? "يمكنك تثبيتها لاحقًا من زر «تثبيت» أو قائمة المتصفح." : "You can install it later from Install or the browser menu."));
+    } else {
+      const isiOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      setNotice(isiOS
+        ? (rtl ? "على الآيفون أو الآيباد: مشاركة ⤴ ثم «إضافة إلى الشاشة الرئيسية»." : "On iPhone or iPad: Share ⤴, then Add to Home Screen.")
+        : (rtl ? "افتح قائمة المتصفح ثم اختر «تثبيت التطبيق» أو «إضافة إلى الشاشة الرئيسية»." : "Open the browser menu, then choose Install app or Add to Home screen."));
+    }
+    window.setTimeout(() => setNotice(""), 8000);
   };
   const pageTitle = useMemo(
     () => navigation[lang].find((x) => x[0] === view)?.[1] || t.name,
@@ -514,8 +576,13 @@ export default function Home() {
     return (
       <LibraryLogin
         rtl={rtl}
+        dark={dark}
         loading={authState === "loading"}
         onLanguage={switchLang}
+        onTheme={toggleDark}
+        onInstall={installLibrary}
+        standalone={standalone}
+        notice={notice}
         onSignedIn={() => setAuthState("authenticated")}
       />
     );
@@ -595,7 +662,7 @@ export default function Home() {
             <button onClick={switchLang} className="lang-switch">
               {rtl ? "EN" : "ع"}
             </button>
-            <button className="desktop-utility" onClick={() => setDark(!dark)}>{dark ? "☀" : "◐"}</button>
+            <button className="desktop-utility" onClick={toggleDark}>{dark ? "☀" : "◐"}</button>
             <button
               className={`bell ${reminderCount > 0 ? "has-alerts" : ""}`}
               title={rtl ? "التنبيهات" : "Notifications"}
@@ -614,7 +681,8 @@ export default function Home() {
             <button className="tool-guide" onClick={() => setView("guide")}><i>؟</i><span>{rtl ? "دليل الاستخدام" : "User guide"}</span></button>
             <button className="tool-refresh" onClick={activateLatestVersion} disabled={activating}><i>↻</i><span>{activating ? (rtl ? "جارٍ التنشيط" : "Activating") : (rtl ? "تنشيط الصفحة" : "Refresh page")}</span></button>
             <button className="tool-version" onClick={() => setNotice(rtl ? `النسخة الحالية: ${t.version}` : `Current version: ${t.version}`)}><i>V</i><span>{rtl ? "النسخة" : "Version"}</span></button>
-            <button className={`tool-theme ${dark ? "active" : ""}`} aria-pressed={dark} onClick={() => setDark(!dark)}><i>{dark ? "☀" : "◐"}</i><span>{rtl ? "المظهر" : "Appearance"}</span></button>
+            <button className={`tool-install ${standalone ? "active" : ""}`} onClick={installLibrary}><i>{standalone ? "✓" : "⇩"}</i><span>{standalone ? (rtl ? "مثبتة" : "Installed") : (rtl ? "تثبيت" : "Install")}</span></button>
+            <button className={`tool-theme ${dark ? "active" : ""}`} aria-pressed={dark} onClick={toggleDark}><i>{dark ? "☀" : "◐"}</i><span>{rtl ? "المظهر" : "Appearance"}</span></button>
           </nav>
         )}
         {view === "home" && (
@@ -801,13 +869,23 @@ function ReviewerPreview({ rtl, books, onBack }: { rtl: boolean; books: PilotBoo
 
 function LibraryLogin({
   rtl,
+  dark,
   loading,
   onLanguage,
+  onTheme,
+  onInstall,
+  standalone,
+  notice,
   onSignedIn,
 }: {
   rtl: boolean;
+  dark: boolean;
   loading: boolean;
   onLanguage: () => void;
+  onTheme: () => void;
+  onInstall: () => void;
+  standalone: boolean;
+  notice: string;
   onSignedIn: () => void;
 }) {
   const [email, setEmail] = useState("aarahman70@gmail.com");
@@ -853,8 +931,11 @@ function LibraryLogin({
     }
   };
   return (
-    <div className="login-page" dir={rtl ? "rtl" : "ltr"} lang={rtl ? "ar" : "en"}>
-      <button className="login-language" onClick={onLanguage}>{rtl ? "EN" : "ع"}</button>
+    <div className={`login-page ${dark ? "dark" : ""}`} dir={rtl ? "rtl" : "ltr"} lang={rtl ? "ar" : "en"}>
+      <div className="login-utilities">
+        <button onClick={onLanguage} aria-label={rtl ? "English" : "العربية"}>{rtl ? "EN" : "ع"}</button>
+        <button onClick={onTheme} aria-label={rtl ? "تغيير المظهر" : "Change appearance"}>{dark ? "☀" : "◐"}</button>
+      </div>
       <section className="login-card">
         <div className="brand-mark">ك</div>
         <span className="eyebrow">{rtl ? "المكتبة الشخصية الذكية" : "Smart Personal Library"}</span>
@@ -892,6 +973,11 @@ function LibraryLogin({
               : (rtl ? "لديك حساب؟ سجّل الدخول" : "Already have an account? Sign in")}
           </button>
         )}
+        <button className="login-install" type="button" onClick={onInstall}>
+          <b>{standalone ? "✓" : "⇩"}</b>
+          <span>{standalone ? (rtl ? "المكتبة مثبتة على هذا الجهاز" : "Installed on this device") : (rtl ? "ثبّت المكتبة على الشاشة الرئيسية" : "Install on your Home screen")}</span>
+        </button>
+        {notice && <div className="login-install-notice" role="status">{notice}</div>}
         <small>{rtl ? "لا تُحفظ كلمة المرور داخل المنصة؛ يحميها Supabase بصورة مشفّرة." : "Your password is protected by Supabase and is never stored in the app."}</small>
       </section>
     </div>

@@ -99,7 +99,7 @@
   .mobile-home-toolbar button.active{transform:translateY(-1px);border-width:2px;filter:saturate(1.08);box-shadow:0 5px 0 color-mix(in srgb,var(--tool-color) 38%,var(--line)),0 9px 20px rgba(18,63,51,.14)}
   .mobile-home-toolbar button:focus-visible{outline:3px solid color-mix(in srgb,var(--tool-color) 35%,transparent);outline-offset:2px}
   .mobile-home-toolbar button:disabled{opacity:.6;transform:none}
-  .mobile-home-toolbar .tool-home{--tool-color:#e0bf18}.mobile-home-toolbar .tool-index{--tool-color:#31ad62}.mobile-home-toolbar .tool-guide{--tool-color:#35a9d2}.mobile-home-toolbar .tool-refresh{--tool-color:#dc4a91}.mobile-home-toolbar .tool-version{--tool-color:#e46b24}.mobile-home-toolbar .tool-theme{--tool-color:#7750c8}
+  .mobile-home-toolbar .tool-home{--tool-color:#e0bf18}.mobile-home-toolbar .tool-index{--tool-color:#31ad62}.mobile-home-toolbar .tool-guide{--tool-color:#35a9d2}.mobile-home-toolbar .tool-refresh{--tool-color:#dc4a91}.mobile-home-toolbar .tool-version{--tool-color:#e46b24}.mobile-home-toolbar .tool-install{--tool-color:#168e79}.mobile-home-toolbar .tool-theme{--tool-color:#7750c8}
 
   .dashboard-page{display:flex;flex-direction:column;gap:10px;padding-top:13px}
   .dashboard-page>.welcome{order:1;margin:0;padding:13px 14px;border-radius:17px}
@@ -176,3 +176,31 @@
 .catalog-author-link{border:0;background:transparent;color:var(--green2);font:inherit;font-weight:900;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 @media(max-width:760px){.author-index-layout{grid-template-columns:1fr}.author-works{grid-template-columns:1fr}.title-index-list>button{grid-template-columns:1fr}.result-downloads{grid-template-columns:1fr}.index-tabs{position:sticky;top:66px;z-index:5}.author-record h2{font-size:28px}}
 @media(max-width:760px){.reviewer-layout{grid-template-columns:1fr}.reviewer-books{position:static;display:flex;gap:8px;overflow-x:auto}.reviewer-books h3,.reviewer-books p{flex-basis:100%}.reviewer-books>button{flex:0 0 210px}.reviewer-book-heading{grid-template-columns:78px 1fr}.reviewer-book-heading h3{font-size:20px}.reviewer-hero{padding:19px}.reviewer-hero h2{font-size:28px}}
+
+/* V1.9.4 — installable, app-like phone and tablet presentation. */
+@media(max-width:760px){
+  .topbar{box-shadow:0 7px 20px rgba(18,63,51,.07)}
+  .app.dark .topbar{box-shadow:0 8px 22px rgba(0,0,0,.24)}
+  .mobile-home-toolbar{position:sticky;top:calc(65px + env(safe-area-inset-top,0px));z-index:14;padding-inline:calc(10px + env(safe-area-inset-left,0px)) calc(10px + env(safe-area-inset-right,0px));box-shadow:0 8px 20px rgba(18,63,51,.055)}
+  .mobile-home-toolbar button:hover{transform:translateY(-1px);filter:saturate(1.08)}
+  .app.dark .mobile-home-toolbar button{background:color-mix(in srgb,var(--tool-color) 18%,var(--card));color:color-mix(in srgb,var(--tool-color) 68%,#fff);border-color:color-mix(in srgb,var(--tool-color) 58%,var(--line));box-shadow:0 4px 0 color-mix(in srgb,var(--tool-color) 32%,#101d18),0 8px 18px rgba(0,0,0,.2)}
+  .mobile-nav{padding-inline:calc(5px + env(safe-area-inset-left,0px)) calc(5px + env(safe-area-inset-right,0px));box-shadow:0 -8px 25px rgba(18,63,51,.09)}
+  .app.dark .mobile-nav{box-shadow:0 -9px 28px rgba(0,0,0,.3)}
+  .mobile-nav button{position:relative;gap:2px;border-radius:16px;transition:transform .16s ease,color .16s ease,background .16s ease}
+  .mobile-nav button i{width:30px;height:25px;display:grid;place-items:center;border-radius:12px;transition:transform .16s ease,background .16s ease}
+  .mobile-nav button.active{background:color-mix(in srgb,var(--gold) 10%,transparent);color:var(--green);font-weight:900}
+  .mobile-nav button.active i{background:color-mix(in srgb,var(--gold) 20%,var(--card));transform:translateY(-2px)}
+  .app.dark .mobile-nav button.active{color:var(--gold2)}
+  .mobile-nav button:active{transform:scale(.94)}
+  .mobile-shelf-track,.filters,.book-tabs,.reviewer-books{scrollbar-width:none}
+  .mobile-shelf-track::-webkit-scrollbar,.filters::-webkit-scrollbar,.book-tabs::-webkit-scrollbar,.reviewer-books::-webkit-scrollbar{display:none}
+  .panel,.welcome,.journey,.live-book-card{content-visibility:auto;contain-intrinsic-size:auto 180px}
+}
+@media(min-width:761px) and (max-width:1024px){
+  .main-nav button{transition:transform .16s ease,background .16s ease,border-color .16s ease}
+  .main-nav button:hover{transform:translateX(calc(2px * var(--flow-sign,1)))}
+  .app[dir=rtl]{--flow-sign:-1}.app[dir=ltr]{--flow-sign:1}
+  .top-actions button,.search,.panel,.book-card{box-shadow:0 6px 18px rgba(18,63,51,.045)}
+  .app.dark .top-actions button,.app.dark .search,.app.dark .panel,.app.dark .book-card{box-shadow:0 7px 20px rgba(0,0,0,.16)}
+  .reviewer-books>button{min-height:52px}
+}
