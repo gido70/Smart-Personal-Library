@@ -672,6 +672,14 @@ export default function Home() {
           <Reader
             rtl={rtl}
             savedBook={readerBook}
+            onHome={() => {
+              setReaderBook(null);
+              setView("home");
+            }}
+            onLibrary={() => {
+              setReaderBook(null);
+              setView("library");
+            }}
             onExitSavedBook={() => {
               setReaderBook(null);
               setView(activePilotBook ? "pilot" : "library");
