@@ -102,17 +102,18 @@ function makeImagePdf(images: Uint8Array[], pixelWidth: number, pixelHeight: num
 
 export async function downloadPdfReport(book: PilotBook, result: Record<string, unknown>, rtl: boolean, questions: ExportQuestion[] = []) {
   const W=1240,H=1754,margin=92,maxWidth=W-margin*2;
-  const pages: HTMLCanvasElement[]=[]; let canvas!:HTMLCanvasElement; let ctx!:CanvasRenderingContext2D; let y=0;
+  const pages: HTMLCanvasElement[]=[]; const contentPages=new WeakSet<HTMLCanvasElement>(); let canvas!:HTMLCanvasElement; let ctx!:CanvasRenderingContext2D; let y=0;
   const newPage=()=>{ canvas=document.createElement("canvas"); canvas.width=W; canvas.height=H; ctx=canvas.getContext("2d")!; ctx.fillStyle="#fffdf8"; ctx.fillRect(0,0,W,H); ctx.direction=rtl?"rtl":"ltr"; ctx.textAlign=rtl?"right":"left"; y=110; pages.push(canvas); };
   const x=rtl?W-margin:margin;
   const ensure=(height:number)=>{ if(y+height>H-120)newPage(); };
-  const write=(text:string,size:number,color:string,bold=false,lineHeight=size*1.7)=>{ ctx.font=`${bold?"700":"400"} ${size}px Arial`; ctx.fillStyle=color; const lines=wrapCanvasText(ctx,text,maxWidth); for(const line of lines){ ensure(lineHeight); if(line)ctx.fillText(line,x,y,maxWidth); y+=lineHeight; } };
-  newPage(); ctx.fillStyle="#124e3b"; ctx.fillRect(0,0,W,235); ctx.fillStyle="#f4d79b"; ctx.font="700 32px Arial"; ctx.fillText(rtl?"المكتبة الشخصية الذكية":"Smart Personal Library",x,85,maxWidth); ctx.fillStyle="#ffffff"; ctx.font="700 50px Arial"; ctx.fillText(book.title,x,165,maxWidth); y=300;
+  const write=(text:string,size:number,color:string,bold=false,lineHeight=size*1.7)=>{ if(!text.trim())return; ctx.font=`${bold?"700":"400"} ${size}px Arial`; ctx.fillStyle=color; const lines=wrapCanvasText(ctx,text,maxWidth); for(const line of lines){ if(!line){ if(y+lineHeight<=H-120)y+=lineHeight; continue; } ensure(lineHeight); ctx.fillText(line,x,y,maxWidth); contentPages.add(canvas); y+=lineHeight; } };
+  newPage(); ctx.fillStyle="#124e3b"; ctx.fillRect(0,0,W,235); ctx.fillStyle="#f4d79b"; ctx.font="700 32px Arial"; ctx.fillText(rtl?"المكتبة الشخصية الذكية":"Smart Personal Library",x,85,maxWidth); ctx.fillStyle="#ffffff"; ctx.font="700 50px Arial"; ctx.fillText(book.title,x,165,maxWidth); contentPages.add(canvas); y=300;
   const resultMetadata = ((result.overview ?? {}) as Record<string, unknown>).metadata as Record<string, unknown> | undefined;
   write(`${rtl?"المؤلف":"Author"}: ${asText(book.metadata?.author ?? resultMetadata?.author)||(rtl?"غير محدد":"Not specified")}`,28,"#5c6964",false);
   for(const section of reportSections(result,rtl,questions)){ ensure(120); y+=26; write(section.heading,34,"#124e3b",true,56); ctx.fillStyle="#d9cba9"; ctx.fillRect(margin,y-18,maxWidth,2); y+=12; write(section.body,25,"#173b31",false,44); }
-  pages.forEach((page,index)=>{ const c=page.getContext("2d")!; c.direction=rtl?"rtl":"ltr"; c.textAlign=rtl?"right":"left"; c.font="22px Arial"; c.fillStyle="#7b847f"; c.fillText(`${index+1} / ${pages.length}`,rtl?W-margin:margin,H-55,maxWidth); });
-  const images=await Promise.all(pages.map(canvasToJpeg));
+  const renderedPages=pages.filter((page)=>contentPages.has(page));
+  renderedPages.forEach((page,index)=>{ const c=page.getContext("2d")!; c.direction=rtl?"rtl":"ltr"; c.textAlign=rtl?"right":"left"; c.font="22px Arial"; c.fillStyle="#7b847f"; c.fillText(rtl?`الصفحة ${index+1} من ${renderedPages.length}`:`Page ${index+1} of ${renderedPages.length}`,rtl?W-margin:margin,H-55,maxWidth); });
+  const images=await Promise.all(renderedPages.map(canvasToJpeg));
   downloadBlob(makeImagePdf(images,W,H),`${safeFileName(book.title)}-المخرجات.pdf`);
 }
 
