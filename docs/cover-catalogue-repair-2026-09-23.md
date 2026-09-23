@@ -57,3 +57,15 @@ Validation:
 - Build/full test suite checked for this revision; GitHub preview checks must pass before presenting the update.
 
 Publication: update the existing approved branch/PR #40. Do not merge production during this follow-up. Exact next step: open the updated **same preview URL on both devices**, verify repeat shelf visits and author index. The original GitHub Pages main site does not yet contain PR #40. Physical Samsung success is not yet confirmed.
+
+
+## Author completion follow-up — cover-fast-7
+
+User screenshots confirm preview cover/category, but missing author. Read-only database verification found version 1, null author and `catalogue_retry_complete: true`. The six-second partial sample was permanently treated as complete; the cover queue additionally skipped every versioned record.
+
+- Sample title/CIP pages 2–4 before image-heavy page 1; preserve original page numbers/order in evidence. Background sampling receives 15 seconds, independent of immediate JPEG display.
+- Catalogue version 2 records whether all six (or all available) opening pages were sampled. Incomplete records can retry on subsequent cover loads, including memory-cache hits, with a one-minute backoff and three persisted attempts per version. Version-1 incomplete records are eligible again.
+- Preserve manual author/category fields, archived books, paid metadata and compare-and-set writes. Unknown authors still require evidence; complete textless samples need future OCR, not invented names.
+- Existing author-index upsert/retry remains in place. No schema or RLS changes, paid calls, page limit, or change to 150 MiB.
+- Real supplied PDF under Node PDF.js: six pages sampled, printed page 4 yields `باهمام، أحمد سالم عمر`, provisional 610. New regression simulates a slow image-only cover and verifies page 4 is still sampled before timeout.
+- User now authorizes production publication after verification; physical Samsung validation remains a post-publication check, not a claimed test result.

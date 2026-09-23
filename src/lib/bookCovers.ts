@@ -1,3 +1,4 @@
+import { needsCatalogueRepair } from './autoCatalogue';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { createCoverCache, createPdfQueue } from './coverCache';
 import { renderCoverFromPdf, usableCover } from './coverRendering';
@@ -8,7 +9,7 @@ import { withUploadDeadline } from './uploadPreparation';
 
 const covers = createCoverCache();
 const runPdf = createPdfQueue();
-const catalogueAttempted = new Set<string>();
+const catalogueAttempted = new Map<string, number>();
 function coverKey(book: Pick<PilotBook, 'storage_path' | 'content_sha256' | 'metadata'>) {
   return `${book.storage_path}|${book.content_sha256 ?? ''}|${book.metadata?.archive_cover_path ?? ''}`;
 }
@@ -21,8 +22,9 @@ export function activeCoverThumbnailPath(book: Pick<PilotBook, 'storage_path'>, 
 }
 
 function queueCatalogueRepair(book: PilotBook) {
-  if (book.metadata?.catalogue_version || book.metadata?.catalog_corrected_at || isBookArchived(book) || catalogueAttempted.has(book.storage_path)) return;
-  catalogueAttempted.add(book.storage_path);
+  if (!needsCatalogueRepair(book.metadata ?? {}) || isBookArchived(book) || Date.now() - (catalogueAttempted.get(book.storage_path) ?? 0) < 60000) return;
+  catalogueAttempted.set(book.storage_path, Date.now());
+  if (catalogueAttempted.size > 24) catalogueAttempted.delete(catalogueAttempted.keys().next().value!);
   // Repair old metadata separately: use bounded range reads for text only,
   // without downloading all 102 MB or holding up the already visible JPEG.
   void runPdf(async () => {
@@ -31,7 +33,7 @@ function queueCatalogueRepair(book: PilotBook) {
     pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
     const task = pdfjs.getDocument({ ...pdfImageOptions(), url: signed.url, disableStream: true, disableAutoFetch: true, rangeChunkSize: 65536, disableFontFace: true });
     try {
-      await withUploadDeadline(task.promise.then(pdf => repairIntakeCatalogue(book, pdf)), 20000, 'CATALOGUE_REPAIR_TIMEOUT');
+      await withUploadDeadline(task.promise.then(pdf => repairIntakeCatalogue(book, pdf)), 45000, 'CATALOGUE_REPAIR_TIMEOUT');
     } finally { await task.destroy(); }
   }).catch(error => console.warn('SPL: background catalogue repair deferred', error));
 }
@@ -51,7 +53,6 @@ export async function loadOriginalCover(book: PilotBook): Promise<Blob> {
         const blob = await downloadBookFile(cachedPath, 12000);
         if (!(await usableCover(blob, !archived && !cachedPath.endsWith(`/${ACTIVE_COVER_FILENAME}`)))) continue;
         // Existing healthy Samsung thumbnails remain usable. No PDF download.
-        queueCatalogueRepair(book);
         return blob;
       } catch { /* Missing/corrupt thumbnail: try another small image first. */ }
     }
@@ -67,11 +68,10 @@ export async function loadOriginalCover(book: PilotBook): Promise<Blob> {
         // Persist immediately; catalogue errors cannot delay the next device.
         void saveCoverThumbnail(book, blob);
         // Queue text repair after releasing this worker; do not delay display.
-        queueCatalogueRepair(book);
         return blob;
       } finally { await task.destroy(); }
     });
-  });
+  }).then(blob => { queueCatalogueRepair(book); return blob; });
 }
 
 /** Use the standard canvas path on mobile instead of experimental image APIs. */

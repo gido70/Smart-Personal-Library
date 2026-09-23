@@ -16,3 +16,21 @@ assert.equal(buildIntakeCatalogue('Untitled',{}).catalogue_status,'needs-review'
 console.log('PASS: provenance, CIP author, labelled author, unknown/creator rejection, category discrimination');
 
 assert.equal(suggestClassification('‎⁨كتاب قصتي مع النوم- No.01⁩').dewey_branch, '610');
+
+const { needsCatalogueRepair } = await import('../src/lib/autoCatalogue.ts');
+const { sampleCataloguePages } = await import('../src/lib/uploadPreparation.ts');
+assert.equal(needsCatalogueRepair({catalogue_version:1,catalogue_retry_complete:true,dewey_main:'600',author:null}),true);
+assert.equal(needsCatalogueRepair({catalogue_version:2,catalogue_sample_complete:false}),true);
+assert.equal(needsCatalogueRepair({catalogue_version:2,catalogue_sample_complete:true}),false);
+assert.equal(needsCatalogueRepair({author:'Jane Smith',dewey_main:'500'}),false);
+assert.equal(needsCatalogueRepair({catalog_corrected_at:'today',classification_corrected_at:'today'}),false);
+assert.equal(needsCatalogueRepair({catalogue_version:2,catalogue_attempts:3}),false);
+assert.equal(needsCatalogueRepair({catalogue_version:2,catalogue_attempted_at:new Date().toISOString()}),false);
+const order=[];
+const slowCover={numPages:6,getPage:async n=>{order.push(n);if(n===1) await new Promise(r=>setTimeout(r,60));return {getTextContent:async()=>({items:[{str:n===4?cip:'',hasEOL:true}]}),cleanup(){}}}};
+const partial=await sampleCataloguePages(slowCover,30);
+assert.deepEqual(order,[2,3,4,1]);
+assert.equal(partial.length,3);
+assert.equal(buildIntakeCatalogue('قصتي مع النوم',{},partial).author,'باهمام، أحمد سالم عمر');
+assert.equal(buildIntakeCatalogue('قصتي مع النوم',{},partial).catalogue_sample_complete,false);
+console.log('PASS: slow image cover cannot starve CIP; incomplete samples remain retryable; manual fields and retry limits preserved');

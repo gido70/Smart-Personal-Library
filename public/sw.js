@@ -1,5 +1,5 @@
 // Cache revision: force every installed app to discard the pre-PDF-fix bundle.
-const CACHE_NAME = "smart-personal-library-v0.10.5-cover-fast-6";
+const CACHE_NAME = "smart-personal-library-v0.10.5-cover-fast-7";
 const APP_SHELL = ["./", "./manifest.webmanifest", "./favicon.svg"];
 
 self.addEventListener("install", (event) => {

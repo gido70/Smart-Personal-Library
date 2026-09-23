@@ -44,8 +44,8 @@ function validAuthor(value: string): boolean {
   return value.length >= 5 && value.length <= 160 && value.split(/\s+/).length >= 2
     && !/[@\d\u0660-\u0669]|unknown|anonymous|Microsoft|Adobe|InDesign|غير معروف|مجهول/i.test(value);
 }
-export function buildIntakeCatalogue(title: string, info: Record<string, unknown>, pages: IntakePage[] = []) {
-  const metadata: Record<string, unknown> = { catalogue_version: 1, catalogue_method: 'local-pdf-text', catalogue_status: 'needs-review' };
+export function buildIntakeCatalogue(title: string, info: Record<string, unknown>, pages: IntakePage[] = [], sampleComplete = false) {
+  const metadata: Record<string, unknown> = { catalogue_version: 2, catalogue_sample_complete: sampleComplete, catalogue_method: 'local-pdf-text', catalogue_status: 'needs-review' };
   const embeddedAuthor = cleanCatalogueText(typeof info.Author === 'string' ? info.Author : '');
   if (validAuthor(embeddedAuthor)) {
     metadata.author = embeddedAuthor;
@@ -82,4 +82,17 @@ export function buildIntakeCatalogue(title: string, info: Record<string, unknown
   metadata.classification_source = classification.dewey_main ? 'local-provisional' : 'insufficient-evidence';
   metadata.catalogue_status = metadata.author && classification.dewey_main ? 'automatic-provisional' : 'needs-review';
   return metadata;
+}
+
+/** A timed-out sample is not evidence that a book has no author. */
+export function needsCatalogueRepair(metadata: Record<string, unknown> = {}, now = Date.now()): boolean {
+  if (metadata.archived_at) return false;
+  const authorDone = Boolean(metadata.author || metadata.catalog_corrected_at);
+  const classificationDone = Boolean(metadata.dewey_main || metadata.classification_corrected_at);
+  if (authorDone && classificationDone) return false;
+  if (Number(metadata.catalogue_version) < 2 || !metadata.catalogue_version) return true;
+  if (metadata.catalogue_sample_complete === true) return false;
+  if (Number(metadata.catalogue_attempts ?? 0) >= 3) return false;
+  const last = Date.parse(String(metadata.catalogue_attempted_at ?? ''));
+  return !Number.isFinite(last) || now - last >= 60000;
 }

@@ -51,7 +51,7 @@ check("private book bucket accepts JPEG cover thumbnails", /update storage\.buck
 check("thumbnail caching cannot overwrite catalogue or archive metadata", !/\.update\(/.test(library.slice(library.indexOf("export async function saveCoverThumbnail"), library.indexOf("export async function createBookSignedUrl"))));
 check("missing active thumbnails fall back to PDF and pdf.js memory is released", /for \(const cachedPath of cachedPaths\)/.test(covers) && /if \(archived\) throw/.test(covers) && /page.cleanup\(\)/.test(coverRendering) && /await task.destroy\(\)/.test(covers));
 check("notification bell and mobile destination are enabled", /🔔/.test(app) && !/disabled=\{id === "progress"\}/.test(app));
-check("service worker cache advances to the cover-decoder fix", /smart-personal-library-v0\.10\.5-cover-fast-6/.test(worker));
+check("service worker cache advances to the cover-decoder fix", /smart-personal-library-v0\.10\.5-cover-fast-7/.test(worker));
 check("upload accepts 150 MB with no page-count limit", /MAX_UPLOAD_BYTES = 150/.test(library) && /FILE_TOO_LARGE_150MB/.test(library) && !/TOO_MANY_PAGES_500/.test(library));
 check("daily limits and reset time are visible", /getAiLimitsSnapshot/.test(app) && /تتجدد الحدود اليومية/.test(app));
 check("interrupted paid task has persistent visible moving progress", /durable-task-banner/.test(app) && /taskStorageKey/.test(app) && /durable-task-banner\.running\{position:fixed/.test(styles) && /انتظر ولا تغلق الصفحة/.test(app));

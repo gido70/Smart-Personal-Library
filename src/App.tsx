@@ -283,7 +283,7 @@ export default function Home() {
         if (!cancelled) setBrowserCacheReady(true);
         return;
       }
-      if (sessionStorage.getItem("spl-worker-prepared-v0105-cover-6") !== "1") {
+      if (sessionStorage.getItem("spl-worker-prepared-v0105-cover-7") !== "1") {
         const registrations = await navigator.serviceWorker.getRegistrations();
         const cacheNames = "caches" in window ? await caches.keys() : [];
         await Promise.all([
@@ -292,7 +292,7 @@ export default function Home() {
             .filter((name) => name.startsWith("smart-personal-library-"))
             .map((name) => caches.delete(name)),
         ]);
-        sessionStorage.setItem("spl-worker-prepared-v0105-cover-6", "1");
+        sessionStorage.setItem("spl-worker-prepared-v0105-cover-7", "1");
       }
       await navigator.serviceWorker.register("./sw.js");
       if (!cancelled) setBrowserCacheReady(true);
@@ -410,7 +410,7 @@ export default function Home() {
         const names = await caches.keys();
         await Promise.all(names.filter((name) => name.startsWith("smart-personal-library-")).map((name) => caches.delete(name)));
       }
-      sessionStorage.removeItem("spl-worker-prepared-v0105-cover-6");
+      sessionStorage.removeItem("spl-worker-prepared-v0105-cover-7");
       const cleanUrl = new URL(window.location.href);
       cleanUrl.searchParams.set("refresh", Date.now().toString());
       window.location.replace(cleanUrl.toString());

@@ -1,7 +1,7 @@
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { renderCoverFromPdf } from "./coverRendering";
 import { rememberBookCover, coverCompatibilityOptions } from "./bookCovers";
-import { buildIntakeCatalogue } from "./autoCatalogue";
+import { buildIntakeCatalogue, needsCatalogueRepair } from "./autoCatalogue";
 import { pdfImageOptions, ACTIVE_COVER_FILENAME } from "./pdfAssets";
 import { ensurePilotSession, supabase } from "./supabase";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -310,7 +310,7 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
       acceptance_profile: "pdf-150mb-no-page-limit",
       original_cover: "derived-from-page-1",
       page_count: inspection.pageCount,
-      ...buildIntakeCatalogue(String(inspection.info.Title || file.name.replace(/\.pdf$/i, "")), inspection.info, inspection.pages),
+      ...buildIntakeCatalogue(String(inspection.info.Title || file.name.replace(/\.pdf$/i, "")), inspection.info, inspection.pages, inspection.sampleComplete),
     },
   };
   if (hasHash && contentHash) insertPayload.content_sha256 = contentHash;
@@ -964,14 +964,14 @@ export function groupDuplicateBooks(books: PilotBook[]): DuplicateGroup[] {
 /** Fill missing catalogue fields on older active books from their own PDF.
  * Reuse the cover's PDF worker; no second download and no full-book analysis. */
 export async function repairIntakeCatalogue(book: PilotBook, pdf: Parameters<typeof sampleCataloguePages>[0] & { getMetadata: () => Promise<{ info: unknown }> }) {
-  if (isBookArchived(book) || (book.metadata?.catalogue_version && (book.metadata?.author || book.metadata?.catalogue_retry_complete || book.metadata?.catalog_corrected_at))) return;
+  if (isBookArchived(book) || !needsCatalogueRepair(book.metadata ?? {})) return;
   const info = await pdf.getMetadata().then(value => value.info as Record<string, unknown>).catch(() => ({}));
-  const pages = await sampleCataloguePages(pdf);
-  const inferred = buildIntakeCatalogue(book.title, info, pages);
+  const pages = await sampleCataloguePages(pdf, 15000);
+  const inferred = buildIntakeCatalogue(book.title, info, pages, pages.length === Math.min(pdf.numPages, 6));
   const { data: current, error: readError } = await supabase!.from('spl_books').select('metadata').eq('id', book.id).abortSignal(AbortSignal.timeout(8000)).single();
-  if (readError || !current || (current.metadata?.catalogue_version && (current.metadata?.author || current.metadata?.catalogue_retry_complete || current.metadata?.catalog_corrected_at))) return;
+  if (readError || !current || !needsCatalogueRepair(current.metadata ?? {})) return;
   const before = current.metadata ?? {};
-  const metadata = { ...before, catalogue_version: 1, catalogue_retry_complete: true, catalogue_method: inferred.catalogue_method, catalogue_status: inferred.catalogue_status };
+  const metadata = { ...before, catalogue_version: 2, catalogue_retry_complete: inferred.catalogue_sample_complete, catalogue_sample_complete: inferred.catalogue_sample_complete, catalogue_attempts: Number(before.catalogue_version) === 2 ? Number(before.catalogue_attempts ?? 0) + 1 : 1, catalogue_attempted_at: new Date().toISOString(), catalogue_method: inferred.catalogue_method, catalogue_status: inferred.catalogue_status };
   if (!before.catalog_corrected_at) {
     for (const key of ['author','author_evidence','subject']) if (!before[key] && inferred[key]) metadata[key] = inferred[key];
   }

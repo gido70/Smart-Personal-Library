@@ -1,6 +1,6 @@
 import type { IntakePage } from "./autoCatalogue";
 export type PreparationStage = "reading" | "hashing" | "inspecting";
-export type PdfInspection = { pageCount: number | null; info: Record<string, unknown>; pages?: IntakePage[] };
+export type PdfInspection = { pageCount: number | null; info: Record<string, unknown>; pages?: IntakePage[]; sampleComplete?: boolean };
 type PdfDocument = { numPages: number; getMetadata: () => Promise<{ info: unknown }>; getPage?: (n: number) => Promise<{ getTextContent: () => Promise<{items: Array<unknown>}>; cleanup: () => void }> };
 type LoadingTask = { promise: Promise<PdfDocument>; destroy: () => Promise<void> };
 
@@ -41,7 +41,7 @@ export async function prepareUpload(
         try { coverBlob = await withUploadDeadline(prepareCover(document), 8000, 'COVER_PREPARATION_TIMEOUT'); }
         catch { /* Successful file transfer must remain possible on constrained devices. */ }
       }
-      return { pageCount: document.numPages, info, pages };
+      return { pageCount: document.numPages, info, pages, sampleComplete: pages.length === Math.min(document.numPages, 6) };
     })(), timeoutMs, "PDF_INSPECTION_TIMEOUT");
     return { contentHash, inspection, coverBlob };
   } catch (error) {
@@ -55,13 +55,15 @@ export async function prepareUpload(
 }
 
 /** Sample only the opening pages; an unreadable/scanned PDF must not block upload. */
-export async function sampleCataloguePages(document: Pick<PdfDocument, "numPages" | "getPage">): Promise<IntakePage[]> {
+export async function sampleCataloguePages(document: Pick<PdfDocument, "numPages" | "getPage">, timeoutMs = 6000): Promise<IntakePage[]> {
   const pages: IntakePage[] = [];
   if (!document.getPage) return pages;
   let stopped = false;
   try {
     await withUploadDeadline((async () => {
-      for (let n = 1; !stopped && n <= Math.min(document.numPages, 6); n++) {
+      // Title/CIP pages before the potentially expensive image-only cover.
+      for (const n of [2, 3, 4, 1, 5, 6].filter(n => n <= document.numPages)) {
+        if (stopped) break;
         const page = await document.getPage!(n);
         try {
           if (stopped) break;
@@ -73,8 +75,8 @@ export async function sampleCataloguePages(document: Pick<PdfDocument, "numPages
           if (!stopped) pages.push({ page: n, text });
         } finally { page.cleanup(); }
       }
-    })(), 6000, 'CATALOGUE_SAMPLE_TIMEOUT');
+    })(), timeoutMs, 'CATALOGUE_SAMPLE_TIMEOUT');
   } catch { /* preserve the sample already obtained */ }
   finally { stopped = true; }
-  return pages;
+  return pages.sort((a, b) => a.page - b.page);
 }
