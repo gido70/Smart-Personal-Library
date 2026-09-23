@@ -1,6 +1,7 @@
 import { ensurePilotSession, supabase } from "./supabase";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { hashFile } from "./textAnalysis";
+import { prepareUpload, withUploadDeadline } from "./uploadPreparation";
+import type { PreparationStage } from "./uploadPreparation";
 import type { LocalStructuralAnalysis, ManualImportPayload, ManualImportSource } from "./textAnalysis";
 
 export type OutputLanguage = "ar" | "en" | "bilingual";
@@ -37,14 +38,7 @@ function safeName(name: string) {
   return `book.${extension}`;
 }
 
-async function inspectPdfForAcceptance(file: File) {
-  const pdfjs = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-  const document = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), disableFontFace: true }).promise;
-  let info: Record<string, unknown> = {};
-  try { info = ((await document.getMetadata()).info as Record<string, unknown>) ?? {}; } catch { /* optional metadata */ }
-  return { pageCount: document.numPages, info };
-}
+export type UploadStage = PreparationStage | "session" | "checking" | "uploading" | "saving";
 
 /**
  * True once we've confirmed the `content_sha256` column exists on spl_books.
@@ -197,17 +191,23 @@ export type UploadResult = { book: PilotBook; deduped: boolean };
  * yet a column on spl_books, dedupe is silently skipped (old upload behaviour)
  * rather than throwing, so this ships without requiring the migration first.
  */
-export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage): Promise<UploadResult> {
+export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage, onStage: (stage: UploadStage) => void = () => {}): Promise<UploadResult> {
   if (!/\.pdf$/i.test(file.name) || (file.type && file.type !== "application/pdf")) throw new Error("PDF_ONLY");
   if (file.size > MAX_UPLOAD_BYTES) throw new Error("FILE_TOO_LARGE_150MB");
-  const inspection = await inspectPdfForAcceptance(file);
-  const session = await ensurePilotSession();
-  const hasHash = await checkHashColumnAvailable();
+  onStage("session");
+  const session = await withUploadDeadline(ensurePilotSession(), 30000, "SESSION_TIMEOUT");
+  const hasHash = await withUploadDeadline(checkHashColumnAvailable(), 30000, "DATABASE_CHECK_TIMEOUT");
+  onStage("inspecting");
+  const pdfjs = await withUploadDeadline(import("pdfjs-dist"), 25000, "PDF_MODULE_TIMEOUT");
+  pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+  const prepared = await prepareUpload(file, (data) => pdfjs.getDocument({ data, disableFontFace: true }), onStage);
+  const { inspection } = prepared;
+  onStage("checking");
 
   let contentHash: string | null = null;
   if (hasHash) {
     try {
-      contentHash = await hashFile(file);
+      contentHash = prepared.contentHash;
       const { data: existing, error: lookupError } = await supabase!
         .from("spl_books")
         .select("id,title,file_name,file_size,storage_path,source_language,output_language,status,content_sha256,metadata,created_at")
@@ -225,6 +225,7 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
           if (activeCount >= MAX_ACTIVE_BOOKS) throw new Error("ACTIVE_BOOK_LIMIT_REACHED");
           const metadata = { ...(existingBook.metadata ?? {}) };
           if (metadata.original_removed) {
+            onStage("uploading");
             const { error: restoreFileError } = await supabase!.storage
               .from("spl-books")
               .upload(existingBook.storage_path, file, { contentType: file.type || "application/pdf", upsert: true });
@@ -234,6 +235,7 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
           delete metadata.archive_reason;
           delete metadata.original_removed;
           delete metadata.original_compaction_pending;
+          onStage("saving");
           const { data: restored, error: restoreError } = await supabase!
             .from("spl_books")
             .update({ metadata })
@@ -246,11 +248,8 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
         return { book: existingBook, deduped: true };
       }
     } catch (hashOrLookupError) {
-      // Never block an upload because the dedupe check itself failed (e.g. a
-      // browser without SubtleCrypto in an insecure context, or a transient
-      // network error). Fall through to a normal upload.
-      console.warn("SPL: duplicate-check skipped", hashOrLookupError);
-      contentHash = null;
+      // Do not turn a failed archived-book restoration into a new duplicate.
+      throw hashOrLookupError;
     }
   }
 
@@ -261,11 +260,13 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
 
   const bookId = crypto.randomUUID();
   const storagePath = `${session.user.id}/${bookId}/${safeName(file.name)}`;
+  onStage("uploading");
   const { error: uploadError } = await supabase!.storage
     .from("spl-books")
     .upload(storagePath, file, { contentType: file.type || "application/pdf", upsert: false });
   if (uploadError) throw uploadError;
 
+  onStage("saving");
   const insertPayload: Record<string, unknown> = {
     id: bookId,
     user_id: session.user.id,
