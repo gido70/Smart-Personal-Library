@@ -21,7 +21,8 @@ export async function prepareUpload(
   getDocument: (bytes: Uint8Array) => LoadingTask,
   onStage: (stage: PreparationStage) => void = () => {},
   timeoutMs = 25000,
-): Promise<{ contentHash: string; inspection: PdfInspection }> {
+  prepareCover?: (document: PdfDocument) => Promise<Blob>,
+): Promise<{ contentHash: string; inspection: PdfInspection; coverBlob?: Blob }> {
   onStage("reading");
   const buffer = await withUploadDeadline(file.arrayBuffer(), 60000, "FILE_READ_TIMEOUT");
   onStage("hashing");
@@ -29,15 +30,20 @@ export async function prepareUpload(
   const contentHash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
   onStage("inspecting");
   const task = getDocument(new Uint8Array(buffer));
+  let coverBlob: Blob | undefined;
   try {
     const inspection = await withUploadDeadline((async () => {
       const document = await task.promise;
       let info: Record<string, unknown> = {};
       try { info = (await document.getMetadata()).info as Record<string, unknown> ?? {}; } catch { /* optional metadata */ }
       const pages = await sampleCataloguePages(document);
+      if (prepareCover) {
+        try { coverBlob = await withUploadDeadline(prepareCover(document), 8000, 'COVER_PREPARATION_TIMEOUT'); }
+        catch { /* Successful file transfer must remain possible on constrained devices. */ }
+      }
       return { pageCount: document.numPages, info, pages };
     })(), timeoutMs, "PDF_INSPECTION_TIMEOUT");
-    return { contentHash, inspection };
+    return { contentHash, inspection, coverBlob };
   } catch (error) {
     // Metadata/page counting is not a page-limit gate. A slow PDF can still be
     // stored and opened later; malformed/password-protected PDFs still error.

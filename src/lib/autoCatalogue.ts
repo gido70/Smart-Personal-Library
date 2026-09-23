@@ -9,7 +9,7 @@ const RULES: Array<[RegExp, string, string, string?]> = [
   [/ذكاء اصطناعي|artificial intelligence|\bAI\b/i, '000', '006.3', 'artificial-intelligence'],
   [/علم المكتبات|فهرسة|library science|cataloguing|cataloging/i, '000', '020'],
   [/computer|برمجة|حاسوب/i, '000', '004'],
-  [/(?:^|\s)(?:طب|الطب|الصحة|صحة|النوم)(?=\s|$)|\b(?:medicine|health|sleep|medical)\b/i, '600', '610'],
+  [/(?:^|\s)(?:طب|الطب|الصحة|صحة|النوم)(?=[\s\p{P}]|$)|\b(?:medicine|health|sleep|medical)\b/iu, '600', '610'],
   [/إدار|ادار|قياد|management|leadership|business/i, '600', '650'],
   [/هندس|engineering/i, '600', '620'],
   [/زراع|agricultur/i, '600', '630'],

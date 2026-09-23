@@ -27,7 +27,7 @@ const checks = [
   [exportsSource.includes("contentPages") && exportsSource.includes("pages.filter((page)=>contentPages.has(page))"), "blank PDF canvases are removed before export"],
   [exportsSource.includes("newPage() replaces the context") && exportsSource.includes("ctx.fillStyle=color; ctx.direction=rtl"), "PDF text styles survive every page break"],
   [exportsSource.includes("الصفحة ${index+1} من ${renderedPages.length}"), "Arabic PDF pagination is unambiguous"],
-  [serviceWorker.includes("smart-personal-library-v0.10.5-cover-decoders-5") && app.includes("spl-worker-prepared-v0105-cover-5") && !app.includes("spl-worker-prepared-v0103-3"), "devices discard the pre-fix PDF bundle"],
+  [serviceWorker.includes("smart-personal-library-v0.10.5-cover-fast-6") && app.includes("spl-worker-prepared-v0105-cover-6") && !app.includes("spl-worker-prepared-v0103-3"), "devices discard the pre-fix PDF bundle"],
   [css.includes(".author-index-layout") && css.includes(".result-downloads"), "responsive index and export styles exist"],
 ];
 

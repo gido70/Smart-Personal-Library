@@ -1,3 +1,6 @@
+import type { PDFDocumentProxy } from "pdfjs-dist";
+import { renderCoverFromPdf } from "./coverRendering";
+import { rememberBookCover, coverCompatibilityOptions } from "./bookCovers";
 import { buildIntakeCatalogue } from "./autoCatalogue";
 import { pdfImageOptions, ACTIVE_COVER_FILENAME } from "./pdfAssets";
 import { ensurePilotSession, supabase } from "./supabase";
@@ -214,9 +217,14 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
   onProgress?.({ stage: "inspecting", percent: 0 });
   const pdfjs = await boundedRead(import("pdfjs-dist"), "PDF_MODULE_TIMEOUT", 25_000);
   pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-  const prepared = await prepareUpload(file, (data) => pdfjs.getDocument({ ...pdfImageOptions(), data, disableFontFace: true }),
-    (stage) => onProgress?.({ stage, percent: 0 }));
+  const prepared = await prepareUpload(file, (data) => pdfjs.getDocument({ ...pdfImageOptions(), ...coverCompatibilityOptions(), data, disableFontFace: true }),
+    (stage) => onProgress?.({ stage, percent: 0 }), 25000, document => renderCoverFromPdf(document as PDFDocumentProxy));
   const { inspection } = prepared;
+  const retainPreparedCover = (book: PilotBook) => {
+    if (!prepared.coverBlob) return;
+    rememberBookCover(book, prepared.coverBlob);
+    void saveCoverThumbnail(book, prepared.coverBlob);
+  };
   onProgress?.({ stage: "checking", percent: 0 });
   const transfer = (storagePath: string, upsert: boolean) => uploadBookChunks(file, {
     baseUrl: (import.meta.env.VITE_SUPABASE_URL as string).trim(),
@@ -267,8 +275,10 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
             .abortSignal(AbortSignal.timeout(30_000))
             .single();
           if (restoreError) throw restoreError;
+          retainPreparedCover(restored as PilotBook);
           return { book: restored as PilotBook, deduped: true };
         }
+        retainPreparedCover(existingBook);
         return { book: existingBook, deduped: true };
       }
     }
@@ -313,6 +323,7 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
     await boundedRead(supabase!.storage.from("spl-books").remove([storagePath]), "BOOK_SAVE_UNCERTAIN");
     throw bookError;
   }
+  retainPreparedCover(book as PilotBook);
   // The stored book must remain usable even if the optional authority table
   // is temporarily unavailable. The index also derives missing links below.
   if (book.metadata?.author) await syncBookAuthor(book.id, String(book.metadata.author)).catch(error => console.warn('SPL: author index sync pending', error));
@@ -586,9 +597,9 @@ export async function getAiLimitsSnapshot(): Promise<AiLimitsSnapshot> {
   };
 }
 
-export async function downloadBookFile(storagePath: string): Promise<Blob> {
+export async function downloadBookFile(storagePath: string, timeoutMs?: number): Promise<Blob> {
   await ensurePilotSession();
-  const { data, error } = await supabase!.storage.from("spl-books").download(storagePath);
+  const { data, error } = await supabase!.storage.from("spl-books").download(storagePath, {}, timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : undefined);
   if (error || !data) throw error ?? new Error("BOOK_DOWNLOAD_FAILED");
   return data;
 }
@@ -968,7 +979,7 @@ export async function repairIntakeCatalogue(book: PilotBook, pdf: Parameters<typ
     for (const key of ['dewey_main','dewey_branch','modern_topic','classification_source','classification_evidence']) if (inferred[key]) metadata[key] = inferred[key];
   }
   const { data: saved, error } = await supabase!.from('spl_books').update({metadata}).eq('id',book.id)
-    .eq('metadata', before).select('id').abortSignal(AbortSignal.timeout(8000));
+    .eq('metadata', JSON.stringify(before)).select('id').abortSignal(AbortSignal.timeout(8000));
   if (error || !saved?.length) return; // Another tab's edit wins; never overwrite it.
   if (metadata.author) await syncBookAuthor(book.id, String(metadata.author)).catch(() => {});
   window.dispatchEvent(new CustomEvent('spl-catalogue-updated'));

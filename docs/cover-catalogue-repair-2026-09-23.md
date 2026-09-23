@@ -34,8 +34,26 @@ Textless scanned books need OCR; unknown authors are not invented. Local rule-ba
 
 Push safe branch, open PR and verify hosted preview/CI. Review the existing book on iPhone and Samsung on that preview, including reopening the shelf and author index, before production merge. Existing deployed book data is not claimed repaired until the authenticated preview runs the repair successfully.
 
-## Final handoff state
+## Follow-up: slow iPhone covers / Samsung report (cover-fast-6)
 
-Implementation commit: `207d7b6` on `fix/reliable-original-covers`.
-The attempted GitHub push was blocked by automatic approval review: publishing the feature branch to GitHub needs explicit authorization for these changes. No alternative write channel was attempted. Remote publication and preview creation are unconfirmed/not completed; production was not merged or deployed.
-Exact next step: obtain explicit approval to push this branch to `gido70/Smart-Personal-Library`, then create the PR, inspect CI/preview and perform the outstanding device checks.
+User confirmed the real cover appeared on iPhone, but loading all covers was very slow; Samsung remained unresolved. Inspection of saved storage metadata confirmed all six active books already have small `cover-v2.jpg` files. The affected book has a 58,194-byte v2 thumbnail and a 101,968,893-byte PDF. Its old 5,209-byte `cover.jpg` is the incomplete legacy rendering. No storage records were changed during this inspection.
+
+Compared the historical Samsung fix (`d2d3b3c`, merged via `9e9711e`) with this PR. The previous revision invalidated every active legacy thumbnail and could decode the same full PDF twice for hero/shelf cards. It also waited for catalogue repair before initiating thumbnail persistence.
+
+Corrections:
+- Reuse healthy legacy JPEGs; validate images and regenerate almost-empty legacy placeholders only. Keep archived covers even if minimalist.
+- Share and cache small thumbnail blobs across cards in a bounded, account-scoped memory cache. Repeated cards reuse one request; at most one fallback PDF worker runs.
+- Prepare the JPEG from the already-read local PDF during upload. Save it without waiting for author indexing and reuse it immediately on the uploading device.
+- Render fallback into a detached standard canvas, so React unmounts do not discard work. Avoid experimental image decoder/offscreen-canvas paths for thumbnail generation.
+- Repair existing catalogue metadata independently using bounded byte-range text reads. Fix the JSON equality filter: it must use `JSON.stringify(before)`, not `[object Object]`. Preserve concurrent/manual edits.
+- Recognize the photographed Arabic title followed by a hyphen as a provisional medicine/health category.
+- Update the app worker revision to `cover-fast-6`; keep the v2 thumbnail filename so valid images are not invalidated again.
+
+Validation:
+- Mocked browser integration with iPhone and Samsung user agents: hero/shelf shared request, healthy legacy fallback, archived cover, account boundary; 4 small-image requests / 10,209 bytes and **zero PDF downloads**. Timings are synthetic, not measurements of the user's network or native Safari/Samsung hardware.
+- Actual supplied PDF: one local file read; 34,642-byte JPEG generated during preparation; almost-empty legacy image rejected, archived minimalist image retained.
+- Actual supplied PDF via a local range-capable server: 13 range requests and 3,484,669 bytes sent, rather than 101,968,893 bytes; author extraction correct.
+- Catalogue integration verifies valid serialized JSON, persistent repair, author link, retained paid metadata, manual blank/name/classification preservation and concurrent edit protection.
+- Build/full test suite checked for this revision; GitHub preview checks must pass before presenting the update.
+
+Publication: update the existing approved branch/PR #40. Do not merge production during this follow-up. Exact next step: open the updated **same preview URL on both devices**, verify repeat shelf visits and author index. The original GitHub Pages main site does not yet contain PR #40. Physical Samsung success is not yet confirmed.

@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import { createCoverCache, createPdfQueue } from '../src/lib/coverCache.ts';
+const cache=createCoverCache(2);let calls=0;
+const blob=new Blob(['jpeg']);
+const work=async()=>{calls++;await new Promise(resolve=>setTimeout(resolve,5));return blob;};
+const both=await Promise.all([cache.load('user/a',work),cache.load('user/a',work)]);
+assert.equal(calls,1);assert.equal(both[0],both[1]);await cache.load('user/a',work);assert.equal(calls,1);
+await cache.load('other-user/a',work);assert.equal(calls,2);
+await assert.rejects(cache.load('failure',async()=>{throw Error('offline')}));
+await cache.load('failure',work);assert.equal(calls,3);
+await cache.load('user/a',work);assert.equal(calls,4,'Old cache entries are bounded');
+const queue=createPdfQueue();let active=0,max=0;
+await Promise.all([1,2,3].map(()=>queue(async()=>{active++;max=Math.max(max,active);await new Promise(r=>setTimeout(r,5));active--;})));
+assert.equal(max,1);
+await assert.rejects(queue(async()=>{throw Error('bad PDF')}));
+assert.equal(await queue(async()=>42),42,'Failure releases queue');
+console.log('PASS: shared request, warm cache, owner-separated keys, bounded memory, retry and one PDF worker');

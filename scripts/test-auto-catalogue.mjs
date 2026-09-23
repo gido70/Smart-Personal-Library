@@ -14,3 +14,5 @@ assert.equal(suggestClassification('علم المكتبات').dewey_branch,'020'
 assert.equal(suggestClassification('Physics').dewey_branch,'530');
 assert.equal(buildIntakeCatalogue('Untitled',{}).catalogue_status,'needs-review');
 console.log('PASS: provenance, CIP author, labelled author, unknown/creator rejection, category discrimination');
+
+assert.equal(suggestClassification('‎⁨كتاب قصتي مع النوم- No.01⁩').dewey_branch, '610');

@@ -1,7 +1,6 @@
+import { loadOriginalCover } from "./lib/bookCovers";
 import { suggestClassification } from "./lib/autoCatalogue";
-import { pdfImageOptions, ACTIVE_COVER_FILENAME } from "./lib/pdfAssets";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import Reader, { type SavedBookRef } from "./Reader";
 import {
   getBookResults,
@@ -25,8 +24,6 @@ import {
   updateAuthorBiography,
   updateBookClassification,
   restoreArchivedBook,
-  saveCoverThumbnail,
-  repairIntakeCatalogue,
   syncBookAuthor,
   isBookArchived,
   MAX_ACTIVE_BOOKS,
@@ -286,7 +283,7 @@ export default function Home() {
         if (!cancelled) setBrowserCacheReady(true);
         return;
       }
-      if (sessionStorage.getItem("spl-worker-prepared-v0105-cover-5") !== "1") {
+      if (sessionStorage.getItem("spl-worker-prepared-v0105-cover-6") !== "1") {
         const registrations = await navigator.serviceWorker.getRegistrations();
         const cacheNames = "caches" in window ? await caches.keys() : [];
         await Promise.all([
@@ -295,7 +292,7 @@ export default function Home() {
             .filter((name) => name.startsWith("smart-personal-library-"))
             .map((name) => caches.delete(name)),
         ]);
-        sessionStorage.setItem("spl-worker-prepared-v0105-cover-5", "1");
+        sessionStorage.setItem("spl-worker-prepared-v0105-cover-6", "1");
       }
       await navigator.serviceWorker.register("./sw.js");
       if (!cancelled) setBrowserCacheReady(true);
@@ -413,7 +410,7 @@ export default function Home() {
         const names = await caches.keys();
         await Promise.all(names.filter((name) => name.startsWith("smart-personal-library-")).map((name) => caches.delete(name)));
       }
-      sessionStorage.removeItem("spl-worker-prepared-v0105-cover-5");
+      sessionStorage.removeItem("spl-worker-prepared-v0105-cover-6");
       const cleanUrl = new URL(window.location.href);
       cleanUrl.searchParams.set("refresh", Date.now().toString());
       window.location.replace(cleanUrl.toString());
@@ -1416,39 +1413,8 @@ function classificationSearchText(book: PilotBook, rtl: boolean) {
   ].filter(Boolean).join(" ").toLowerCase();
 }
 
-// Caps how many books can render a FULL pdf.js cover (download + decode +
-// canvas + Worker) at the same time. Without this, opening a library with
-// many books fires one full-PDF download and one pdf.js Worker per visible
-// card simultaneously — the main cause of covers failing to appear on
-// Samsung/Android browsers, whose per-tab memory budget is much tighter than
-// desktop or iPhone Safari. Cached thumbnails (the common case after the
-// first render) never touch this limiter at all.
-const MAX_CONCURRENT_PDF_COVER_RENDERS = 2;
-let activePdfCoverRenders = 0;
-const pdfCoverRenderQueue: Array<() => void> = [];
-function acquirePdfCoverRenderSlot(): Promise<() => void> {
-  return new Promise((resolve) => {
-    const tryAcquire = () => {
-      activePdfCoverRenders += 1;
-      resolve(() => {
-        activePdfCoverRenders -= 1;
-        const next = pdfCoverRenderQueue.shift();
-        if (next) next();
-      });
-    };
-    if (activePdfCoverRenders < MAX_CONCURRENT_PDF_COVER_RENDERS) tryAcquire();
-    else pdfCoverRenderQueue.push(tryAcquire);
-  });
-}
-
-function activeCoverThumbnailPath(book: PilotBook): string {
-  const separator = book.storage_path.lastIndexOf("/");
-  return separator >= 0 ? `${book.storage_path.slice(0, separator)}/${ACTIVE_COVER_FILENAME}` : "";
-}
-
 function OriginalPdfCover({ book }: { book: PilotBook }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [failed, setFailed] = useState(false);
   const [coverImageUrl, setCoverImageUrl] = useState("");
   // Lazy-load: only start any network/PDF work once the card is actually
@@ -1475,71 +1441,11 @@ function OriginalPdfCover({ book }: { book: PilotBook }) {
     let objectUrl = "";
     setFailed(false);
     setCoverImageUrl("");
-    const archivedCoverPath = isBookArchived(book) ? String(book.metadata?.archive_cover_path ?? "") : "";
-    const cachedCoverPath = isBookArchived(book) ? String(book.metadata?.cover_path ?? "") : activeCoverThumbnailPath(book);
-    const render = async () => {
-      // 1) Archived books: a small cover JPEG was already saved when they
-      //    were archived — just show it.
-      // 2) Active books that already went through this component once: a
-      //    small cover JPEG was cached to metadata.cover_path (see below) —
-      //    show it directly, no PDF download or Worker involved.
-      const cachedPaths = [...new Set([archivedCoverPath, cachedCoverPath].filter(Boolean))];
-      for (const cachedPath of cachedPaths) {
-        try {
-          const coverBlob = await downloadBookFile(cachedPath);
-          objectUrl = URL.createObjectURL(coverBlob);
-          if (!cancelled) setCoverImageUrl(objectUrl);
-          return;
-        } catch {
-          // An active thumbnail is only a cache. If it is missing or corrupt,
-          // render from the original PDF and recreate it below. Archived books
-          // have no original to fall back to and will use BookCover safely.
-        }
-      }
-      if (isBookArchived(book)) throw new Error("ARCHIVED_COVER_UNAVAILABLE");
-      // First time this book's cover is needed: fall back to the full
-      // render, but only MAX_CONCURRENT_PDF_COVER_RENDERS at a time so a
-      // large library doesn't spike memory on low-RAM Android devices.
-      const releaseSlot = await acquirePdfCoverRenderSlot();
-      try {
-        if (cancelled) return;
-        // Download through the authenticated Storage client instead of asking
-        // PDF.js to range-fetch a short-lived signed URL. Samsung Internet and
-        // some Android WebViews can reject those cross-origin range requests
-        // and leave an empty canvas even though the book itself is available.
-        const fileBlob = await downloadBookFile(book.storage_path);
-        const pdfjs = await import("pdfjs-dist");
-        pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-        const loadingTask = pdfjs.getDocument({ ...pdfImageOptions(), stopAtErrors: true, data: new Uint8Array(await fileBlob.arrayBuffer()), disableFontFace: true });
-        const pdf = await loadingTask.promise;
-        let first: Awaited<ReturnType<typeof pdf.getPage>> | null = null;
-        try {
-          first = await pdf.getPage(1);
-          const base = first.getViewport({ scale: 1 });
-          const viewport = first.getViewport({ scale: Math.max(0.34, Math.min(1.2, 420 / base.width)) });
-          if (cancelled || !canvasRef.current) return;
-          const canvas = canvasRef.current;
-          const context = canvas.getContext("2d", { alpha: false });
-          if (!context) throw new Error("COVER_CANVAS_UNAVAILABLE");
-          canvas.width = Math.floor(viewport.width);
-          canvas.height = Math.floor(viewport.height);
-          await first.render({ canvasContext: context, viewport, canvas }).promise;
-          canvas.dataset.ready = "true";
-          await repairIntakeCatalogue(book, pdf).catch(error => console.warn("SPL: catalogue repair deferred", error));
-          // Cache a small JPEG so every future load of this book (this device
-          // or any other) uses the cheap path above instead of re-downloading
-          // and re-decoding the whole PDF. Fire-and-forget: a caching failure
-          // must not affect the cover that already rendered successfully.
-          canvas.toBlob((blob) => { if (blob) void saveCoverThumbnail(book, blob); }, "image/jpeg", 0.82);
-        } finally {
-          first?.cleanup();
-          await loadingTask.destroy();
-        }
-      } finally {
-        releaseSlot();
-      }
-    };
-    render().catch(() => !cancelled && setFailed(true));
+    loadOriginalCover(book).then(blob => {
+      if (cancelled) return;
+      objectUrl = URL.createObjectURL(blob);
+      setCoverImageUrl(objectUrl);
+    }).catch(() => !cancelled && setFailed(true));
     return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [book.id, book.storage_path, book.metadata?.archive_cover_path, book.metadata?.cover_path, isNearViewport]);
   // wrapperRef only needs to sit on the placeholder box below: that's the
@@ -1551,7 +1457,7 @@ function OriginalPdfCover({ book }: { book: PilotBook }) {
   // and BookCover's own `.book-cover` div are unaffected.
   if (failed) return <BookCover tone={coverToneFor(book.title)} title={book.title.split(" ").slice(0, 3).join(" ")} />;
   if (coverImageUrl) return <div className="book-cover original-pdf-cover"><img src={coverImageUrl} alt={book.title} /></div>;
-  return <div ref={wrapperRef} className="book-cover original-pdf-cover"><canvas ref={canvasRef} aria-label={book.title} /></div>;
+  return <div ref={wrapperRef} className="book-cover original-pdf-cover"><span role="status" aria-label={book.title}>…</span></div>;
 }
 
 /** A real saved book; page one is rendered as its cover with a safe fallback. */

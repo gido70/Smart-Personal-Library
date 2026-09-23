@@ -13,7 +13,7 @@ const assert=require('node:assert/strict');
    assert.ok(/\/(spl_books|spl_authors|spl_book_authors)$/.test(url.pathname),'No unrelated or paid tables');
    if(url.pathname.endsWith('/spl_books')){
      if(method==='PATCH'){
-       assert.ok(url.searchParams.has('metadata'),'Compare-and-set must protect concurrent manual edits');
+       assert.deepEqual(JSON.parse(url.searchParams.get('metadata').replace(/^eq\./, '')),current,'PostgREST JSON filter must contain actual JSON, not [object Object]');
        if(conflict)return r.fulfill({json:[]});
        patches++;current=JSON.parse(req.postData()).metadata;return r.fulfill({json:[{id:'book'}]});
      }
