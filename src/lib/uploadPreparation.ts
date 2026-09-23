@@ -1,6 +1,7 @@
+import type { IntakePage } from "./autoCatalogue";
 export type PreparationStage = "reading" | "hashing" | "inspecting";
-export type PdfInspection = { pageCount: number | null; info: Record<string, unknown> };
-type PdfDocument = { numPages: number; getMetadata: () => Promise<{ info: unknown }> };
+export type PdfInspection = { pageCount: number | null; info: Record<string, unknown>; pages?: IntakePage[]; sampleComplete?: boolean };
+type PdfDocument = { numPages: number; getMetadata: () => Promise<{ info: unknown }>; getPage?: (n: number) => Promise<{ getTextContent: () => Promise<{items: Array<unknown>}>; cleanup: () => void }> };
 type LoadingTask = { promise: Promise<PdfDocument>; destroy: () => Promise<void> };
 
 export async function withUploadDeadline<T>(operation: PromiseLike<T>, milliseconds: number, code: string): Promise<T> {
@@ -20,7 +21,8 @@ export async function prepareUpload(
   getDocument: (bytes: Uint8Array) => LoadingTask,
   onStage: (stage: PreparationStage) => void = () => {},
   timeoutMs = 25000,
-): Promise<{ contentHash: string; inspection: PdfInspection }> {
+  prepareCover?: (document: PdfDocument) => Promise<Blob>,
+): Promise<{ contentHash: string; inspection: PdfInspection; coverBlob?: Blob }> {
   onStage("reading");
   const buffer = await withUploadDeadline(file.arrayBuffer(), 60000, "FILE_READ_TIMEOUT");
   onStage("hashing");
@@ -28,14 +30,20 @@ export async function prepareUpload(
   const contentHash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
   onStage("inspecting");
   const task = getDocument(new Uint8Array(buffer));
+  let coverBlob: Blob | undefined;
   try {
     const inspection = await withUploadDeadline((async () => {
       const document = await task.promise;
       let info: Record<string, unknown> = {};
       try { info = (await document.getMetadata()).info as Record<string, unknown> ?? {}; } catch { /* optional metadata */ }
-      return { pageCount: document.numPages, info };
+      const pages = await sampleCataloguePages(document);
+      if (prepareCover) {
+        try { coverBlob = await withUploadDeadline(prepareCover(document), 8000, 'COVER_PREPARATION_TIMEOUT'); }
+        catch { /* Successful file transfer must remain possible on constrained devices. */ }
+      }
+      return { pageCount: document.numPages, info, pages, sampleComplete: pages.length === Math.min(document.numPages, 6) };
     })(), timeoutMs, "PDF_INSPECTION_TIMEOUT");
-    return { contentHash, inspection };
+    return { contentHash, inspection, coverBlob };
   } catch (error) {
     // Metadata/page counting is not a page-limit gate. A slow PDF can still be
     // stored and opened later; malformed/password-protected PDFs still error.
@@ -44,4 +52,31 @@ export async function prepareUpload(
   } finally {
     try { await withUploadDeadline(task.destroy(), 2000, "PDF_CLEANUP_TIMEOUT"); } catch { /* cleanup cannot hang the upload */ }
   }
+}
+
+/** Sample only the opening pages; an unreadable/scanned PDF must not block upload. */
+export async function sampleCataloguePages(document: Pick<PdfDocument, "numPages" | "getPage">, timeoutMs = 6000): Promise<IntakePage[]> {
+  const pages: IntakePage[] = [];
+  if (!document.getPage) return pages;
+  let stopped = false;
+  try {
+    await withUploadDeadline((async () => {
+      // Title/CIP pages before the potentially expensive image-only cover.
+      for (const n of [2, 3, 4, 1, 5, 6].filter(n => n <= document.numPages)) {
+        if (stopped) break;
+        const page = await document.getPage!(n);
+        try {
+          if (stopped) break;
+          const content = await page.getTextContent();
+          const text = content.items.map(item => {
+            const part = item as { str?: string; hasEOL?: boolean };
+            return (part.str ?? '') + (part.hasEOL ? '\n' : ' ');
+          }).join('').slice(0, 12000);
+          if (!stopped) pages.push({ page: n, text });
+        } finally { page.cleanup(); }
+      }
+    })(), timeoutMs, 'CATALOGUE_SAMPLE_TIMEOUT');
+  } catch { /* preserve the sample already obtained */ }
+  finally { stopped = true; }
+  return pages.sort((a, b) => a.page - b.page);
 }

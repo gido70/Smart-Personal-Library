@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import ts from 'typescript';
+import { buildIntakeCatalogue, needsCatalogueRepair } from '../src/lib/autoCatalogue.ts';
+import { sampleCataloguePages } from '../src/lib/uploadPreparation.ts';
+// Execute the actual repair function with a deterministic PostgREST boundary.
+const source=fs.readFileSync(new URL('../src/lib/library.ts',import.meta.url),'utf8').split('export async function repairIntakeCatalogue')[1];
+const code=ts.transpile('async function repairIntakeCatalogue'+source,{target:ts.ScriptTarget.ES2022});
+let current, linked, conflict=false, writes=0, events=0;
+const supabase={from(){let payload,filters={};return {select(){return this},eq(k,v){filters[k]=v;return this},abortSignal(){return this},single:async()=>({data:{metadata:current}}),update(p){payload=p;return this},then(resolve){assert.deepEqual(JSON.parse(filters.metadata),current);if(conflict)return resolve({data:[]});writes++;current=payload.metadata;resolve({data:[{id:'book'}]})}}}};
+const repair=new Function('supabase','sampleCataloguePages','buildIntakeCatalogue','needsCatalogueRepair','isBookArchived','syncBookAuthor','window','CustomEvent',code+'; return repairIntakeCatalogue;')(supabase,sampleCataloguePages,buildIntakeCatalogue,needsCatalogueRepair,b=>Boolean(b.metadata?.archived_at),async(id,name)=>{linked=name},{dispatchEvent(){events++}},class {});
+const cip='باهمام، أحمد سالم عمر\nقصتي مع النوم / باهمام، أحمد سالم عمر\nردمك: 123';
+const pdf={numPages:4,getMetadata:async()=>({info:{}}),getPage:async n=>({getTextContent:async()=>({items:[{str:n===4?cip:''}]}),cleanup(){}})};
+const run=()=>repair({id:'book',title:'قصتي مع النوم',metadata:current},pdf);
+current={author:null,catalogue_version:1,catalogue_retry_complete:true,dewey_main:'600',dewey_branch:'610',paid_outputs:'keep'};
+await run();assert.equal(current.author,'باهمام، أحمد سالم عمر');assert.equal(linked,current.author);assert.equal(current.paid_outputs,'keep');assert.equal(current.catalogue_sample_complete,true);assert.equal(events,1);
+await run();assert.equal(writes,1);
+current={author:null,catalog_corrected_at:'today',dewey_main:'600'};await run();assert.equal(current.author,null);assert.equal(writes,1);
+current={author:'اسم يدوي محفوظ',catalog_corrected_at:'today'};await run();assert.equal(current.author,'اسم يدوي محفوظ');assert.equal(current.dewey_branch,'610');
+conflict=true;current={};const before=writes;await run();assert.equal(writes,before);assert.deepEqual(current,{});
+console.log('PASS: version-1 stuck author repaired and indexed; idempotence; paid metadata/manual fields/CAS protected');

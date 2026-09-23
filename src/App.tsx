@@ -1,5 +1,6 @@
+import { loadOriginalCover } from "./lib/bookCovers";
+import { suggestClassification } from "./lib/autoCatalogue";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import Reader, { type SavedBookRef } from "./Reader";
 import {
   getBookResults,
@@ -23,7 +24,6 @@ import {
   updateAuthorBiography,
   updateBookClassification,
   restoreArchivedBook,
-  saveCoverThumbnail,
   syncBookAuthor,
   isBookArchived,
   MAX_ACTIVE_BOOKS,
@@ -283,7 +283,7 @@ export default function Home() {
         if (!cancelled) setBrowserCacheReady(true);
         return;
       }
-      if (sessionStorage.getItem("spl-worker-prepared-v0105-upload-4") !== "1") {
+      if (sessionStorage.getItem("spl-worker-prepared-v0105-cover-7") !== "1") {
         const registrations = await navigator.serviceWorker.getRegistrations();
         const cacheNames = "caches" in window ? await caches.keys() : [];
         await Promise.all([
@@ -292,7 +292,7 @@ export default function Home() {
             .filter((name) => name.startsWith("smart-personal-library-"))
             .map((name) => caches.delete(name)),
         ]);
-        sessionStorage.setItem("spl-worker-prepared-v0105-upload-4", "1");
+        sessionStorage.setItem("spl-worker-prepared-v0105-cover-7", "1");
       }
       await navigator.serviceWorker.register("./sw.js");
       if (!cancelled) setBrowserCacheReady(true);
@@ -384,6 +384,11 @@ export default function Home() {
     };
   }, []);
   const reloadPilotBooks = () => setBooksLoadToken((n) => n + 1);
+  useEffect(() => {
+    const refresh = () => setBooksLoadToken(n => n + 1);
+    window.addEventListener('spl-catalogue-updated', refresh);
+    return () => window.removeEventListener('spl-catalogue-updated', refresh);
+  }, []);
   const patchPilotBook = (bookId: string, patch: Partial<PilotBook>) => {
     setPilotBooks((prev) => prev.map((b) => (b.id === bookId ? { ...b, ...patch } : b)));
     setActivePilotBook((prev) => (prev && prev.id === bookId ? { ...prev, ...patch } : prev));
@@ -405,7 +410,7 @@ export default function Home() {
         const names = await caches.keys();
         await Promise.all(names.filter((name) => name.startsWith("smart-personal-library-")).map((name) => caches.delete(name)));
       }
-      sessionStorage.removeItem("spl-worker-prepared-v0105-upload-4");
+      sessionStorage.removeItem("spl-worker-prepared-v0105-cover-7");
       const cleanUrl = new URL(window.location.href);
       cleanUrl.searchParams.set("refresh", Date.now().toString());
       window.location.replace(cleanUrl.toString());
@@ -1330,6 +1335,8 @@ function inferClassification(book: PilotBook): BookClassificationPatch {
     deweyBranch: String(book.metadata?.dewey_branch ?? DEWEY_GATEWAYS.find((item) => item.id === savedMain)!.branches[0][0]),
     modernTopic: String(book.metadata?.modern_topic ?? ""),
   };
+  const automatic = suggestClassification(`${book.title} ${String(book.metadata?.subject ?? "")}`);
+  if (automatic.dewey_main) return { deweyMain: automatic.dewey_main, deweyBranch: automatic.dewey_branch!, modernTopic: automatic.modern_topic };
   const haystack = `${book.title} ${String(book.metadata?.subject ?? "")}`.toLowerCase();
   if (/تاريخ|history|حضار|سيرة|جغراف|geograph|رحلات/.test(haystack)) return { deweyMain: "900", deweyBranch: /سيرة|biograph/.test(haystack) ? "920" : "910" };
   if (/إدار|قياد|management|leadership|business/.test(haystack)) return { deweyMain: "600", deweyBranch: "650", modernTopic: /تحول رقمي|digital transformation/.test(haystack) ? "digital-transformation" : undefined };
@@ -1406,39 +1413,8 @@ function classificationSearchText(book: PilotBook, rtl: boolean) {
   ].filter(Boolean).join(" ").toLowerCase();
 }
 
-// Caps how many books can render a FULL pdf.js cover (download + decode +
-// canvas + Worker) at the same time. Without this, opening a library with
-// many books fires one full-PDF download and one pdf.js Worker per visible
-// card simultaneously — the main cause of covers failing to appear on
-// Samsung/Android browsers, whose per-tab memory budget is much tighter than
-// desktop or iPhone Safari. Cached thumbnails (the common case after the
-// first render) never touch this limiter at all.
-const MAX_CONCURRENT_PDF_COVER_RENDERS = 2;
-let activePdfCoverRenders = 0;
-const pdfCoverRenderQueue: Array<() => void> = [];
-function acquirePdfCoverRenderSlot(): Promise<() => void> {
-  return new Promise((resolve) => {
-    const tryAcquire = () => {
-      activePdfCoverRenders += 1;
-      resolve(() => {
-        activePdfCoverRenders -= 1;
-        const next = pdfCoverRenderQueue.shift();
-        if (next) next();
-      });
-    };
-    if (activePdfCoverRenders < MAX_CONCURRENT_PDF_COVER_RENDERS) tryAcquire();
-    else pdfCoverRenderQueue.push(tryAcquire);
-  });
-}
-
-function activeCoverThumbnailPath(book: PilotBook): string {
-  const separator = book.storage_path.lastIndexOf("/");
-  return separator >= 0 ? `${book.storage_path.slice(0, separator)}/cover.jpg` : "";
-}
-
 function OriginalPdfCover({ book }: { book: PilotBook }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [failed, setFailed] = useState(false);
   const [coverImageUrl, setCoverImageUrl] = useState("");
   // Lazy-load: only start any network/PDF work once the card is actually
@@ -1465,70 +1441,11 @@ function OriginalPdfCover({ book }: { book: PilotBook }) {
     let objectUrl = "";
     setFailed(false);
     setCoverImageUrl("");
-    const archivedCoverPath = String(book.metadata?.archive_cover_path ?? "");
-    const cachedCoverPath = String(book.metadata?.cover_path ?? "") || activeCoverThumbnailPath(book);
-    const render = async () => {
-      // 1) Archived books: a small cover JPEG was already saved when they
-      //    were archived — just show it.
-      // 2) Active books that already went through this component once: a
-      //    small cover JPEG was cached to metadata.cover_path (see below) —
-      //    show it directly, no PDF download or Worker involved.
-      const cachedPaths = [...new Set([archivedCoverPath, cachedCoverPath].filter(Boolean))];
-      for (const cachedPath of cachedPaths) {
-        try {
-          const coverBlob = await downloadBookFile(cachedPath);
-          objectUrl = URL.createObjectURL(coverBlob);
-          if (!cancelled) setCoverImageUrl(objectUrl);
-          return;
-        } catch {
-          // An active thumbnail is only a cache. If it is missing or corrupt,
-          // render from the original PDF and recreate it below. Archived books
-          // have no original to fall back to and will use BookCover safely.
-        }
-      }
-      if (isBookArchived(book)) throw new Error("ARCHIVED_COVER_UNAVAILABLE");
-      // First time this book's cover is needed: fall back to the full
-      // render, but only MAX_CONCURRENT_PDF_COVER_RENDERS at a time so a
-      // large library doesn't spike memory on low-RAM Android devices.
-      const releaseSlot = await acquirePdfCoverRenderSlot();
-      try {
-        if (cancelled) return;
-        // Download through the authenticated Storage client instead of asking
-        // PDF.js to range-fetch a short-lived signed URL. Samsung Internet and
-        // some Android WebViews can reject those cross-origin range requests
-        // and leave an empty canvas even though the book itself is available.
-        const fileBlob = await downloadBookFile(book.storage_path);
-        const pdfjs = await import("pdfjs-dist");
-        pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-        const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await fileBlob.arrayBuffer()), disableFontFace: true });
-        const pdf = await loadingTask.promise;
-        let first: Awaited<ReturnType<typeof pdf.getPage>> | null = null;
-        try {
-          first = await pdf.getPage(1);
-          const base = first.getViewport({ scale: 1 });
-          const viewport = first.getViewport({ scale: Math.max(0.34, Math.min(1.2, 420 / base.width)) });
-          if (cancelled || !canvasRef.current) return;
-          const canvas = canvasRef.current;
-          const context = canvas.getContext("2d", { alpha: false });
-          if (!context) throw new Error("COVER_CANVAS_UNAVAILABLE");
-          canvas.width = Math.floor(viewport.width);
-          canvas.height = Math.floor(viewport.height);
-          await first.render({ canvasContext: context, viewport, canvas }).promise;
-          canvas.dataset.ready = "true";
-          // Cache a small JPEG so every future load of this book (this device
-          // or any other) uses the cheap path above instead of re-downloading
-          // and re-decoding the whole PDF. Fire-and-forget: a caching failure
-          // must not affect the cover that already rendered successfully.
-          canvas.toBlob((blob) => { if (blob) void saveCoverThumbnail(book, blob); }, "image/jpeg", 0.82);
-        } finally {
-          first?.cleanup();
-          await loadingTask.destroy();
-        }
-      } finally {
-        releaseSlot();
-      }
-    };
-    render().catch(() => !cancelled && setFailed(true));
+    loadOriginalCover(book).then(blob => {
+      if (cancelled) return;
+      objectUrl = URL.createObjectURL(blob);
+      setCoverImageUrl(objectUrl);
+    }).catch(() => !cancelled && setFailed(true));
     return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [book.id, book.storage_path, book.metadata?.archive_cover_path, book.metadata?.cover_path, isNearViewport]);
   // wrapperRef only needs to sit on the placeholder box below: that's the
@@ -1540,7 +1457,7 @@ function OriginalPdfCover({ book }: { book: PilotBook }) {
   // and BookCover's own `.book-cover` div are unaffected.
   if (failed) return <BookCover tone={coverToneFor(book.title)} title={book.title.split(" ").slice(0, 3).join(" ")} />;
   if (coverImageUrl) return <div className="book-cover original-pdf-cover"><img src={coverImageUrl} alt={book.title} /></div>;
-  return <div ref={wrapperRef} className="book-cover original-pdf-cover"><canvas ref={canvasRef} aria-label={book.title} /></div>;
+  return <div ref={wrapperRef} className="book-cover original-pdf-cover"><span role="status" aria-label={book.title}>…</span></div>;
 }
 
 /** A real saved book; page one is rendered as its cover with a safe fallback. */
@@ -1622,7 +1539,7 @@ function LiveBookCard({
             <button className="primary compact" disabled={classificationBusy || !draftClassification.deweyMain || !draftClassification.deweyBranch} onClick={saveClassification}>{classificationBusy ? "…" : rtl ? "حفظ التصنيف" : "Save category"}</button>
             <button className="secondary compact" disabled={classificationBusy} onClick={() => { setDraftClassification(classification); setEditingClassification(false); }}>{rtl ? "تراجع" : "Cancel"}</button>
           </div>
-        </div> : <button className="book-category-chips category-edit-trigger" onClick={() => { setDraftClassification(classification); setEditingClassification(true); }} aria-label={rtl ? "عرض أو تغيير تصنيف الكتاب" : "View or change book category"}><span className={`book-category-chip final ${classification.deweyMain ? "" : "unclassified"}`}>{finalClassificationLabel(classification, rtl)}</span><small>{rtl ? "تغيير التصنيف" : "Change category"}</small></button>}
+        </div> : <button className="book-category-chips category-edit-trigger" onClick={() => { setDraftClassification(classification); setEditingClassification(true); }} title={book.metadata?.classification_source === "local-provisional" ? (rtl ? "تصنيف آلي مبدئي قابل للتعديل" : "Provisional automatic category, editable") : undefined} aria-label={rtl ? "عرض أو تغيير تصنيف الكتاب" : "View or change book category"}><span className={`book-category-chip final ${classification.deweyMain ? "" : "unclassified"}`}>{finalClassificationLabel(classification, rtl)}</span><small>{book.metadata?.classification_source === "local-provisional" ? (rtl ? "تصنيف آلي مبدئي · تعديل" : "Provisional category · Edit") : (rtl ? "تغيير التصنيف" : "Change category")}</small></button>}
         {!compact && onArchive && !archived && <button className="book-archive-button" onClick={onArchive}>▣ {rtl ? "نقل إلى الأرشيف" : "Move to archive"}</button>}
         {!compact && onRestore && archived && <button className="book-restore-button" onClick={onRestore}>↥ {rtl ? "إعادة إلى الكتب النشطة" : "Restore to active shelf"}</button>}
       </div>
@@ -1867,7 +1784,7 @@ function LibraryIndexes({
       setError(value instanceof Error ? value.message : String(value));
     } finally { setLoading(false); }
   };
-  useEffect(() => { void reloadAuthors(); }, [initialAuthorName]);
+  useEffect(() => { void reloadAuthors(); }, [initialAuthorName, books]);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const titles = [...books].sort((a,b) => a.title.localeCompare(b.title, rtl ? "ar" : "en"));
   const visibleTitles = titles.filter((book) => !normalizedQuery || `${book.title} ${String(book.metadata?.author ?? "")}`.toLocaleLowerCase().includes(normalizedQuery));
@@ -3832,7 +3749,7 @@ function UserGuide({ rtl, onUpload, onLibrary, onActivate, activating }: { rtl: 
     ["14. Phones and night mode", "Home Screen mode on iPhone; notification permission and refresh on Samsung; high-contrast text at night."],
     ["15. Activate latest version", "Clears the old platform cache and reloads the newest build."],
   ];
-  return <div className="page user-guide-page"><PageTitle title={rtl ? "دليل استخدام المكتبة" : "Library user guide"} description={rtl ? "خطوات عملية تشرح الموجود وتفعّله دون تغيير صفحة الكتاب الناجحة." : "Practical steps that activate the current experience without changing the successful book page."} /><div className="guide-actions"><button className="primary" onClick={onUpload}>＋ {rtl ? "أضف كتابًا" : "Add a book"}</button><button className="secondary" onClick={onLibrary}>▥ {rtl ? "افتح مكتبتي" : "Open my library"}</button><button className="secondary activate-version-button" disabled={activating} onClick={onActivate}>↻ {activating ? (rtl ? "جارٍ التنشيط…" : "Activating…") : (rtl ? "تنشيط أحدث نسخة" : "Activate latest version")}</button></div><section className="panel guide-topics">{topics.map(([title, body]) => <details key={title}><summary>{title}</summary><p>{body}</p></details>)}</section></div>;
+  return <div className="page user-guide-page"><PageTitle title={rtl ? "دليل استخدام المكتبة" : "Library user guide"} description={rtl ? "خطوات عملية تشرح الموجود وتفعّله دون تغيير صفحة الكتاب الناجحة." : "Practical steps that activate the current experience without changing the successful book page."} /><div className="guide-actions"><a className="secondary" href={`${import.meta.env.BASE_URL}concept-index.html`} target="_blank" rel="noopener noreferrer">{rtl ? "إندكس المشروع والدراسة" : "Project and research index"}</a><button className="primary" onClick={onUpload}>＋ {rtl ? "أضف كتابًا" : "Add a book"}</button><button className="secondary" onClick={onLibrary}>▥ {rtl ? "افتح مكتبتي" : "Open my library"}</button><button className="secondary activate-version-button" disabled={activating} onClick={onActivate}>↻ {activating ? (rtl ? "جارٍ التنشيط…" : "Activating…") : (rtl ? "تنشيط أحدث نسخة" : "Activate latest version")}</button></div><section className="panel guide-topics">{topics.map(([title, body]) => <details key={title}><summary>{title}</summary><p>{body}</p></details>)}</section></div>;
 }
 
 function Progress({ rtl, title, books }: { rtl: boolean; title: string; books: PilotBook[] }) {

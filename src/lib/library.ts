@@ -1,6 +1,11 @@
+import type { PDFDocumentProxy } from "pdfjs-dist";
+import { renderCoverFromPdf } from "./coverRendering";
+import { rememberBookCover, coverCompatibilityOptions } from "./bookCovers";
+import { buildIntakeCatalogue, needsCatalogueRepair } from "./autoCatalogue";
+import { pdfImageOptions, ACTIVE_COVER_FILENAME } from "./pdfAssets";
 import { ensurePilotSession, supabase } from "./supabase";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { prepareUpload } from "./uploadPreparation";
+import { prepareUpload, sampleCataloguePages } from "./uploadPreparation";
 import { boundedRead, uploadBookChunks, type BookUploadProgress } from "./bookUpload";
 import type { LocalStructuralAnalysis, ManualImportPayload, ManualImportSource } from "./textAnalysis";
 
@@ -101,7 +106,7 @@ export async function syncBookAuthor(bookId: string, authorName: string) {
   const session = await ensurePilotSession();
   const authorizedName = authorName.trim().replace(/\s+/g, " ").slice(0, 300);
   if (!authorizedName) {
-    const { error } = await supabase!.from("spl_book_authors").delete().eq("book_id", bookId).eq("role", "author");
+    const { error } = await supabase!.from("spl_book_authors").delete().eq("book_id", bookId).eq("role", "author").abortSignal(AbortSignal.timeout(8000));
     if (error) throw error;
     return;
   }
@@ -114,22 +119,22 @@ export async function syncBookAuthor(bookId: string, authorName: string) {
       updated_at: new Date().toISOString(),
     }, { onConflict: "owner_id,normalized_name" })
     .select("id")
-    .single();
+    .abortSignal(AbortSignal.timeout(8000)).single();
   if (authorError) throw authorError;
   const { error: linkError } = await supabase!
     .from("spl_book_authors")
-    .upsert({ book_id: bookId, author_id: author.id, role: "author", position: 1 }, { onConflict: "book_id,author_id,role" });
+    .upsert({ book_id: bookId, author_id: author.id, role: "author", position: 1 }, { onConflict: "book_id,author_id,role" }).abortSignal(AbortSignal.timeout(8000));
   if (linkError) throw linkError;
   const { error: unlinkError } = await supabase!
     .from("spl_book_authors")
     .delete()
     .eq("book_id", bookId)
     .eq("role", "author")
-    .neq("author_id", author.id);
+    .neq("author_id", author.id).abortSignal(AbortSignal.timeout(8000));
   if (unlinkError) throw unlinkError;
 }
 
-export async function listLibraryAuthors(): Promise<LibraryAuthor[]> {
+export async function listLibraryAuthors(retryMissing = true): Promise<LibraryAuthor[]> {
   await ensurePilotSession();
   const [{ data: authors, error: authorsError }, { data: links, error: linksError }] = await Promise.all([
     supabase!.from("spl_authors").select("id,authorized_name,biography,created_at,updated_at").order("authorized_name"),
@@ -137,6 +142,20 @@ export async function listLibraryAuthors(): Promise<LibraryAuthor[]> {
   ]);
   if (authorsError) throw authorsError;
   if (linksError) throw linksError;
+  if (retryMissing) {
+    const { data: books, error: booksError } = await supabase!.from('spl_books').select('id,metadata').abortSignal(AbortSignal.timeout(8000));
+    if (!booksError) {
+      let repaired = false;
+      for (const book of books ?? []) {
+        const name = String(book.metadata?.author ?? '').trim();
+        if (!name) continue;
+        const authority = (authors ?? []).find(author => normalizedAuthorName(author.authorized_name) === normalizedAuthorName(name));
+        if (authority && (links ?? []).some(link => link.book_id === book.id && link.author_id === authority.id)) continue;
+        try { await syncBookAuthor(book.id, name); repaired = true; } catch { /* retain existing index and retry next visit */ }
+      }
+      if (repaired) return listLibraryAuthors(false);
+    }
+  }
   const ids = new Map<string, string[]>();
   for (const link of links ?? []) ids.set(link.author_id, [...(ids.get(link.author_id) ?? []), link.book_id]);
   return (authors ?? []).map((author) => ({ ...author, book_ids: ids.get(author.id) ?? [] })) as LibraryAuthor[];
@@ -198,9 +217,14 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
   onProgress?.({ stage: "inspecting", percent: 0 });
   const pdfjs = await boundedRead(import("pdfjs-dist"), "PDF_MODULE_TIMEOUT", 25_000);
   pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-  const prepared = await prepareUpload(file, (data) => pdfjs.getDocument({ data, disableFontFace: true }),
-    (stage) => onProgress?.({ stage, percent: 0 }));
+  const prepared = await prepareUpload(file, (data) => pdfjs.getDocument({ ...pdfImageOptions(), ...coverCompatibilityOptions(), data, disableFontFace: true }),
+    (stage) => onProgress?.({ stage, percent: 0 }), 25000, document => renderCoverFromPdf(document as PDFDocumentProxy));
   const { inspection } = prepared;
+  const retainPreparedCover = (book: PilotBook) => {
+    if (!prepared.coverBlob) return;
+    rememberBookCover(book, prepared.coverBlob);
+    void saveCoverThumbnail(book, prepared.coverBlob);
+  };
   onProgress?.({ stage: "checking", percent: 0 });
   const transfer = (storagePath: string, upsert: boolean) => uploadBookChunks(file, {
     baseUrl: (import.meta.env.VITE_SUPABASE_URL as string).trim(),
@@ -251,8 +275,10 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
             .abortSignal(AbortSignal.timeout(30_000))
             .single();
           if (restoreError) throw restoreError;
+          retainPreparedCover(restored as PilotBook);
           return { book: restored as PilotBook, deduped: true };
         }
+        retainPreparedCover(existingBook);
         return { book: existingBook, deduped: true };
       }
     }
@@ -284,7 +310,7 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
       acceptance_profile: "pdf-150mb-no-page-limit",
       original_cover: "derived-from-page-1",
       page_count: inspection.pageCount,
-      author: typeof inspection.info.Author === "string" ? inspection.info.Author : null,
+      ...buildIntakeCatalogue(String(inspection.info.Title || file.name.replace(/\.pdf$/i, "")), inspection.info, inspection.pages, inspection.sampleComplete),
     },
   };
   if (hasHash && contentHash) insertPayload.content_sha256 = contentHash;
@@ -297,6 +323,10 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
     await boundedRead(supabase!.storage.from("spl-books").remove([storagePath]), "BOOK_SAVE_UNCERTAIN");
     throw bookError;
   }
+  retainPreparedCover(book as PilotBook);
+  // The stored book must remain usable even if the optional authority table
+  // is temporarily unavailable. The index also derives missing links below.
+  if (book.metadata?.author) await syncBookAuthor(book.id, String(book.metadata.author)).catch(error => console.warn('SPL: author index sync pending', error));
   return { book: book as PilotBook, deduped: false };
 }
 
@@ -389,6 +419,8 @@ export async function updateBookClassification(book: PilotBook, patch: BookClass
     dewey_main: patch.deweyMain.trim().slice(0, 8),
     dewey_branch: patch.deweyBranch.trim().slice(0, 80),
     modern_topic: (patch.modernTopic ?? "").trim().slice(0, 80) || null,
+    classification_corrected_at: new Date().toISOString(),
+    classification_source: "manual",
   };
   const { data, error } = await supabase!
     .from("spl_books")
@@ -454,7 +486,7 @@ export async function archivePilotBook(book: PilotBook): Promise<PilotBook> {
       if (downloadError || !pdfBlob) throw downloadError ?? new Error("BOOK_DOWNLOAD_FAILED");
       const pdfjs = await import("pdfjs-dist");
       pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-      const pdf = await pdfjs.getDocument({ data: new Uint8Array(await pdfBlob.arrayBuffer()), disableFontFace: true }).promise;
+      const pdf = await pdfjs.getDocument({ ...pdfImageOptions(), stopAtErrors: true, data: new Uint8Array(await pdfBlob.arrayBuffer()), disableFontFace: true }).promise;
       const page = await pdf.getPage(1);
       const base = page.getViewport({ scale: 1 });
       const viewport = page.getViewport({ scale: Math.max(0.4, Math.min(1.15, 420 / base.width)) });
@@ -565,9 +597,9 @@ export async function getAiLimitsSnapshot(): Promise<AiLimitsSnapshot> {
   };
 }
 
-export async function downloadBookFile(storagePath: string): Promise<Blob> {
+export async function downloadBookFile(storagePath: string, timeoutMs?: number): Promise<Blob> {
   await ensurePilotSession();
-  const { data, error } = await supabase!.storage.from("spl-books").download(storagePath);
+  const { data, error } = await supabase!.storage.from("spl-books").download(storagePath, {}, timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : undefined);
   if (error || !data) throw error ?? new Error("BOOK_DOWNLOAD_FAILED");
   return data;
 }
@@ -598,7 +630,7 @@ export async function saveCoverThumbnail(book: Pick<PilotBook, "id" | "storage_p
     const session = await ensurePilotSession();
     const expectedPrefix = `${session.user.id}/${book.id}/`;
     if (!book.storage_path.startsWith(expectedPrefix)) return null;
-    const coverPath = `${expectedPrefix}cover.jpg`;
+    const coverPath = `${expectedPrefix}${ACTIVE_COVER_FILENAME}`;
     const { error: uploadError } = await supabase!.storage
       .from("spl-books")
       .upload(coverPath, coverBlob, { contentType: "image/jpeg", upsert: true });
@@ -927,4 +959,28 @@ export function groupDuplicateBooks(books: PilotBook[]): DuplicateGroup[] {
     if (list.length > 1) groups.push({ key: `heuristic:${key}`, confirmed: false, books: list });
   }
   return groups.sort((a, b) => b.books.length - a.books.length);
+}
+
+/** Fill missing catalogue fields on older active books from their own PDF.
+ * Reuse the cover's PDF worker; no second download and no full-book analysis. */
+export async function repairIntakeCatalogue(book: PilotBook, pdf: Parameters<typeof sampleCataloguePages>[0] & { getMetadata: () => Promise<{ info: unknown }> }) {
+  if (isBookArchived(book) || !needsCatalogueRepair(book.metadata ?? {})) return;
+  const info = await pdf.getMetadata().then(value => value.info as Record<string, unknown>).catch(() => ({}));
+  const pages = await sampleCataloguePages(pdf, 15000);
+  const inferred = buildIntakeCatalogue(book.title, info, pages, pages.length === Math.min(pdf.numPages, 6));
+  const { data: current, error: readError } = await supabase!.from('spl_books').select('metadata').eq('id', book.id).abortSignal(AbortSignal.timeout(8000)).single();
+  if (readError || !current || !needsCatalogueRepair(current.metadata ?? {})) return;
+  const before = current.metadata ?? {};
+  const metadata = { ...before, catalogue_version: 2, catalogue_retry_complete: inferred.catalogue_sample_complete, catalogue_sample_complete: inferred.catalogue_sample_complete, catalogue_attempts: Number(before.catalogue_version) === 2 ? Number(before.catalogue_attempts ?? 0) + 1 : 1, catalogue_attempted_at: new Date().toISOString(), catalogue_method: inferred.catalogue_method, catalogue_status: inferred.catalogue_status };
+  if (!before.catalog_corrected_at) {
+    for (const key of ['author','author_evidence','subject']) if (!before[key] && inferred[key]) metadata[key] = inferred[key];
+  }
+  if (!before.dewey_main && !before.classification_corrected_at) {
+    for (const key of ['dewey_main','dewey_branch','modern_topic','classification_source','classification_evidence']) if (inferred[key]) metadata[key] = inferred[key];
+  }
+  const { data: saved, error } = await supabase!.from('spl_books').update({metadata}).eq('id',book.id)
+    .eq('metadata', JSON.stringify(before)).select('id').abortSignal(AbortSignal.timeout(8000));
+  if (error || !saved?.length) return; // Another tab's edit wins; never overwrite it.
+  if (metadata.author) await syncBookAuthor(book.id, String(metadata.author)).catch(() => {});
+  window.dispatchEvent(new CustomEvent('spl-catalogue-updated'));
 }
