@@ -2,3 +2,27 @@
 .welcome.welcome-mission::after { content: none; display: none; }
 .welcome.welcome-mission > div { min-width: 0; }
 .welcome.welcome-mission .welcome-actions { flex-wrap: wrap; }
+
+/* The mission spans the welcome panel, with clear contrast in both themes. */
+.dashboard-page .welcome.welcome-mission > .mission-heading {
+  display: block;
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0 0 20px;
+  text-align: center;
+  color: var(--green);
+  font-family: 'Amiri', serif;
+  font-size: clamp(26px, 3vw, 38px);
+  font-weight: 700;
+  line-height: 1.6;
+  text-wrap: balance;
+}
+.welcome.welcome-mission .quote-mark p {
+  font-weight: 800;
+  -webkit-text-stroke: 0.2px currentColor;
+}
+@media (max-width: 760px) {
+  .dashboard-page .welcome.welcome-mission > .mission-heading { margin-bottom: 12px; }
+  .welcome.welcome-mission .quote-mark { display: block; padding: 12px 0 0; }
+  .dashboard-page .welcome.welcome-mission .quote-mark > p { display: block; }
+}

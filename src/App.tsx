@@ -972,12 +972,12 @@ function Dashboard({
   return (
     <div className="page dashboard-page">
       <section className="welcome welcome-mission">
-        <div>
-          <span className="eyebrow">
+          <div className="mission-heading">
             {rtl
               ? "مكتبة ذكية تعيد القراء إلى الكتاب بمفهوم الحداثة"
               : "A smart library bringing readers back to books through modernity"}
-          </span>
+          </div>
+        <div>
           <h2>{t.hello}</h2>
           <p>{t.intro}</p>
           <div className="welcome-actions">
