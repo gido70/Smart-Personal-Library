@@ -1,3 +1,4 @@
+import { pdfImageOptions } from "./pdfAssets";
 // Browser-only orchestration for the free "local structural analysis" experience.
 // Downloads the book's own bytes straight from the user's private storage bucket
 // (RLS-scoped, same session — no new network path is opened), runs PDF.js text
@@ -19,7 +20,7 @@ export type LocalAnalysisRunResult = {
 async function loadPdfDocument(bytes: Uint8Array) {
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-  return pdfjs.getDocument({ data: bytes, disableFontFace: true, useSystemFonts: false }).promise;
+  return pdfjs.getDocument({ ...pdfImageOptions(), data: bytes, disableFontFace: true, useSystemFonts: false }).promise;
 }
 
 export async function runLocalStructuralAnalysis(

@@ -1,3 +1,4 @@
+import { pdfImageOptions } from "./lib/pdfAssets";
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { createBookSignedUrl, getReadingProgress, saveReadingProgress } from "./lib/library";
@@ -221,7 +222,7 @@ export default function Reader({
         setPage(restoredPage);
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-        const loaded = (await pdfjs.getDocument({ url: signed.url, disableFontFace: true, useSystemFonts: false }).promise) as unknown as PdfDocument;
+        const loaded = (await pdfjs.getDocument({ ...pdfImageOptions(), url: signed.url, disableFontFace: true, useSystemFonts: false }).promise) as unknown as PdfDocument;
         if (cancelled) return;
         setDocument(loaded);
         setPage(Math.min(Math.max(restoredPage, 1), loaded.numPages));
@@ -255,7 +256,7 @@ export default function Reader({
       setRemoteUrlExpiresAt(signed.expiresAt);
       const pdfjs = await import("pdfjs-dist");
       pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-      const loaded = (await pdfjs.getDocument({ url: signed.url, disableFontFace: true, useSystemFonts: false }).promise) as unknown as PdfDocument;
+      const loaded = (await pdfjs.getDocument({ ...pdfImageOptions(), url: signed.url, disableFontFace: true, useSystemFonts: false }).promise) as unknown as PdfDocument;
       setDocument(loaded);
       setPage((current) => Math.min(Math.max(current, 1), loaded.numPages));
       setSavedProgressReady(true);
@@ -380,7 +381,7 @@ export default function Reader({
       const pdfjs = await import("pdfjs-dist");
       pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
       const bytes = new Uint8Array(await selected.arrayBuffer());
-      const loaded = await pdfjs.getDocument({ data: bytes, disableFontFace: true, useSystemFonts: false }).promise as unknown as PdfDocument;
+      const loaded = await pdfjs.getDocument({ ...pdfImageOptions(), data: bytes, disableFontFace: true, useSystemFonts: false }).promise as unknown as PdfDocument;
       setDocument(loaded);
       setPage(Math.min(Math.max(saved, 1), loaded.numPages));
     } catch {

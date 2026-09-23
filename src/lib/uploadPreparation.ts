@@ -1,6 +1,7 @@
+import type { IntakePage } from "./autoCatalogue";
 export type PreparationStage = "reading" | "hashing" | "inspecting";
-export type PdfInspection = { pageCount: number | null; info: Record<string, unknown> };
-type PdfDocument = { numPages: number; getMetadata: () => Promise<{ info: unknown }> };
+export type PdfInspection = { pageCount: number | null; info: Record<string, unknown>; pages?: IntakePage[] };
+type PdfDocument = { numPages: number; getMetadata: () => Promise<{ info: unknown }>; getPage?: (n: number) => Promise<{ getTextContent: () => Promise<{items: Array<unknown>}>; cleanup: () => void }> };
 type LoadingTask = { promise: Promise<PdfDocument>; destroy: () => Promise<void> };
 
 export async function withUploadDeadline<T>(operation: PromiseLike<T>, milliseconds: number, code: string): Promise<T> {
@@ -33,7 +34,8 @@ export async function prepareUpload(
       const document = await task.promise;
       let info: Record<string, unknown> = {};
       try { info = (await document.getMetadata()).info as Record<string, unknown> ?? {}; } catch { /* optional metadata */ }
-      return { pageCount: document.numPages, info };
+      const pages = await sampleCataloguePages(document);
+      return { pageCount: document.numPages, info, pages };
     })(), timeoutMs, "PDF_INSPECTION_TIMEOUT");
     return { contentHash, inspection };
   } catch (error) {
@@ -44,4 +46,29 @@ export async function prepareUpload(
   } finally {
     try { await withUploadDeadline(task.destroy(), 2000, "PDF_CLEANUP_TIMEOUT"); } catch { /* cleanup cannot hang the upload */ }
   }
+}
+
+/** Sample only the opening pages; an unreadable/scanned PDF must not block upload. */
+export async function sampleCataloguePages(document: Pick<PdfDocument, "numPages" | "getPage">): Promise<IntakePage[]> {
+  const pages: IntakePage[] = [];
+  if (!document.getPage) return pages;
+  let stopped = false;
+  try {
+    await withUploadDeadline((async () => {
+      for (let n = 1; !stopped && n <= Math.min(document.numPages, 6); n++) {
+        const page = await document.getPage!(n);
+        try {
+          if (stopped) break;
+          const content = await page.getTextContent();
+          const text = content.items.map(item => {
+            const part = item as { str?: string; hasEOL?: boolean };
+            return (part.str ?? '') + (part.hasEOL ? '\n' : ' ');
+          }).join('').slice(0, 12000);
+          if (!stopped) pages.push({ page: n, text });
+        } finally { page.cleanup(); }
+      }
+    })(), 6000, 'CATALOGUE_SAMPLE_TIMEOUT');
+  } catch { /* preserve the sample already obtained */ }
+  finally { stopped = true; }
+  return pages;
 }

@@ -1,3 +1,5 @@
+import { suggestClassification } from "./lib/autoCatalogue";
+import { pdfImageOptions, ACTIVE_COVER_FILENAME } from "./lib/pdfAssets";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import Reader, { type SavedBookRef } from "./Reader";
@@ -24,6 +26,7 @@ import {
   updateBookClassification,
   restoreArchivedBook,
   saveCoverThumbnail,
+  repairIntakeCatalogue,
   syncBookAuthor,
   isBookArchived,
   MAX_ACTIVE_BOOKS,
@@ -283,7 +286,7 @@ export default function Home() {
         if (!cancelled) setBrowserCacheReady(true);
         return;
       }
-      if (sessionStorage.getItem("spl-worker-prepared-v0105-upload-4") !== "1") {
+      if (sessionStorage.getItem("spl-worker-prepared-v0105-cover-5") !== "1") {
         const registrations = await navigator.serviceWorker.getRegistrations();
         const cacheNames = "caches" in window ? await caches.keys() : [];
         await Promise.all([
@@ -292,7 +295,7 @@ export default function Home() {
             .filter((name) => name.startsWith("smart-personal-library-"))
             .map((name) => caches.delete(name)),
         ]);
-        sessionStorage.setItem("spl-worker-prepared-v0105-upload-4", "1");
+        sessionStorage.setItem("spl-worker-prepared-v0105-cover-5", "1");
       }
       await navigator.serviceWorker.register("./sw.js");
       if (!cancelled) setBrowserCacheReady(true);
@@ -384,6 +387,11 @@ export default function Home() {
     };
   }, []);
   const reloadPilotBooks = () => setBooksLoadToken((n) => n + 1);
+  useEffect(() => {
+    const refresh = () => setBooksLoadToken(n => n + 1);
+    window.addEventListener('spl-catalogue-updated', refresh);
+    return () => window.removeEventListener('spl-catalogue-updated', refresh);
+  }, []);
   const patchPilotBook = (bookId: string, patch: Partial<PilotBook>) => {
     setPilotBooks((prev) => prev.map((b) => (b.id === bookId ? { ...b, ...patch } : b)));
     setActivePilotBook((prev) => (prev && prev.id === bookId ? { ...prev, ...patch } : prev));
@@ -405,7 +413,7 @@ export default function Home() {
         const names = await caches.keys();
         await Promise.all(names.filter((name) => name.startsWith("smart-personal-library-")).map((name) => caches.delete(name)));
       }
-      sessionStorage.removeItem("spl-worker-prepared-v0105-upload-4");
+      sessionStorage.removeItem("spl-worker-prepared-v0105-cover-5");
       const cleanUrl = new URL(window.location.href);
       cleanUrl.searchParams.set("refresh", Date.now().toString());
       window.location.replace(cleanUrl.toString());
@@ -1330,6 +1338,8 @@ function inferClassification(book: PilotBook): BookClassificationPatch {
     deweyBranch: String(book.metadata?.dewey_branch ?? DEWEY_GATEWAYS.find((item) => item.id === savedMain)!.branches[0][0]),
     modernTopic: String(book.metadata?.modern_topic ?? ""),
   };
+  const automatic = suggestClassification(`${book.title} ${String(book.metadata?.subject ?? "")}`);
+  if (automatic.dewey_main) return { deweyMain: automatic.dewey_main, deweyBranch: automatic.dewey_branch!, modernTopic: automatic.modern_topic };
   const haystack = `${book.title} ${String(book.metadata?.subject ?? "")}`.toLowerCase();
   if (/تاريخ|history|حضار|سيرة|جغراف|geograph|رحلات/.test(haystack)) return { deweyMain: "900", deweyBranch: /سيرة|biograph/.test(haystack) ? "920" : "910" };
   if (/إدار|قياد|management|leadership|business/.test(haystack)) return { deweyMain: "600", deweyBranch: "650", modernTopic: /تحول رقمي|digital transformation/.test(haystack) ? "digital-transformation" : undefined };
@@ -1433,7 +1443,7 @@ function acquirePdfCoverRenderSlot(): Promise<() => void> {
 
 function activeCoverThumbnailPath(book: PilotBook): string {
   const separator = book.storage_path.lastIndexOf("/");
-  return separator >= 0 ? `${book.storage_path.slice(0, separator)}/cover.jpg` : "";
+  return separator >= 0 ? `${book.storage_path.slice(0, separator)}/${ACTIVE_COVER_FILENAME}` : "";
 }
 
 function OriginalPdfCover({ book }: { book: PilotBook }) {
@@ -1465,8 +1475,8 @@ function OriginalPdfCover({ book }: { book: PilotBook }) {
     let objectUrl = "";
     setFailed(false);
     setCoverImageUrl("");
-    const archivedCoverPath = String(book.metadata?.archive_cover_path ?? "");
-    const cachedCoverPath = String(book.metadata?.cover_path ?? "") || activeCoverThumbnailPath(book);
+    const archivedCoverPath = isBookArchived(book) ? String(book.metadata?.archive_cover_path ?? "") : "";
+    const cachedCoverPath = isBookArchived(book) ? String(book.metadata?.cover_path ?? "") : activeCoverThumbnailPath(book);
     const render = async () => {
       // 1) Archived books: a small cover JPEG was already saved when they
       //    were archived — just show it.
@@ -1500,7 +1510,7 @@ function OriginalPdfCover({ book }: { book: PilotBook }) {
         const fileBlob = await downloadBookFile(book.storage_path);
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-        const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await fileBlob.arrayBuffer()), disableFontFace: true });
+        const loadingTask = pdfjs.getDocument({ ...pdfImageOptions(), stopAtErrors: true, data: new Uint8Array(await fileBlob.arrayBuffer()), disableFontFace: true });
         const pdf = await loadingTask.promise;
         let first: Awaited<ReturnType<typeof pdf.getPage>> | null = null;
         try {
@@ -1515,6 +1525,7 @@ function OriginalPdfCover({ book }: { book: PilotBook }) {
           canvas.height = Math.floor(viewport.height);
           await first.render({ canvasContext: context, viewport, canvas }).promise;
           canvas.dataset.ready = "true";
+          await repairIntakeCatalogue(book, pdf).catch(error => console.warn("SPL: catalogue repair deferred", error));
           // Cache a small JPEG so every future load of this book (this device
           // or any other) uses the cheap path above instead of re-downloading
           // and re-decoding the whole PDF. Fire-and-forget: a caching failure
@@ -1622,7 +1633,7 @@ function LiveBookCard({
             <button className="primary compact" disabled={classificationBusy || !draftClassification.deweyMain || !draftClassification.deweyBranch} onClick={saveClassification}>{classificationBusy ? "…" : rtl ? "حفظ التصنيف" : "Save category"}</button>
             <button className="secondary compact" disabled={classificationBusy} onClick={() => { setDraftClassification(classification); setEditingClassification(false); }}>{rtl ? "تراجع" : "Cancel"}</button>
           </div>
-        </div> : <button className="book-category-chips category-edit-trigger" onClick={() => { setDraftClassification(classification); setEditingClassification(true); }} aria-label={rtl ? "عرض أو تغيير تصنيف الكتاب" : "View or change book category"}><span className={`book-category-chip final ${classification.deweyMain ? "" : "unclassified"}`}>{finalClassificationLabel(classification, rtl)}</span><small>{rtl ? "تغيير التصنيف" : "Change category"}</small></button>}
+        </div> : <button className="book-category-chips category-edit-trigger" onClick={() => { setDraftClassification(classification); setEditingClassification(true); }} title={book.metadata?.classification_source === "local-provisional" ? (rtl ? "تصنيف آلي مبدئي قابل للتعديل" : "Provisional automatic category, editable") : undefined} aria-label={rtl ? "عرض أو تغيير تصنيف الكتاب" : "View or change book category"}><span className={`book-category-chip final ${classification.deweyMain ? "" : "unclassified"}`}>{finalClassificationLabel(classification, rtl)}</span><small>{book.metadata?.classification_source === "local-provisional" ? (rtl ? "تصنيف آلي مبدئي · تعديل" : "Provisional category · Edit") : (rtl ? "تغيير التصنيف" : "Change category")}</small></button>}
         {!compact && onArchive && !archived && <button className="book-archive-button" onClick={onArchive}>▣ {rtl ? "نقل إلى الأرشيف" : "Move to archive"}</button>}
         {!compact && onRestore && archived && <button className="book-restore-button" onClick={onRestore}>↥ {rtl ? "إعادة إلى الكتب النشطة" : "Restore to active shelf"}</button>}
       </div>
@@ -1867,7 +1878,7 @@ function LibraryIndexes({
       setError(value instanceof Error ? value.message : String(value));
     } finally { setLoading(false); }
   };
-  useEffect(() => { void reloadAuthors(); }, [initialAuthorName]);
+  useEffect(() => { void reloadAuthors(); }, [initialAuthorName, books]);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const titles = [...books].sort((a,b) => a.title.localeCompare(b.title, rtl ? "ar" : "en"));
   const visibleTitles = titles.filter((book) => !normalizedQuery || `${book.title} ${String(book.metadata?.author ?? "")}`.toLocaleLowerCase().includes(normalizedQuery));
