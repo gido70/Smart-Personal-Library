@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { cpSync, mkdirSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 // PDF.js loads JPEG 2000/JBIG2 and colour decoders at runtime. Vite's worker
@@ -12,6 +12,11 @@ cpSync(fileURLToPath(new URL("./node_modules/pdfjs-dist/wasm/", import.meta.url)
 
 export default defineConfig({
   base: "./",
-  plugins: [react()],
+  plugins: [react(), {
+    name: "project-concept-index",
+    generateBundle() {
+      this.emitFile({ type: "asset", fileName: "concept-index.html", source: readFileSync(new URL("./docs/concept-index-v1.1.html", import.meta.url), "utf8") });
+    },
+  }],
   build: { outDir: "dist" },
 });

@@ -69,3 +69,5 @@ User screenshots confirm preview cover/category, but missing author. Read-only d
 - Existing author-index upsert/retry remains in place. No schema or RLS changes, paid calls, page limit, or change to 150 MiB.
 - Real supplied PDF under Node PDF.js: six pages sampled, printed page 4 yields `باهمام، أحمد سالم عمر`, provisional 610. New regression simulates a slow image-only cover and verifies page 4 is still sampled before timeout.
 - User now authorizes production publication after verification; physical Samsung validation remains a post-publication check, not a claimed test result.
+
+The concept index is now emitted as `concept-index.html` in both hosted builds and linked from the user guide. Full local tests/build and remote safety gate passed for the author repair. Direct production record correction was rejected by automatic review; no database mutation occurred.
