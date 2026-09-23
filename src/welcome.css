@@ -1,0 +1,4 @@
+/* Decorative gold overlays must never cover the welcome text. */
+.welcome.welcome-mission::after { content: none; display: none; }
+.welcome.welcome-mission > div { min-width: 0; }
+.welcome.welcome-mission .welcome-actions { flex-wrap: wrap; }

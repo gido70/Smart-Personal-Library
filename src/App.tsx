@@ -1,3 +1,4 @@
+import "./welcome.css";
 import { loadOriginalCover } from "./lib/bookCovers";
 import { suggestClassification } from "./lib/autoCatalogue";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -970,12 +971,12 @@ function Dashboard({
   const current = activePilotBooks[0];
   return (
     <div className="page dashboard-page">
-      <section className="welcome">
+      <section className="welcome welcome-mission">
         <div>
           <span className="eyebrow">
             {rtl
-              ? "مكتبة تقرأ معك، لا بدلًا عنك"
-              : "A library that reads with you, not for you"}
+              ? "مكتبة ذكية تعيد القراء إلى الكتاب بمفهوم الحداثة"
+              : "A smart library bringing readers back to books through modernity"}
           </span>
           <h2>{t.hello}</h2>
           <p>{t.intro}</p>
@@ -995,7 +996,6 @@ function Dashboard({
           </div>
         </div>
         <div className="quote-mark">
-          <span>«</span>
           <p>
             {rtl
               ? "افهم خريطة الكتاب، ثم عُد إلى الأصل بوعي."
@@ -1694,6 +1694,8 @@ function readableItem(value: unknown): string {
 
 function describeAiError(value: unknown, rtl: boolean) {
   const raw = value instanceof Error ? value.message : String(value ?? "");
+  if (/ANALYSIS_SOURCE_/.test(raw)) return rtl ? "تعذر تجهيز نص الكتاب كاملًا للتحليل؛ قد يحتاج تعرّفًا ضوئيًا أو تقسيمًا إضافيًا. لم يبدأ طلب التحليل المدفوع." : "Could not prepare the complete book text; OCR or further splitting may be needed. Paid analysis has not started.";
+  if (/file_above_max_size|File urls cannot be larger/.test(raw)) return rtl ? "حجم PDF يتجاوز حد خدمة التحليل، وليس الرصيد. حد رفع المكتبة ما زال 150 MiB؛ حدّث الصفحة لاستخدام تجهيز النص للكتب الكبيرة." : "The PDF exceeds the analysis service file limit, not your balance. Refresh to use large-book text preparation.";
   const code = raw.match(/(PAID_AI_DISABLED|PRIVATE_PILOT_EMAIL_REQUIRED|PAID_PILOT_BOOK_LIMIT_REACHED|DAILY_ANALYSIS_LIMIT_REACHED|DAILY_QUESTION_LIMIT_REACHED|PILOT_QUESTION_LIMIT_REACHED|OPENAI_API_KEY_MISSING|LEGAL_CONSENT_REQUIRED|BOOK_NOT_PROCESSED|ANALYSIS_NOT_READY)/)?.[1];
   const ar: Record<string, string> = {
     PAID_AI_DISABLED: "الخدمة المدفوعة ما زالت مغلقة من خادم Supabase؛ لم يُرسل الكتاب ولم يُخصم أي رصيد.",
@@ -2196,7 +2198,7 @@ function PilotWorkspace({
   };
   const handlePaidFailure = (value: unknown) => {
     const raw = value instanceof Error ? value.message : String(value ?? "");
-    if (/(PAID_AI_DISABLED|PRIVATE_PILOT_EMAIL_REQUIRED|DAILY_ANALYSIS_LIMIT_REACHED|DAILY_QUESTION_LIMIT_REACHED|PILOT_QUESTION_LIMIT_REACHED|LEGAL_CONSENT_REQUIRED|BOOK_NOT_PROCESSED|ANALYSIS_NOT_READY)/.test(raw)) {
+    if (/(ANALYSIS_SOURCE_|PAID_AI_DISABLED|PRIVATE_PILOT_EMAIL_REQUIRED|DAILY_ANALYSIS_LIMIT_REACHED|DAILY_QUESTION_LIMIT_REACHED|PILOT_QUESTION_LIMIT_REACHED|LEGAL_CONSENT_REQUIRED|BOOK_NOT_PROCESSED|ANALYSIS_NOT_READY)/.test(raw)) {
       finishPaidTask();
       return;
     }
@@ -3103,6 +3105,7 @@ function PilotWorkspace({
                           ? "سيُرسل هذا الكتاب إلى OpenAI ويُخصم الاستهلاك من رصيد API الفعلي في حسابك."
                           : "This book will be sent to OpenAI and usage will be deducted from the actual API credit in your account."}
                     </p>
+                    {book.file_size > 45_000_000 && <p>{rtl ? "لهذا الملف الكبير سنحلل النص المستخرج من جميع الصفحات مع أرقامها. الصور والرسوم لا تدخل في هذا التحليل؛ يبقى الأصل محفوظًا كما هو." : "For this large file, analysis uses text extracted from every page with page references. Images and diagrams are excluded; the original stays unchanged."}</p>}
                     <button
                       className="primary"
                       disabled={Boolean(busy)}

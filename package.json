@@ -18,7 +18,7 @@
     "test:reviewer": "node scripts/verify-reviewer-preview.mjs",
     "test:v0191": "node scripts/verify-v0191-index-exports.mjs",
     "test:immersive-reader": "node scripts/verify-immersive-reader.mjs",
-    "test": "npm run test:unit && npm run test:paid-pilot && npm run test:release && npm run test:ui-baseline && npm run test:reminders && npm run test:v0104 && npm run test:audio-complete && npm run test:reviewer && npm run test:v0191 && npm run test:immersive-reader && npm run test:upload && npm run test:catalogue && npm run test:covers",
+    "test": "npm run test:unit && npm run test:paid-pilot && npm run test:release && npm run test:ui-baseline && npm run test:reminders && npm run test:v0104 && npm run test:audio-complete && npm run test:reviewer && npm run test:v0191 && npm run test:immersive-reader && npm run test:upload && npm run test:catalogue && npm run test:covers && node scripts/test-large-analysis-audio.mjs",
     "test:catalogue": "node --experimental-strip-types scripts/test-auto-catalogue.mjs && node scripts/test-catalogue-persistence.mjs",
     "test:covers": "node --experimental-strip-types scripts/test-cover-cache.mjs"
   },

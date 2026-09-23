@@ -1,3 +1,4 @@
+import { DIRECT_PDF_MAX_BYTES } from "../../supabase/functions/spl-ai/analysisSource";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { renderCoverFromPdf } from "./coverRendering";
 import { rememberBookCover, coverCompatibilityOptions } from "./bookCovers";
@@ -663,8 +664,18 @@ export async function createBookSignedUrl(storagePath: string, expiresIn = 3600)
 // and question caps, ownership, and legal-consent checks).
 export async function invokeBookAI(bookId: string, action: "process" | "ask" | "audio" | "audio_preview", payload: Record<string, unknown> = {}) {
   await ensurePilotSession();
+  let source = {};
+  if (action === "process" || action === "ask") {
+    const { data: book, error: bookError } = await supabase!.from("spl_books").select("file_size,storage_path,metadata").eq("id", bookId).single();
+    if (bookError || !book) throw bookError ?? new Error("BOOK_NOT_FOUND");
+    if (Number(book.file_size) > DIRECT_PDF_MAX_BYTES) {
+      const { prepareLargeBookSource } = await import("./largeBookSource");
+      try { source = await prepareLargeBookSource(await downloadBookFile(book.storage_path, 90000)); }
+      catch (error) { throw new Error(`ANALYSIS_SOURCE_PREPARATION: ${error instanceof Error ? error.message : String(error)}`); }
+    }
+  }
   const { data, error } = await supabase!.functions.invoke("spl-ai", {
-    body: { action, bookId, ...payload },
+    body: { ...payload, action, bookId, ...source },
   });
   if (error) {
     const context = (error as { context?: Response }).context;
