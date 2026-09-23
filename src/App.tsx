@@ -241,6 +241,7 @@ export default function Home() {
   const [readerBook, setReaderBook] = useState<SavedBookRef | null>(null);
   const [processing, setProcessing] = useState(false);
   const [percent, setPercent] = useState(0);
+  const [uploadStageLabel, setUploadStageLabel] = useState("");
   const [notice, setNotice] = useState("");
   const [activating, setActivating] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -435,9 +436,21 @@ export default function Home() {
     setProcessing(true);
     setPercent(12);
     try {
-      setPercent(35);
-      const { book, deduped } = await uploadPilotBook(file, outputLanguage);
+      const { book, deduped } = await uploadPilotBook(file, outputLanguage, (stage) => {
+        const stages = {
+          session: [5, "التحقق من الحساب", "Checking account"],
+          reading: [12, "قراءة الملف من الجهاز", "Reading file from device"],
+          hashing: [22, "التحقق من بصمة الكتاب", "Computing book fingerprint"],
+          inspecting: [32, "فحص بيانات PDF — بحد أقصى 25 ثانية", "Inspecting PDF — up to 25 seconds"],
+          checking: [42, "التحقق من الكتب الموجودة والسعة", "Checking existing books and capacity"],
+          uploading: [55, "إرسال الملف إلى مساحتك الخاصة؛ أبقِ الصفحة مفتوحة", "Transferring file to private storage; keep this page open"],
+          saving: [70, "حفظ سجل الكتاب", "Saving book record"],
+        } as const;
+        setPercent(stages[stage][0]);
+        setUploadStageLabel(stages[stage][rtl ? 1 : 2]);
+      });
       setPercent(75);
+      setUploadStageLabel(rtl ? "حفظ الإقرار وتحديث المكتبة" : "Saving consent and refreshing library");
       if (deduped) {
         const consent = await getLegalConsentStatus(book.id);
         if (!consent.recorded) await saveLegalConsent(book.id, rights1, rights2);
@@ -716,11 +729,12 @@ export default function Home() {
           setRights2={setRights2}
           processing={processing}
           percent={percent}
+          uploadStageLabel={uploadStageLabel}
           close={() => !processing && setUpload(false)}
           start={startProcessing}
         />
       )}
-      {notice && <div className="toast">✓ {notice}</div>}
+      {notice && <div className="toast">{notice}</div>}
     </div>
   );
 }
@@ -4130,6 +4144,7 @@ function Upload({
   setRights2,
   processing,
   percent,
+  uploadStageLabel,
   close,
   start,
 }: {
@@ -4145,6 +4160,7 @@ function Upload({
   setRights2: (v: boolean) => void;
   processing: boolean;
   percent: number;
+  uploadStageLabel: string;
   close: () => void;
   start: () => void;
 }) {
@@ -4257,19 +4273,14 @@ function Upload({
         ) : (
           <div className="processing">
             <div className="processing-ring">
-              <strong>{percent}%</strong>
+              <strong>{rtl ? "جارٍ…" : "Working…"}</strong>
             </div>
             <h3>{rtl ? "نحفظ كتابك بأمان…" : "Saving your book securely…"}</h3>
             <p>
-              {percent < 55
-                ? rtl
-                  ? "رفع الملف إلى مساحتك الخاصة"
-                  : "Uploading to your private storage"
-                : rtl
-                  ? "حفظ الإقرار وبيانات الكتاب"
-                  : "Saving consent and book details"}
+              {uploadStageLabel}
             </p>
             <Bar value={percent} />
+            <small>{rtl ? "المؤشر يوضح مراحل الحفظ، وليس نسبة نقل الملف." : "The indicator shows saving stages, not bytes transferred."}</small>
             <small>
               {rtl
                 ? "لا يوجد اتصال بـ OpenAI ولا خصم مالي."
