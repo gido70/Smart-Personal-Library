@@ -25,6 +25,7 @@
     "pdfjs-dist": "6.2.108",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "tus-js-client": "4.3.1",
     "vite": "8.2.2"
   },
   "devDependencies": {

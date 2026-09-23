@@ -22,7 +22,7 @@ check("home shelf cards show only the book and final classification", /compact o
 check("mobile category shelves require three books or an explicit filter", /denseMobileShelves/.test(app) && /books\.length >= 3/.test(app) && /adaptiveMobileShelves/.test(app) && /كتب أخرى/.test(app));
 check("seventh-book entry is blocked before the upload modal", /const openUpload/.test(app) && /activeCount >= MAX_ACTIVE_BOOKS/.test(app) && /onUpload=\{openUpload\}/.test(app));
 check("archive explains preservation and requires confirmation", /ستتحرر فتحة من الستة/.test(app) && /نعم، انقل إلى الأرشيف/.test(app) && /الخلاصة والتحليل والصوت والأسئلة/.test(app));
-check("permanent deletion is isolated to archived records and explicitly confirmed", /onDelete=\{isBookArchived\(book\)/.test(app) && /حذف نهائي لا يمكن التراجع عنه/.test(app) && /نعم، احذف نهائيًا/.test(app) && /deletePilotBook/.test(app));
+check("paid archives have no permanent-delete control", !/onDelete=|confirmPermanentDelete|book-permanent-delete-button/.test(app));
 check("original books and knowledge copies can be selected independently", /spl-preferred-library-shelf/.test(app) && /الكتب الأصلية/.test(app) && /النسخ المعرفية/.test(app) && /مكتبة النسخ المعرفية/.test(app));
 check("archived cards identify the saved knowledge-copy state", /نسخة معرفية محفوظة — الأصل مؤرشف/.test(app) && /book-status-badge knowledge/.test(app) && /original_removed/.test(app));
 check("eleven fixed classification gateways are defined", /DEWEY_GATEWAYS/.test(app) && /MODERN_GATEWAY/.test(app) && /بوابات التصنيف الإحدى عشرة/.test(app));
@@ -48,7 +48,7 @@ check("private book bucket accepts JPEG cover thumbnails", /update storage\.buck
 check("thumbnail caching cannot overwrite catalogue or archive metadata", !/saveCoverThumbnail[\s\S]*?update\(\{ metadata \}\)/.test(library));
 check("missing active thumbnails fall back to PDF and pdf.js memory is released", /for \(const cachedPath of cachedPaths\)/.test(app) && /if \(isBookArchived\(book\)\) throw/.test(app) && /first\?\.cleanup\(\)/.test(app) && /await loadingTask\.destroy\(\)/.test(app));
 check("notification bell and mobile destination are enabled", /🔔/.test(app) && !/disabled=\{id === "progress"\}/.test(app));
-check("service worker cache advances to the PDF pagination fix", /smart-personal-library-v0\.10\.5-pdf-2/.test(worker));
+check("service worker cache advances to the reliable-upload fix", /smart-personal-library-v0\.10\.5-upload-3/.test(worker));
 check("upload accepts 150 MB with no page-count limit", /MAX_UPLOAD_BYTES = 150/.test(library) && /FILE_TOO_LARGE_150MB/.test(library) && !/TOO_MANY_PAGES_500/.test(library));
 check("daily limits and reset time are visible", /getAiLimitsSnapshot/.test(app) && /تتجدد الحدود اليومية/.test(app));
 check("interrupted paid task has persistent visible moving progress", /durable-task-banner/.test(app) && /taskStorageKey/.test(app) && /durable-task-banner\.running\{position:fixed/.test(styles) && /انتظر ولا تغلق الصفحة/.test(app));

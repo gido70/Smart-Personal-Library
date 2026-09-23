@@ -1,6 +1,7 @@
 import { ensurePilotSession, supabase } from "./supabase";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { hashFile } from "./textAnalysis";
+import { boundedRead, uploadBookChunks, type BookUploadProgress } from "./bookUpload";
 import type { LocalStructuralAnalysis, ManualImportPayload, ManualImportSource } from "./textAnalysis";
 
 export type OutputLanguage = "ar" | "en" | "bilingual";
@@ -40,10 +41,18 @@ function safeName(name: string) {
 async function inspectPdfForAcceptance(file: File) {
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-  const document = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), disableFontFace: true }).promise;
-  let info: Record<string, unknown> = {};
-  try { info = ((await document.getMetadata()).info as Record<string, unknown>) ?? {}; } catch { /* optional metadata */ }
-  return { pageCount: document.numPages, info };
+  const url = URL.createObjectURL(file);
+  const task = pdfjs.getDocument({ url, disableFontFace: true });
+  try {
+    const document = await boundedRead(task.promise, "BOOK_PDF_TIMEOUT", 90_000);
+    let info: Record<string, unknown> = {};
+    try { info = ((await boundedRead(document.getMetadata(), "BOOK_PDF_TIMEOUT", 10_000)).info as Record<string, unknown>) ?? {}; } catch { /* optional metadata */ }
+    return { pageCount: document.numPages, info };
+  } finally {
+    // Release the PDF worker and its full document before hashing/transfer.
+    try { await boundedRead(task.destroy(), "BOOK_PDF_TIMEOUT", 5_000); }
+    finally { URL.revokeObjectURL(url); }
+  }
 }
 
 /**
@@ -197,39 +206,56 @@ export type UploadResult = { book: PilotBook; deduped: boolean };
  * yet a column on spl_books, dedupe is silently skipped (old upload behaviour)
  * rather than throwing, so this ships without requiring the migration first.
  */
-export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage): Promise<UploadResult> {
+export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage, onProgress?: (progress: BookUploadProgress) => void): Promise<UploadResult> {
   if (!/\.pdf$/i.test(file.name) || (file.type && file.type !== "application/pdf")) throw new Error("PDF_ONLY");
   if (file.size > MAX_UPLOAD_BYTES) throw new Error("FILE_TOO_LARGE_150MB");
+  onProgress?.({ stage: "checking", percent: 0 });
+  const session = await boundedRead(ensurePilotSession(), "BOOK_AUTH_TIMEOUT");
   const inspection = await inspectPdfForAcceptance(file);
-  const session = await ensurePilotSession();
-  const hasHash = await checkHashColumnAvailable();
+  const hasHash = await boundedRead(checkHashColumnAvailable(), "BOOK_LOOKUP_TIMEOUT");
+  const transfer = (storagePath: string, upsert: boolean) => uploadBookChunks(file, {
+    baseUrl: (import.meta.env.VITE_SUPABASE_URL as string).trim(),
+    storagePath, upsert, onProgress,
+    getAccessToken: async () => {
+      const current = await ensurePilotSession();
+      if (current.user.id !== session.user.id) throw new Error("AUTH_REQUIRED");
+      return current.access_token;
+    },
+  });
 
   let contentHash: string | null = null;
   if (hasHash) {
+    onProgress?.({ stage: "fingerprinting", percent: 0 });
     try {
-      contentHash = await hashFile(file);
+      contentHash = await boundedRead(hashFile(file), "BOOK_HASH_TIMEOUT", 90_000);
+    } catch (error) {
+      // Only an unavailable hashing API permits legacy non-deduplicated upload.
+      // Storage, capacity, and restoration errors must never fall through here.
+      if (crypto.subtle) throw error;
+    }
+    if (contentHash) {
       const { data: existing, error: lookupError } = await supabase!
         .from("spl_books")
         .select("id,title,file_name,file_size,storage_path,source_language,output_language,status,content_sha256,metadata,created_at")
         .eq("content_sha256", contentHash)
         .limit(1)
+        .abortSignal(AbortSignal.timeout(30_000))
         .maybeSingle();
+      if (lookupError) throw lookupError;
       if (!lookupError && existing) {
         const existingBook = existing as PilotBook;
         if (isBookArchived(existingBook)) {
           const { data: activeRows, error: activeError } = await supabase!
             .from("spl_books")
-            .select("id,metadata");
+            .select("id,metadata").abortSignal(AbortSignal.timeout(30_000));
           if (activeError) throw activeError;
           const activeCount = (activeRows ?? []).filter((item) => !item.metadata?.archived_at).length;
           if (activeCount >= MAX_ACTIVE_BOOKS) throw new Error("ACTIVE_BOOK_LIMIT_REACHED");
           const metadata = { ...(existingBook.metadata ?? {}) };
-          if (metadata.original_removed) {
-            const { error: restoreFileError } = await supabase!.storage
-              .from("spl-books")
-              .upload(existingBook.storage_path, file, { contentType: file.type || "application/pdf", upsert: true });
-            if (restoreFileError) throw restoreFileError;
+          if (metadata.original_removed || metadata.original_compaction_pending) {
+            await transfer(existingBook.storage_path, true);
           }
+          onProgress?.({ stage: "saving", percent: 100 });
           delete metadata.archived_at;
           delete metadata.archive_reason;
           delete metadata.original_removed;
@@ -239,32 +265,25 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
             .update({ metadata })
             .eq("id", existingBook.id)
             .select("id,title,file_name,file_size,storage_path,source_language,output_language,status,content_sha256,metadata,created_at")
+            .abortSignal(AbortSignal.timeout(30_000))
             .single();
           if (restoreError) throw restoreError;
           return { book: restored as PilotBook, deduped: true };
         }
         return { book: existingBook, deduped: true };
       }
-    } catch (hashOrLookupError) {
-      // Never block an upload because the dedupe check itself failed (e.g. a
-      // browser without SubtleCrypto in an insecure context, or a transient
-      // network error). Fall through to a normal upload.
-      console.warn("SPL: duplicate-check skipped", hashOrLookupError);
-      contentHash = null;
     }
   }
 
-  const { data: activeRows, error: activeError } = await supabase!.from("spl_books").select("id,metadata");
+  const { data: activeRows, error: activeError } = await supabase!.from("spl_books").select("id,metadata").abortSignal(AbortSignal.timeout(30_000));
   if (activeError) throw activeError;
   const activeCount = (activeRows ?? []).filter((item) => !item.metadata?.archived_at).length;
   if (activeCount >= MAX_ACTIVE_BOOKS) throw new Error("ACTIVE_BOOK_LIMIT_REACHED");
 
   const bookId = crypto.randomUUID();
   const storagePath = `${session.user.id}/${bookId}/${safeName(file.name)}`;
-  const { error: uploadError } = await supabase!.storage
-    .from("spl-books")
-    .upload(storagePath, file, { contentType: file.type || "application/pdf", upsert: false });
-  if (uploadError) throw uploadError;
+  await transfer(storagePath, false);
+  onProgress?.({ stage: "saving", percent: 100 });
 
   const insertPayload: Record<string, unknown> = {
     id: bookId,
@@ -287,16 +306,19 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
   };
   if (hasHash && contentHash) insertPayload.content_sha256 = contentHash;
 
-  const { data: book, error: bookError } = await supabase!.from("spl_books").insert(insertPayload).select().single();
+  const { data: book, error: bookError } = await supabase!.from("spl_books").insert(insertPayload).select().abortSignal(AbortSignal.timeout(30_000)).single();
   if (bookError) {
-    await supabase!.storage.from("spl-books").remove([storagePath]);
+    // A lost response can follow a committed insert. Do not delete the original
+    // on an ambiguous network failure and leave a valid book pointing nowhere.
+    if (!bookError.code || /abort|timeout|fetch/i.test(bookError.message)) throw new Error("BOOK_SAVE_UNCERTAIN");
+    await boundedRead(supabase!.storage.from("spl-books").remove([storagePath]), "BOOK_SAVE_UNCERTAIN");
     throw bookError;
   }
   return { book: book as PilotBook, deduped: false };
 }
 
 export async function saveLegalConsent(bookId: string, rightsOwned: boolean, personalUse: boolean) {
-  const session = await ensurePilotSession();
+  const session = await boundedRead(ensurePilotSession(), "BOOK_AUTH_TIMEOUT");
   if (!rightsOwned || !personalUse) throw new Error("LEGAL_CONSENT_REQUIRED");
   const { error } = await supabase!.from("spl_legal_consents").insert({
     user_id: session.user.id,
@@ -305,8 +327,11 @@ export async function saveLegalConsent(bookId: string, rightsOwned: boolean, per
     personal_use_only: personalUse,
     policy_version: "V0.9-private-paid-pilot",
     user_agent: navigator.userAgent,
-  });
-  if (error) throw error;
+  }).abortSignal(AbortSignal.timeout(30_000));
+  if (error) {
+    if (!error.code || /abort|timeout|fetch/i.test(error.message)) throw new Error("BOOK_SAVE_UNCERTAIN");
+    throw error;
+  }
 }
 
 export async function getLegalConsentStatus(bookId: string): Promise<{ recorded: boolean; acceptedAt: string | null }> {
@@ -503,7 +528,7 @@ export async function archivePilotBook(book: PilotBook): Promise<PilotBook> {
 
 export async function restoreArchivedBook(book: PilotBook): Promise<PilotBook> {
   await ensurePilotSession();
-  if (book.metadata?.original_removed) throw new Error("ARCHIVED_ORIGINAL_REUPLOAD_REQUIRED");
+  if (book.metadata?.original_removed || book.metadata?.original_compaction_pending) throw new Error("ARCHIVED_ORIGINAL_REUPLOAD_REQUIRED");
   const { data: activeRows, error: activeError } = await supabase!.from("spl_books").select("id,metadata");
   if (activeError) throw activeError;
   if ((activeRows ?? []).filter((item) => !item.metadata?.archived_at).length >= MAX_ACTIVE_BOOKS) {

@@ -176,3 +176,5 @@
 .catalog-author-link{border:0;background:transparent;color:var(--green2);font:inherit;font-weight:900;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 @media(max-width:760px){.author-index-layout{grid-template-columns:1fr}.author-works{grid-template-columns:1fr}.title-index-list>button{grid-template-columns:1fr}.result-downloads{grid-template-columns:1fr}.index-tabs{position:sticky;top:66px;z-index:5}.author-record h2{font-size:28px}}
 @media(max-width:760px){.reviewer-layout{grid-template-columns:1fr}.reviewer-books{position:static;display:flex;gap:8px;overflow-x:auto}.reviewer-books h3,.reviewer-books p{flex-basis:100%}.reviewer-books>button{flex:0 0 210px}.reviewer-book-heading{grid-template-columns:78px 1fr}.reviewer-book-heading h3{font-size:20px}.reviewer-hero{padding:19px}.reviewer-hero h2{font-size:28px}}
+
+.upload-error{padding:12px;border:1px solid #b44734;border-radius:12px;color:#9b2617;background:#fff2ee;overflow-wrap:anywhere}

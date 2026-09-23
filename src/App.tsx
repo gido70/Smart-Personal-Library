@@ -10,7 +10,6 @@ import {
   getPrivateAudioUrl,
   archivePilotBook,
   downloadBookFile,
-  deletePilotBook,
   groupDuplicateBooks,
   invokeBookAI,
   listPilotBooks,
@@ -43,6 +42,7 @@ import { downloadPdfReport, downloadSavedAudio, downloadWordReport } from "./lib
 import { signInLibraryAccount, signOutLibraryAccount, signUpLibraryAccount, supabase, supabaseConfigured } from "./lib/supabase";
 import { PAID_PILOT_MAX_BOOKS, ZERO_COST_MODE } from "./lib/config";
 import { runLocalStructuralAnalysis, type LocalAnalysisProgress } from "./lib/localAnalysis";
+import { boundedRead, type BookUploadStage } from "./lib/bookUpload";
 import { searchInsideBook, validateManualImport, type BookSearchMatch, type LocalStructuralAnalysis, type ManualImportPayload } from "./lib/textAnalysis";
 import { calculateLoggedTextCost } from "./lib/openAiCost";
 import {
@@ -241,6 +241,9 @@ export default function Home() {
   const [readerBook, setReaderBook] = useState<SavedBookRef | null>(null);
   const [processing, setProcessing] = useState(false);
   const [percent, setPercent] = useState(0);
+  const [uploadStage, setUploadStage] = useState<BookUploadStage>("checking");
+  const [uploadError, setUploadError] = useState("");
+  const uploadLock = useRef(false);
   const [notice, setNotice] = useState("");
   const [activating, setActivating] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -280,7 +283,7 @@ export default function Home() {
         if (!cancelled) setBrowserCacheReady(true);
         return;
       }
-      if (sessionStorage.getItem("spl-worker-prepared-v0105-pdf-2") !== "1") {
+      if (sessionStorage.getItem("spl-worker-prepared-v0105-upload-3") !== "1") {
         const registrations = await navigator.serviceWorker.getRegistrations();
         const cacheNames = "caches" in window ? await caches.keys() : [];
         await Promise.all([
@@ -289,7 +292,7 @@ export default function Home() {
             .filter((name) => name.startsWith("smart-personal-library-"))
             .map((name) => caches.delete(name)),
         ]);
-        sessionStorage.setItem("spl-worker-prepared-v0105-pdf-2", "1");
+        sessionStorage.setItem("spl-worker-prepared-v0105-upload-3", "1");
       }
       await navigator.serviceWorker.register("./sw.js");
       if (!cancelled) setBrowserCacheReady(true);
@@ -402,7 +405,7 @@ export default function Home() {
         const names = await caches.keys();
         await Promise.all(names.filter((name) => name.startsWith("smart-personal-library-")).map((name) => caches.delete(name)));
       }
-      sessionStorage.removeItem("spl-worker-prepared-v0105-pdf-2");
+      sessionStorage.removeItem("spl-worker-prepared-v0105-upload-3");
       const cleanUrl = new URL(window.location.href);
       cleanUrl.searchParams.set("refresh", Date.now().toString());
       window.location.replace(cleanUrl.toString());
@@ -423,7 +426,7 @@ export default function Home() {
     setView("reader");
   };
   const startProcessing = async () => {
-    if (!file || !rights1 || !rights2) return;
+    if (!file || !rights1 || !rights2 || uploadLock.current) return;
     if (!supabaseConfigured) {
       setNotice(
         rtl
@@ -432,25 +435,33 @@ export default function Home() {
       );
       return;
     }
+    uploadLock.current = true;
     setProcessing(true);
-    setPercent(12);
+    setUploadError("");
+    setUploadStage("checking");
+    setPercent(0);
     try {
-      setPercent(35);
-      const { book, deduped } = await uploadPilotBook(file, outputLanguage);
-      setPercent(75);
+      const { book, deduped } = await uploadPilotBook(file, outputLanguage, (progress) => {
+        setUploadStage(progress.stage);
+        setPercent(progress.percent);
+      });
+      setUploadStage("saving");
       if (deduped) {
-        const consent = await getLegalConsentStatus(book.id);
+        const consent = await boundedRead(getLegalConsentStatus(book.id), "BOOK_LOOKUP_TIMEOUT");
         if (!consent.recorded) await saveLegalConsent(book.id, rights1, rights2);
       } else {
         try {
           await saveLegalConsent(book.id, rights1, rights2);
         } catch (consentError) {
-          await rollbackPilotBook(book);
+          // An interrupted response does not prove that the write failed.
+          if (!(consentError instanceof Error && consentError.message === "BOOK_SAVE_UNCERTAIN")) {
+            await boundedRead(rollbackPilotBook(book), "BOOK_SAVE_UNCERTAIN");
+          }
           throw consentError;
         }
       }
       setPercent(100);
-      const all = await listPilotBooks();
+      const all = await boundedRead(listPilotBooks(), "BOOK_LOOKUP_TIMEOUT");
       const refreshed = all.find((item) => item.id === book.id) ?? book;
       setPilotBooks(all);
       setActivePilotBook(refreshed);
@@ -469,18 +480,30 @@ export default function Home() {
       setRights1(false);
       setRights2(false);
     } catch (error) {
-      const raw = error instanceof Error ? error.message : "Unknown error";
+      const raw = error instanceof Error ? error.message : String((error as { message?: string })?.message ?? "Unknown error");
+      const uploadMessages: Record<string, [string, string]> = {
+        BOOK_PDF_TIMEOUT: ["استغرق فحص PDF وقتًا طويلًا. أُوقف الفحص؛ حاول مجددًا مع إبقاء الصفحة مفتوحة.", "PDF inspection timed out. Try again with this page open."],
+        BOOK_HASH_TIMEOUT: ["تعذر إكمال فحص تكرار الكتاب في الوقت المحدد. لم يبدأ الرفع.", "Duplicate checking timed out. Upload has not started."],
+        BOOK_AUTH_TIMEOUT: ["تعذر التحقق من جلسة الدخول. أعد تسجيل الدخول ثم حاول مجددًا.", "Session check timed out. Sign in again and retry."],
+        BOOK_LOOKUP_TIMEOUT: ["تعذر التحقق من مكتبتك. حدّث المكتبة قبل إعادة المحاولة.", "Library check timed out. Refresh your library before retrying."],
+        BOOK_UPLOAD_STALLED: ["توقف نقل الملف دون تقدم. أُوقفت المحاولة؛ تحقق من الاتصال وحاول مجددًا مع إبقاء الصفحة مفتوحة.", "File transfer stalled and was stopped. Check your connection and retry with this page open."],
+        BOOK_UPLOAD_FAILED: ["تعذر إكمال رفع الملف بعد إعادة المحاولة. تحقق من الاتصال ثم حاول مجددًا.", "Upload failed after retries. Check your connection and try again."],
+        BOOK_UPLOAD_AUTH: ["تعذر السماح برفع الملف. أعد تسجيل الدخول؛ إذا تكرر الخطأ يلزم فحص صلاحيات التخزين.", "Upload was not authorized. Sign in again; persistent failures require a storage permission check."],
+        BOOK_SAVE_UNCERTAIN: ["انقطع تأكيد الحفظ. حدّث المكتبة أولًا للتحقق من وجود الكتاب قبل إعادة المحاولة.", "Save confirmation was interrupted. Refresh your library to check for the book before retrying."],
+      };
       const friendly = raw === "FILE_TOO_LARGE_150MB"
         ? (rtl ? "الحد الأقصى 150 ميجابايت للكتاب. أوقفنا الرفع قبل حفظ الملف أو تشغيل أي خدمة مدفوعة." : "The limit is 150 MB per book. Upload stopped before saving or starting any paid service.")
         : raw === "ACTIVE_BOOK_LIMIT_REACHED"
           ? (rtl ? "لديك ستة كتب نشطة. انقل كتابًا إلى الأرشيف أولًا؛ لن يُرفع الملف ولن يُخصم شيء." : "You already have six active books. Archive one first; nothing was uploaded or charged.")
         : raw === "PDF_ONLY"
           ? (rtl ? "هذه التجربة تقبل ملف PDF فقط." : "This pilot accepts PDF files only.")
-          : raw;
+          : uploadMessages[raw]?.[rtl ? 0 : 1] ?? raw;
+      setUploadError(friendly);
       setNotice(
         `${rtl ? "تعذر حفظ الكتاب" : "Could not save the book"}: ${friendly}`,
       );
     } finally {
+      uploadLock.current = false;
       setProcessing(false);
       setTimeout(() => setNotice(""), 7000);
     }
@@ -716,6 +739,8 @@ export default function Home() {
           setRights2={setRights2}
           processing={processing}
           percent={percent}
+          stage={uploadStage}
+          error={uploadError}
           close={() => !processing && setUpload(false)}
           start={startProcessing}
         />
@@ -1522,7 +1547,6 @@ function LiveBookCard({
   compact = false,
   onArchive,
   onRestore,
-  onDelete,
   onClassificationChange,
 }: {
   book: PilotBook;
@@ -1531,7 +1555,6 @@ function LiveBookCard({
   compact?: boolean;
   onArchive?: () => void;
   onRestore?: () => void;
-  onDelete?: () => void;
   onClassificationChange?: (classification: BookClassificationPatch) => Promise<boolean | void> | boolean | void;
 }) {
   const subtitle = languageLabel(book.source_language, rtl);
@@ -1598,7 +1621,6 @@ function LiveBookCard({
         </div> : <button className="book-category-chips category-edit-trigger" onClick={() => { setDraftClassification(classification); setEditingClassification(true); }} aria-label={rtl ? "عرض أو تغيير تصنيف الكتاب" : "View or change book category"}><span className={`book-category-chip final ${classification.deweyMain ? "" : "unclassified"}`}>{finalClassificationLabel(classification, rtl)}</span><small>{rtl ? "تغيير التصنيف" : "Change category"}</small></button>}
         {!compact && onArchive && !archived && <button className="book-archive-button" onClick={onArchive}>▣ {rtl ? "نقل إلى الأرشيف" : "Move to archive"}</button>}
         {!compact && onRestore && archived && <button className="book-restore-button" onClick={onRestore}>↥ {rtl ? "إعادة إلى الكتب النشطة" : "Restore to active shelf"}</button>}
-        {!compact && onDelete && archived && <button className="book-permanent-delete-button" onClick={onDelete}>⌫ {rtl ? "حذف نهائي" : "Delete permanently"}</button>}
       </div>
     </article>
   );
@@ -1910,8 +1932,6 @@ function Library({
   const [shelf, setShelf] = useState<"active" | "archive">(() => localStorage.getItem("spl-preferred-library-shelf") === "archive" ? "archive" : "active");
   const [bookToArchive, setBookToArchive] = useState<PilotBook | null>(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
-  const [bookToDelete, setBookToDelete] = useState<PilotBook | null>(null);
-  const [deleteBusy, setDeleteBusy] = useState(false);
   const [libraryMessage, setLibraryMessage] = useState("");
   const [mobileShelfLayout, setMobileShelfLayout] = useState(() => window.matchMedia("(max-width: 760px)").matches);
   useEffect(() => {
@@ -1983,9 +2003,13 @@ function Library({
     setArchiveBusy(true);
     setLibraryMessage("");
     try {
-      await archivePilotBook(bookToArchive);
+      const archivedBook = await archivePilotBook(bookToArchive);
       setBookToArchive(null);
       onBooksChanged();
+      if (!archivedBook.metadata.original_removed) {
+        setLibraryMessage(rtl ? "حُفظ الأرشيف ومخرجاتك، لكن لم يتأكد حذف PDF الأصلي بعد. يلزم إكمال تحرير المساحة." : "Your archive and outputs are saved, but original PDF removal is not yet confirmed. Storage cleanup still needs to finish.");
+        return;
+      }
       setLibraryMessage(rtl ? "نُقل الكتاب إلى الأرشيف، وحُذف PDF الأصلي لتوفير المساحة، وبقي الغلاف والخلاصة والصوت والأسئلة محفوظة. يمكنك إعادة رفع الملف نفسه لاحقًا بلا سجل مكرر." : "Book archived and the original PDF was removed to save space; cover, summary, audio and questions remain. Re-upload the same file later without creating a duplicate record.");
     } catch (error) {
       setLibraryMessage(error instanceof Error ? error.message : rtl ? "تعذرت أرشفة الكتاب." : "Could not archive the book.");
@@ -2006,23 +2030,6 @@ function Library({
         : raw === "ARCHIVED_ORIGINAL_REUPLOAD_REQUIRED"
           ? (rtl ? "PDF الأصلي غير محفوظ في الأرشيف لتوفير المساحة. أعد رفع الملف نفسه من زر «أضف كتابًا»؛ ستعود هذه البطاقة بلا خصم أو تكرار." : "The original PDF is not kept in the archive. Re-upload the same file through Add a book; this record will return without a duplicate or charge.")
         : raw || (rtl ? "تعذرت استعادة الكتاب." : "Could not restore the book."));
-    }
-  };
-  const confirmPermanentDelete = async () => {
-    if (!bookToDelete) return;
-    setDeleteBusy(true);
-    setLibraryMessage("");
-    try {
-      const result = await deletePilotBook(bookToDelete);
-      setBookToDelete(null);
-      onBooksChanged();
-      setLibraryMessage(result.cleanupWarning
-        ? (rtl ? "حُذف سجل الكتاب نهائيًا، وتعذر تنظيف بعض الملفات التابعة تلقائيًا." : "The book record was permanently deleted, but some generated files could not be cleaned up automatically.")
-        : (rtl ? "حُذف الكتاب وجميع نتائجه نهائيًا." : "The book and all its results were permanently deleted."));
-    } catch (error) {
-      setLibraryMessage(error instanceof Error ? error.message : rtl ? "تعذر حذف الكتاب نهائيًا." : "Could not permanently delete the book.");
-    } finally {
-      setDeleteBusy(false);
     }
   };
   return (
@@ -2116,7 +2123,6 @@ function Library({
                   onOpen={() => onOpenPilot(book)}
                   onArchive={!isBookArchived(book) ? () => setBookToArchive(book) : undefined}
                   onRestore={isBookArchived(book) ? () => restoreBook(book) : undefined}
-                  onDelete={isBookArchived(book) ? () => setBookToDelete(book) : undefined}
                   onClassificationChange={(classification) => changeClassification(book, classification)}
                 />)}
               </div>
@@ -2129,7 +2135,6 @@ function Library({
               onOpen={() => onOpenPilot(book)}
               onArchive={!isBookArchived(book) ? () => setBookToArchive(book) : undefined}
               onRestore={isBookArchived(book) ? () => restoreBook(book) : undefined}
-              onDelete={isBookArchived(book) ? () => setBookToDelete(book) : undefined}
               onClassificationChange={(classification) => changeClassification(book, classification)}
             />)}
           </div>}
@@ -2153,21 +2158,7 @@ function Library({
           </section>
         </div>
       )}
-      {bookToDelete && (
-        <div className="confirm-delete-backdrop" role="presentation" onMouseDown={() => !deleteBusy && setBookToDelete(null)}>
-          <section className="confirm-delete-dialog permanent-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-book-title" onMouseDown={(event) => event.stopPropagation()}>
-            <span className="delete-dialog-icon">⌫</span>
-            <h3 id="delete-book-title">{rtl ? "حذف نهائي لا يمكن التراجع عنه" : "Permanent deletion cannot be undone"}</h3>
-            <p>{rtl
-              ? `سيُحذف «${bookToDelete.title}» نهائيًا مع بطاقة الفهرسة والغلاف والخلاصة والتحليل والصوت والأسئلة. استخدم هذا الخيار فقط إذا لم تعد تريد الاحتفاظ بأي نتيجة.`
-              : `“${bookToDelete.title}” will be permanently deleted with its catalogue card, cover, summaries, analysis, audio and questions. Use this only when you no longer want to keep any result.`}</p>
-            <div>
-              <button className="danger" disabled={deleteBusy} onClick={confirmPermanentDelete}>{deleteBusy ? (rtl ? "جارٍ الحذف…" : "Deleting…") : (rtl ? "نعم، احذف نهائيًا" : "Yes, delete permanently")}</button>
-              <button className="secondary" disabled={deleteBusy} onClick={() => setBookToDelete(null)}>{rtl ? "إلغاء والاحتفاظ بالكتاب" : "Cancel and keep book"}</button>
-            </div>
-          </section>
-        </div>
-      )}
+
     </div>
   );
 }
@@ -4130,6 +4121,8 @@ function Upload({
   setRights2,
   processing,
   percent,
+  stage,
+  error,
   close,
   start,
 }: {
@@ -4145,6 +4138,8 @@ function Upload({
   setRights2: (v: boolean) => void;
   processing: boolean;
   percent: number;
+  stage: BookUploadStage;
+  error: string;
   close: () => void;
   start: () => void;
 }) {
@@ -4163,6 +4158,7 @@ function Upload({
         </span>
         <h2>{t.uploadTitle}</h2>
         <p>{t.uploadSub}</p>
+        {error && !processing && <p role="alert" className="upload-error">{error}</p>}
         {!processing ? (
           <>
             <div className="free-notice">
@@ -4257,19 +4253,18 @@ function Upload({
         ) : (
           <div className="processing">
             <div className="processing-ring">
-              <strong>{percent}%</strong>
+              <strong>{stage === "uploading" ? `${percent}%` : "…"}</strong>
             </div>
             <h3>{rtl ? "نحفظ كتابك بأمان…" : "Saving your book securely…"}</h3>
             <p>
-              {percent < 55
-                ? rtl
-                  ? "رفع الملف إلى مساحتك الخاصة"
-                  : "Uploading to your private storage"
-                : rtl
-                  ? "حفظ الإقرار وبيانات الكتاب"
-                  : "Saving consent and book details"}
+              {{
+                checking: rtl ? "فحص ملف PDF — أبقِ الصفحة مفتوحة" : "Checking PDF — keep this page open",
+                fingerprinting: rtl ? "التحقق من وجود نسخة سابقة من الكتاب" : "Checking for an existing copy",
+                uploading: rtl ? "رفع الملف إلى مساحتك الخاصة — أبقِ الصفحة مفتوحة" : "Uploading to your private storage — keep this page open",
+                saving: rtl ? "تأكيد حفظ الكتاب والإقرار" : "Confirming book and consent storage",
+              }[stage]}
             </p>
-            <Bar value={percent} />
+            {stage === "uploading" && <Bar value={percent} />}
             <small>
               {rtl
                 ? "لا يوجد اتصال بـ OpenAI ولا خصم مالي."
