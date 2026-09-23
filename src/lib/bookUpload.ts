@@ -1,6 +1,6 @@
 import { Upload } from "tus-js-client";
 
-export type BookUploadStage = "checking" | "fingerprinting" | "uploading" | "saving";
+export type BookUploadStage = "session" | "reading" | "hashing" | "inspecting" | "checking" | "fingerprinting" | "uploading" | "saving";
 export type BookUploadProgress = { stage: BookUploadStage; percent: number };
 
 // Only use this for preparation/read operations. Network writes must be aborted,
@@ -82,7 +82,7 @@ export function uploadBookChunks(file: File, options: {
         const status = "originalResponse" in error
           ? (error.originalResponse as { getStatus(): number } | null)?.getStatus() : undefined;
         stop(status === 401 || status === 403 ? "BOOK_UPLOAD_AUTH"
-          : status === 413 ? "FILE_TOO_LARGE_150MB" : "BOOK_UPLOAD_FAILED");
+          : status === 413 ? "BOOK_STORAGE_SIZE_LIMIT" : "BOOK_UPLOAD_FAILED");
       },
       onSuccess: () => {
         if (settled) return;

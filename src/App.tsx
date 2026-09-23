@@ -283,7 +283,7 @@ export default function Home() {
         if (!cancelled) setBrowserCacheReady(true);
         return;
       }
-      if (sessionStorage.getItem("spl-worker-prepared-v0105-upload-3") !== "1") {
+      if (sessionStorage.getItem("spl-worker-prepared-v0105-upload-4") !== "1") {
         const registrations = await navigator.serviceWorker.getRegistrations();
         const cacheNames = "caches" in window ? await caches.keys() : [];
         await Promise.all([
@@ -292,7 +292,7 @@ export default function Home() {
             .filter((name) => name.startsWith("smart-personal-library-"))
             .map((name) => caches.delete(name)),
         ]);
-        sessionStorage.setItem("spl-worker-prepared-v0105-upload-3", "1");
+        sessionStorage.setItem("spl-worker-prepared-v0105-upload-4", "1");
       }
       await navigator.serviceWorker.register("./sw.js");
       if (!cancelled) setBrowserCacheReady(true);
@@ -405,7 +405,7 @@ export default function Home() {
         const names = await caches.keys();
         await Promise.all(names.filter((name) => name.startsWith("smart-personal-library-")).map((name) => caches.delete(name)));
       }
-      sessionStorage.removeItem("spl-worker-prepared-v0105-upload-3");
+      sessionStorage.removeItem("spl-worker-prepared-v0105-upload-4");
       const cleanUrl = new URL(window.location.href);
       cleanUrl.searchParams.set("refresh", Date.now().toString());
       window.location.replace(cleanUrl.toString());
@@ -487,6 +487,10 @@ export default function Home() {
         BOOK_AUTH_TIMEOUT: ["تعذر التحقق من جلسة الدخول. أعد تسجيل الدخول ثم حاول مجددًا.", "Session check timed out. Sign in again and retry."],
         BOOK_LOOKUP_TIMEOUT: ["تعذر التحقق من مكتبتك. حدّث المكتبة قبل إعادة المحاولة.", "Library check timed out. Refresh your library before retrying."],
         BOOK_UPLOAD_STALLED: ["توقف نقل الملف دون تقدم. أُوقفت المحاولة؛ تحقق من الاتصال وحاول مجددًا مع إبقاء الصفحة مفتوحة.", "File transfer stalled and was stopped. Check your connection and retry with this page open."],
+        FILE_READ_TIMEOUT: ["تعذرت قراءة الملف من الجهاز في الوقت المحدد. تأكد أنه محفوظ محليًا وليس قيد التنزيل من iCloud.", "Reading the file timed out. Make sure it is downloaded locally, not waiting on iCloud."],
+        FILE_HASH_TIMEOUT: ["استغرق فحص بصمة الكتاب وقتًا طويلًا. أعد فتح الصفحة وحاول مجددًا.", "Fingerprinting timed out. Reopen the page and try again."],
+        PDF_MODULE_TIMEOUT: ["تعذر تحميل أداة فحص PDF. تحقق من الاتصال ثم أعد المحاولة.", "The PDF inspector could not load. Check your connection and retry."],
+        BOOK_STORAGE_SIZE_LIMIT: ["رفض التخزين حجم الملف رغم أنه ضمن حد المنصة. يلزم التحقق من حد التخزين العام وحد الحاوية؛ لم تُشغّل خدمة مدفوعة.", "Storage rejected the file size despite the app limit. Check the project and bucket size limits; no paid service was started."],
         BOOK_UPLOAD_FAILED: ["تعذر إكمال رفع الملف بعد إعادة المحاولة. تحقق من الاتصال ثم حاول مجددًا.", "Upload failed after retries. Check your connection and try again."],
         BOOK_UPLOAD_AUTH: ["تعذر السماح برفع الملف. أعد تسجيل الدخول؛ إذا تكرر الخطأ يلزم فحص صلاحيات التخزين.", "Upload was not authorized. Sign in again; persistent failures require a storage permission check."],
         BOOK_SAVE_UNCERTAIN: ["انقطع تأكيد الحفظ. حدّث المكتبة أولًا للتحقق من وجود الكتاب قبل إعادة المحاولة.", "Save confirmation was interrupted. Refresh your library to check for the book before retrying."],
@@ -745,7 +749,7 @@ export default function Home() {
           start={startProcessing}
         />
       )}
-      {notice && <div className="toast">✓ {notice}</div>}
+      {notice && <div className="toast">{notice}</div>}
     </div>
   );
 }
@@ -4258,7 +4262,11 @@ function Upload({
             <h3>{rtl ? "نحفظ كتابك بأمان…" : "Saving your book securely…"}</h3>
             <p>
               {{
-                checking: rtl ? "فحص ملف PDF — أبقِ الصفحة مفتوحة" : "Checking PDF — keep this page open",
+                session: rtl ? "التحقق من الحساب" : "Checking account",
+                reading: rtl ? "قراءة الملف من الجهاز" : "Reading file from device",
+                hashing: rtl ? "حساب بصمة الكتاب" : "Computing book fingerprint",
+                inspecting: rtl ? "فحص بيانات PDF — بحد أقصى 25 ثانية" : "Inspecting PDF — up to 25 seconds",
+                checking: rtl ? "التحقق من الكتب الموجودة والسعة" : "Checking existing books and capacity",
                 fingerprinting: rtl ? "التحقق من وجود نسخة سابقة من الكتاب" : "Checking for an existing copy",
                 uploading: rtl ? "رفع الملف إلى مساحتك الخاصة — أبقِ الصفحة مفتوحة" : "Uploading to your private storage — keep this page open",
                 saving: rtl ? "تأكيد حفظ الكتاب والإقرار" : "Confirming book and consent storage",

@@ -1,6 +1,6 @@
 import { ensurePilotSession, supabase } from "./supabase";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { hashFile } from "./textAnalysis";
+import { prepareUpload } from "./uploadPreparation";
 import { boundedRead, uploadBookChunks, type BookUploadProgress } from "./bookUpload";
 import type { LocalStructuralAnalysis, ManualImportPayload, ManualImportSource } from "./textAnalysis";
 
@@ -36,23 +36,6 @@ export const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
 function safeName(name: string) {
   const extension = name.match(/\.([a-z0-9]{1,8})$/i)?.[1]?.toLowerCase() || "pdf";
   return `book.${extension}`;
-}
-
-async function inspectPdfForAcceptance(file: File) {
-  const pdfjs = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-  const url = URL.createObjectURL(file);
-  const task = pdfjs.getDocument({ url, disableFontFace: true });
-  try {
-    const document = await boundedRead(task.promise, "BOOK_PDF_TIMEOUT", 90_000);
-    let info: Record<string, unknown> = {};
-    try { info = ((await boundedRead(document.getMetadata(), "BOOK_PDF_TIMEOUT", 10_000)).info as Record<string, unknown>) ?? {}; } catch { /* optional metadata */ }
-    return { pageCount: document.numPages, info };
-  } finally {
-    // Release the PDF worker and its full document before hashing/transfer.
-    try { await boundedRead(task.destroy(), "BOOK_PDF_TIMEOUT", 5_000); }
-    finally { URL.revokeObjectURL(url); }
-  }
 }
 
 /**
@@ -209,10 +192,16 @@ export type UploadResult = { book: PilotBook; deduped: boolean };
 export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage, onProgress?: (progress: BookUploadProgress) => void): Promise<UploadResult> {
   if (!/\.pdf$/i.test(file.name) || (file.type && file.type !== "application/pdf")) throw new Error("PDF_ONLY");
   if (file.size > MAX_UPLOAD_BYTES) throw new Error("FILE_TOO_LARGE_150MB");
-  onProgress?.({ stage: "checking", percent: 0 });
+  onProgress?.({ stage: "session", percent: 0 });
   const session = await boundedRead(ensurePilotSession(), "BOOK_AUTH_TIMEOUT");
-  const inspection = await inspectPdfForAcceptance(file);
   const hasHash = await boundedRead(checkHashColumnAvailable(), "BOOK_LOOKUP_TIMEOUT");
+  onProgress?.({ stage: "inspecting", percent: 0 });
+  const pdfjs = await boundedRead(import("pdfjs-dist"), "PDF_MODULE_TIMEOUT", 25_000);
+  pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+  const prepared = await prepareUpload(file, (data) => pdfjs.getDocument({ data, disableFontFace: true }),
+    (stage) => onProgress?.({ stage, percent: 0 }));
+  const { inspection } = prepared;
+  onProgress?.({ stage: "checking", percent: 0 });
   const transfer = (storagePath: string, upsert: boolean) => uploadBookChunks(file, {
     baseUrl: (import.meta.env.VITE_SUPABASE_URL as string).trim(),
     storagePath, upsert, onProgress,
@@ -226,13 +215,7 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
   let contentHash: string | null = null;
   if (hasHash) {
     onProgress?.({ stage: "fingerprinting", percent: 0 });
-    try {
-      contentHash = await boundedRead(hashFile(file), "BOOK_HASH_TIMEOUT", 90_000);
-    } catch (error) {
-      // Only an unavailable hashing API permits legacy non-deduplicated upload.
-      // Storage, capacity, and restoration errors must never fall through here.
-      if (crypto.subtle) throw error;
-    }
+    contentHash = prepared.contentHash;
     if (contentHash) {
       const { data: existing, error: lookupError } = await supabase!
         .from("spl_books")
