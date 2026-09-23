@@ -26,7 +26,7 @@ check("professional audio is reused instead of charged twice", /completedParts\.
 check("professional audio reuse is isolated by voice", /eq\("voice", voice\)/.test(edge));
 check("only approved professional voices are accepted", /PROFESSIONAL_VOICES = \["marin", "cedar", "coral", "onyx", "nova", "sage"\]/.test(edge) && /professionalVoice\(body\.voice\)/.test(edge));
 check("speech uses a pinned improved model and one-narrator instructions", /gpt-4o-mini-tts-2025-12-15/.test(edge) && /صوت راوٍ واحد ثابت/.test(edge) && /ممنوع تبديل الشخصية/.test(edge));
-check("new paid audio requires listening to the selected sample through the end", /voice-quality-gate/.test(app) && /heardPreviewVoice !== professionalVoice/.test(app) && /onEnded=\{\(\) => setHeardPreviewVoice\(voice\)\}/.test(app));
+check("audio sample is optional and generation keeps an explicit confirmation", /Listening to a sample is optional/.test(app) && /disabled=\{!results \|\| Boolean\(busy\)\}/.test(app) && /onClick=\{\(\) => setConfirming\("audio"\)\}/.test(app) && /أوافق وأنشئ الصوت/.test(app));
 check("voice samples are short, cached, and never generated automatically", /action === "audio_preview"/.test(edge) && /voice-previews/.test(edge) && /onClick=\{\(\) => previewVoice\(voice\)\}/.test(app));
 check("preview and full audio reject a mismatched returned voice", /VOICE_PREVIEW_MISMATCH/.test(app) && /FULL_AUDIO_VOICE_MISMATCH/.test(app));
 check("audio players stop other samples before playback", /keepOnlyThisAudioPlaying/.test(app) && /onPlay=\{\(event\) => keepOnlyThisAudioPlaying/.test(app));

@@ -3250,17 +3250,18 @@ function PilotWorkspace({
                   <p className="audio-parts-disclosure">{rtl
                     ? `سيُقسّم الملخص إلى ${expectedAudioParts || "عدة"} أجزاء صوتية قصيرة. سيظهر كل جزء بعلامة ✓ فور حفظه، ويمكن استكمال الناقص دون إعادة الأجزاء المحفوظة.`
                     : `The summary will be split into ${expectedAudioParts || "several"} short audio parts. Each part gets a ✓ as soon as it is saved, and missing parts can resume without recreating saved ones.`}</p>
-                  {!audioUrls.length && heardPreviewVoice !== professionalVoice && <p className="voice-quality-gate">{rtl ? "استمع إلى عينة الصوت المختار حتى نهايتها قبل تفعيل الشراء الكامل." : "Listen to the selected voice sample to the end before enabling the full purchase."}</p>}
+                  {!audioUrls.length && heardPreviewVoice !== professionalVoice && <p className="voice-quality-gate">{rtl ? "يمكنك مراجعة التكلفة الآن. الاستماع إلى العينة اختياري، ويبدأ إنشاء الصوت فقط بعد موافقتك." : "You can review the cost now. Listening to a sample is optional; audio generation starts only after your confirmation."}</p>}
                   {confirming !== "audio" ? (
                     <button
                       className="secondary"
-                      disabled={!results || (!audioUrls.length && heardPreviewVoice !== professionalVoice)}
+                      disabled={!results || Boolean(busy)}
                       onClick={() => setConfirming("audio")}
                     >
                       {audioUrls.length > 0 ? (rtl ? "راجع استكمال الصوت الناقص" : "Review missing-audio resume") : (rtl ? "راجع التكلفة" : "Review cost")}
                     </button>
                   ) : (
                     <div className="cost-confirm">
+                      <p>{rtl ? `التكلفة التقديرية للصوت: ${money(estimates.audio)}. لن يبدأ الإنشاء إلا بعد موافقتك.` : `Estimated audio cost: ${money(estimates.audio)}. Generation starts only after your confirmation.`}</p>
                       <strong className="confirm-voice-name">
                         {rtl ? "سيُنشأ الصوت الكامل باستخدام: " : "Full audio will use: "}
                         {voiceLabel(professionalVoice, rtl)}
