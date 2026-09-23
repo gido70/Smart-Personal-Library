@@ -975,8 +975,8 @@ function Dashboard({
         <div>
           <span className="eyebrow">
             {rtl
-              ? "مكتبة تقرأ معك، لا بدلًا عنك"
-              : "A library that reads with you, not for you"}
+              ? "مكتبة ذكية تعيد القراء إلى الكتاب بمفهوم الحداثة"
+              : "A smart library bringing readers back to books through modernity"}
           </span>
           <h2>{t.hello}</h2>
           <p>{t.intro}</p>
