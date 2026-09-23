@@ -30,7 +30,7 @@ export type LibraryAuthor = {
 };
 
 export const MAX_ACTIVE_BOOKS = 6;
-export const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
 
 function safeName(name: string) {
   const extension = name.match(/\.([a-z0-9]{1,8})$/i)?.[1]?.toLowerCase() || "pdf";
@@ -41,7 +41,6 @@ async function inspectPdfForAcceptance(file: File) {
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
   const document = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), disableFontFace: true }).promise;
-  if (document.numPages > 500) throw new Error("TOO_MANY_PAGES_500");
   let info: Record<string, unknown> = {};
   try { info = ((await document.getMetadata()).info as Record<string, unknown>) ?? {}; } catch { /* optional metadata */ }
   return { pageCount: document.numPages, info };
@@ -200,7 +199,7 @@ export type UploadResult = { book: PilotBook; deduped: boolean };
  */
 export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage): Promise<UploadResult> {
   if (!/\.pdf$/i.test(file.name) || (file.type && file.type !== "application/pdf")) throw new Error("PDF_ONLY");
-  if (file.size > MAX_UPLOAD_BYTES) throw new Error("FILE_TOO_LARGE_30MB");
+  if (file.size > MAX_UPLOAD_BYTES) throw new Error("FILE_TOO_LARGE_150MB");
   const inspection = await inspectPdfForAcceptance(file);
   const session = await ensurePilotSession();
   const hasHash = await checkHashColumnAvailable();
@@ -280,7 +279,7 @@ export async function uploadPilotBook(file: File, outputLanguage: OutputLanguage
     output_language: outputLanguage,
     status: "uploaded",
     metadata: {
-      acceptance_profile: "pdf-text-500-pages",
+      acceptance_profile: "pdf-150mb-no-page-limit",
       original_cover: "derived-from-page-1",
       page_count: inspection.pageCount,
       author: typeof inspection.info.Author === "string" ? inspection.info.Author : null,
@@ -569,7 +568,7 @@ export async function downloadBookFile(storagePath: string): Promise<Blob> {
 // Cover thumbnails for ACTIVE books (mobile reliability fix, V0.10.5).
 //
 // Before this, every library render re-downloaded the FULL original PDF
-// (up to MAX_UPLOAD_BYTES = 30MB) for every visible book just to rasterize
+// (up to MAX_UPLOAD_BYTES = 150MB) for every visible book just to rasterize
 // page 1 as a cover, in parallel for every card on screen. That is fine on
 // desktop/iPhone, but on Samsung/Android browsers with tighter per-tab memory
 // budgets it routinely exhausts memory and the tab drops most covers (and, on

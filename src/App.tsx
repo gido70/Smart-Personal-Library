@@ -470,12 +470,10 @@ export default function Home() {
       setRights2(false);
     } catch (error) {
       const raw = error instanceof Error ? error.message : "Unknown error";
-      const friendly = raw === "FILE_TOO_LARGE_30MB"
-        ? (rtl ? "الحد الأقصى 30 ميجابايت. أوقفنا الرفع قبل حفظ الملف أو تشغيل أي خدمة مدفوعة." : "The limit is 30 MB. Upload stopped before saving or starting any paid service.")
+      const friendly = raw === "FILE_TOO_LARGE_150MB"
+        ? (rtl ? "الحد الأقصى 150 ميجابايت للكتاب. أوقفنا الرفع قبل حفظ الملف أو تشغيل أي خدمة مدفوعة." : "The limit is 150 MB per book. Upload stopped before saving or starting any paid service.")
         : raw === "ACTIVE_BOOK_LIMIT_REACHED"
           ? (rtl ? "لديك ستة كتب نشطة. انقل كتابًا إلى الأرشيف أولًا؛ لن يُرفع الملف ولن يُخصم شيء." : "You already have six active books. Archive one first; nothing was uploaded or charged.")
-        : raw === "TOO_MANY_PAGES_500"
-          ? (rtl ? "الحد الأقصى 500 صفحة في نسخة القبول الحالية." : "The current acceptance build supports up to 500 pages.")
         : raw === "PDF_ONLY"
           ? (rtl ? "هذه التجربة تقبل ملف PDF فقط." : "This pilot accepts PDF files only.")
           : raw;
@@ -3808,7 +3806,7 @@ function Idea({ n, title, text }: { n: string; title: string; text: string }) {
 function UserGuide({ rtl, onUpload, onLibrary, onActivate, activating }: { rtl: boolean; onUpload: () => void; onLibrary: () => void; onActivate: () => void; activating: boolean }) {
   const topics = rtl ? [
     ["1. إضافة الكتاب", "اختر PDF وحدد لغة المخرجات وأقر بحق الاستخدام. الرفع وحده لا يشغّل خدمة مدفوعة."],
-    ["2. حدود الملف قبل الرفع", "تقبل النسخة حتى 30 ميجابايت و500 صفحة. يُفحص الشرطان قبل الحفظ، ورسالة الرفض تؤكد عدم تشغيل OpenAI وعدم الخصم."],
+    ["2. حد الملف قبل الرفع", "تقبل النسخة كتاب PDF حتى 150 ميجابايت دون تقييد بعدد الصفحات. يُفحص الحجم قبل الحفظ، ورسالة الرفض تؤكد عدم تشغيل OpenAI وعدم الخصم."],
     ["3. الكتب الستة والأرشيف", "يظهر في الرف النشط ستة كتب أصلية. قبل السابع انقل كتابًا إلى الأرشيف؛ يُحذف PDF لتوفير المساحة وتبقى البطاقة والغلاف والخلاصات والتحليل والصوت والأسئلة. أعد رفع الملف نفسه لاحقًا لاستعادته بلا تكرار."],
     ["4. التصنيفات", "تظهر عشر بوابات ديوي وبوابة للموضوعات الحديثة. اضغط البوابة لترى تفريعاتها؛ ويمكن للكتاب أن يحمل تصنيف ديوي وموضوعًا حديثًا دون نسخة مكررة."],
     ["5. حالة كل كتاب", "بانتظار التحليل، جارٍ التحليل، تم التحليل، أو تعذر التحليل. لا تتساوى بطاقة الكتاب المحلل مع الكتاب الذي ينتظر."],
@@ -3824,7 +3822,7 @@ function UserGuide({ rtl, onUpload, onLibrary, onActivate, activating }: { rtl: 
     ["15. تنشيط أحدث نسخة", "إذا بقي الهاتف أو الكمبيوتر على نسخة قديمة، اضغط تنشيط النسخة؛ تُمسح ذاكرة المنصة القديمة وتُفتح أحدث نسخة تلقائيًا."],
   ] : [
     ["1. Add a book", "Choose a PDF, output language, and lawful-use confirmation. Uploading does not start paid AI."],
-    ["2. File limits", "Up to 30 MB and 500 pages; both are checked before storage and paid AI."],
+    ["2. File limit", "A PDF book can be up to 150 MB with no page-count limit. Size is checked before storage and paid AI."],
     ["3. Six books and archive", "Six originals stay active. Archiving removes the PDF to save space while keeping the card, cover and paid outputs. Re-upload the same file later to restore it without duplication."],
     ["4. Classification", "Ten Dewey gateways plus one modern-topics gateway; subdivisions appear only after selection."],
     ["5. Book status", "Awaiting, processing, complete, or failed are clearly distinguished."],
@@ -4190,8 +4188,8 @@ function Upload({
               <strong>{file?.name || t.choose}</strong>
               <span>
                 {rtl
-                  ? "حد أقصى 30 ميجابايت و500 صفحة؛ يُفحص الشرطان قبل الحفظ ولا يبدأ أي خصم"
-                  : "30 MB and 500 pages maximum; both are checked before saving and no charge starts"}
+                  ? "حد أقصى 150 ميجابايت للكتاب دون تقييد بعدد الصفحات؛ يُفحص الحجم قبل الحفظ ولا يبدأ أي خصم"
+                  : "150 MB maximum per book with no page-count limit; size is checked before saving and no charge starts"}
               </span>
             </label>
             <label className="select-label output-language">
