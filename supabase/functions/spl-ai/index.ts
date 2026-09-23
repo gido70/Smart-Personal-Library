@@ -1,3 +1,4 @@
+import { DIRECT_PDF_MAX_BYTES, validateSource, TEXT_SOURCE_NOTICE } from "./analysisSource.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -59,6 +60,14 @@ const splitTextForSpeech = (text: string, limit = TTS_CHUNK_MAX_CHARACTERS) => {
   }
   if (current) chunks.push(current);
   return chunks;
+};
+const splitLegacySpeech = (text: string) => {
+  const chunks: string[] = []; let current = "";
+  for (const sentence of text.split(/(?<=[.!؟?])\s+/u)) {
+    if(current && current.length + sentence.length > 3400) {chunks.push(current);current="";}
+    current += `${current ? " " : ""}${sentence}`;
+  }
+  if(current) chunks.push(current); return chunks;
 };
 const PROFESSIONAL_VOICES = ["marin", "cedar", "coral", "onyx", "nova", "sage"] as const;
 type ProfessionalVoice = typeof PROFESSIONAL_VOICES[number];
@@ -249,7 +258,8 @@ Deno.serve(async (request) => {
       if (new Set((dailyAnalyses ?? []).map(item => item.book_id)).size >= 3) return await finish({ error: "DAILY_ANALYSIS_LIMIT_REACHED", limit: 3 }, 429);
       await supabase.from("spl_books").update({ status: "processing", processing_error: null }).eq("id", bookId);
       let openaiFileId = book.openai_file_id as string | null;
-      if (!openaiFileId) {
+      const textSource = Number(book.file_size) > DIRECT_PDF_MAX_BYTES ? validateSource({sourceText: body.sourceText, sourcePages: body.sourcePages, textPages: body.textPages}, Number(book.metadata?.page_count) || undefined) : null;
+      if (!textSource && !openaiFileId) {
         const { data: file, error: downloadError } = await supabase.storage.from("spl-books").download(book.storage_path);
         if (downloadError || !file) throw downloadError ?? new Error("BOOK_DOWNLOAD_FAILED");
         const form = new FormData();
@@ -269,7 +279,7 @@ Deno.serve(async (request) => {
         body: JSON.stringify({
           model,
           max_output_tokens: 12_000,
-          input: [{ role: "user", content: [{ type: "input_file", file_id: openaiFileId, detail: "low" }, { type: "input_text", text: prompt }] }],
+          input: [{ role: "user", content: [...(textSource ? [{ type: "input_text", text: TEXT_SOURCE_NOTICE + "\n\n" + textSource.sourceText }] : [{ type: "input_file", file_id: openaiFileId, detail: "low" }]), { type: "input_text", text: prompt }] }],
           text: { format: bookAnalysisFormat },
         }),
       });
@@ -299,7 +309,11 @@ Deno.serve(async (request) => {
       const question = String(body.question ?? "").trim();
       const language = body.language === "en" ? "en" : "ar";
       if (!question) return await finish({ error: "QUESTION_REQUIRED" }, 400);
-      if (!book.openai_file_id) return await finish({ error: "BOOK_NOT_PROCESSED" }, 409);
+      const textSource = Number(book.file_size) > DIRECT_PDF_MAX_BYTES ? validateSource({sourceText: body.sourceText, sourcePages: body.sourcePages, textPages: body.textPages}, Number(book.metadata?.page_count) || undefined) : null;
+      if (textSource) {
+        const { data: analysed } = await supabase.from("spl_analyses").select("id").eq("book_id",bookId).eq("kind","overview").limit(1).maybeSingle();
+        if (!analysed) return await finish({ error: "BOOK_NOT_PROCESSED" }, 409);
+      } else if (!book.openai_file_id) return await finish({ error: "BOOK_NOT_PROCESSED" }, 409);
       const dayStart = new Date();dayStart.setUTCHours(0,0,0,0);
       const { count: totalQuestions } = await supabase.from("spl_questions").select("id", { count: "exact", head: true }).eq("user_id", userData.user.id);
       if ((totalQuestions ?? 0) >= PILOT_QUESTION_LIMIT) return await finish({ error: "PILOT_QUESTION_LIMIT_REACHED", limit: PILOT_QUESTION_LIMIT }, 429);
@@ -310,7 +324,7 @@ Deno.serve(async (request) => {
       const generated = await openAI("responses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model, max_output_tokens: 2_500, input: [{ role: "user", content: [{ type: "input_file", file_id: book.openai_file_id, detail: "low" }, { type: "input_text", text: prompt }] }], text: { format: bookAnswerFormat } }),
+        body: JSON.stringify({ model, max_output_tokens: 2_500, input: [{ role: "user", content: [...(textSource ? [{ type: "input_text", text: TEXT_SOURCE_NOTICE + "\n\n" + textSource.sourceText }] : [{ type: "input_file", file_id: book.openai_file_id, detail: "low" }]), { type: "input_text", text: prompt }] }], text: { format: bookAnswerFormat } }),
       });
       const response = await generated.json();
       const outputText = response.output?.flatMap((item: { content?: Array<{ text?: string }> }) => item.content ?? []).map((item: { text?: string }) => item.text ?? "").join("") ?? "";
@@ -355,10 +369,12 @@ Deno.serve(async (request) => {
       const instructions = language === "ar"
         ? "اقرأ بصوت راوٍ واحد ثابت في كل الأجزاء من البداية إلى النهاية. ممنوع تبديل الشخصية أو الجنس أو طبقة الصوت أو اللهجة، وممنوع تمثيل الاقتباسات أو الحوارات بأصوات أخرى. استخدم عربية فصحى واضحة، ونبرة كتاب صوتي هادئة وحيوية باعتدال، مع وقفات طبيعية وسرعة مريحة. انطق الكلمات الإنجليزية داخل النص بوضوح دون تغيير هوية الراوي. هذه خلاصة كتاب وليست قراءة حرفية للكتاب."
         : "Read like a calm, warm audiobook narrator at a slightly slower pace, without theatrical exaggeration, using natural pauses and clear English pronunciation. Pronounce any Arabic words carefully. This is a book summary, not a verbatim audiobook.";
-      const chunks = splitTextForSpeech(spoken);
-      const totalParts = Math.min(chunks.length, 8);
       const { data: existingAudio, error: existingAudioError } = await supabase.from("spl_audio_outputs").select("id,language,voice,storage_path,part_no,created_at").eq("book_id", bookId).eq("language", language).eq("voice", voice).order("part_no");
       if (existingAudioError) throw existingAudioError;
+      // Existing paid recordings keep their original boundaries on resume.
+      const legacyAudio = (existingAudio ?? []).some(row => !row.storage_path.includes('-v2-part-'));
+      const chunks = legacyAudio ? splitLegacySpeech(spoken) : splitTextForSpeech(spoken);
+      const totalParts = Math.min(chunks.length, 8);
       const rows = (existingAudio ?? []).filter((row) => row.part_no >= 1 && row.part_no <= totalParts);
       const completedParts = new Set(rows.map((row) => row.part_no));
       requestProgress = { pending: completedParts.size < totalParts, completedParts: completedParts.size, totalParts, resumed: completedParts.size > 0, voice, model: TTS_MODEL };
@@ -375,7 +391,8 @@ Deno.serve(async (request) => {
         if (completedParts.has(partNo)) continue;
         // Deterministic storage paths let a retry recover an uploaded part even
         // if the database write was the step that failed.
-        const path = `${userData.user.id}/${bookId}/${language}-${voice}-part-${partNo}.mp3`;
+        const path = `${userData.user.id}/${bookId}/${language}-${voice}${legacyAudio ? '' : '-v2'}-part-${partNo}.mp3`;
+        if (chunks[index].length > 4096) throw new Error("LEGACY_AUDIO_CHUNK_TOO_LONG");
         const { data: storedPart } = await supabase.storage.from("spl-audio").download(path);
         if (!storedPart) {
           const audioResponse = await openAI("audio/speech", {
