@@ -1,0 +1,6 @@
+.continuous-audio{display:grid;gap:12px;padding:18px;margin:16px 0;border:1px solid var(--line);border-radius:16px;background:var(--card2);color:var(--ink);min-width:0}
+.continuous-audio strong{font-size:20px;color:var(--green)}
+.continuous-audio p{margin:0;font-size:14px;line-height:1.7}
+.continuous-audio button{min-height:48px;width:100%}
+.continuous-audio audio{display:block;width:100%;min-width:0}
+.continuous-audio span{text-align:center}
