@@ -1,3 +1,4 @@
+import ContinuousAudio from "./ContinuousAudio";
 import "./welcome.css";
 import { loadOriginalCover } from "./lib/bookCovers";
 import { suggestClassification } from "./lib/autoCatalogue";
@@ -3201,6 +3202,7 @@ function PilotWorkspace({
               )}
             </section>
             <section className="panel" id="professional-voice-panel">
+              {audioUrls.length > 1 && <ContinuousAudio key={`${book.id}-${resultLanguage}-${professionalVoice}`} urls={audioUrls} rtl={rtl} />}
               {audioIsComplete ? (
                 <>
                   <span className="eyebrow">{rtl ? "محفوظ وجاهز للاستماع" : "Saved and ready to play"}</span>
