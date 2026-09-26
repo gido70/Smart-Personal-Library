@@ -1,4 +1,5 @@
 import type { PilotBook } from "./library";
+import { readReportCover } from "./reportCover";
 
 type ReportSection = { heading: string; body: string };
 type ExportQuestion = { question: string; answer: Record<string, unknown> };
@@ -100,13 +101,40 @@ function makeImagePdf(images: Uint8Array[], pixelWidth: number, pixelHeight: num
   return new Blob(blobParts,{type:"application/pdf"});
 }
 
-export async function downloadPdfReport(book: PilotBook, result: Record<string, unknown>, rtl: boolean, questions: ExportQuestion[] = []) {
+async function decodeReportCover(blob: Blob): Promise<HTMLImageElement> {
+  const url = URL.createObjectURL(blob);
+  try {
+    return await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      const timer = window.setTimeout(() => { image.src = ""; reject(new Error("COVER_DECODE_TIMEOUT")); }, 8000);
+      image.onload = () => { window.clearTimeout(timer); resolve(image); };
+      image.onerror = () => { window.clearTimeout(timer); reject(new Error("COVER_DECODE_FAILED")); };
+      image.src = url;
+    });
+  } finally { URL.revokeObjectURL(url); }
+}
+
+export async function buildPdfReport(book: PilotBook, result: Record<string, unknown>, rtl: boolean, questions: ExportQuestion[] = [], cover: Blob | null = null): Promise<Blob> {
   const W=1240,H=1754,margin=92,maxWidth=W-margin*2;
   const pages: HTMLCanvasElement[]=[]; const contentPages=new WeakSet<HTMLCanvasElement>(); let canvas!:HTMLCanvasElement; let ctx!:CanvasRenderingContext2D; let y=0;
   const newPage=()=>{ canvas=document.createElement("canvas"); canvas.width=W; canvas.height=H; ctx=canvas.getContext("2d")!; ctx.fillStyle="#fffdf8"; ctx.fillRect(0,0,W,H); ctx.direction=rtl?"rtl":"ltr"; ctx.textAlign=rtl?"right":"left"; y=110; pages.push(canvas); };
   const x=rtl?W-margin:margin;
   const ensure=(height:number)=>{ if(y+height>H-120)newPage(); };
   const write=(text:string,size:number,color:string,bold=false,lineHeight=size*1.7)=>{ if(!text.trim())return; const font=`${bold?"700":"400"} ${size}px Arial`; ctx.font=font; ctx.fillStyle=color; const lines=wrapCanvasText(ctx,text,maxWidth); for(const line of lines){ if(!line){ if(y+lineHeight<=H-120)y+=lineHeight; continue; } ensure(lineHeight); /* newPage() replaces the context, so restore text styles after every page break. */ ctx.font=font; ctx.fillStyle=color; ctx.direction=rtl?"rtl":"ltr"; ctx.textAlign=rtl?"right":"left"; ctx.fillText(line,x,y,maxWidth); contentPages.add(canvas); y+=lineHeight; } };
+  if (cover) {
+    let image: HTMLImageElement | null = null;
+    try { image = await decodeReportCover(cover); } catch { /* Keep the existing text export usable. */ }
+    if (image?.naturalWidth && image.naturalHeight) {
+      newPage();
+      const scale = Math.min(maxWidth / image.naturalWidth, 1340 / image.naturalHeight);
+      const width = image.naturalWidth * scale, height = image.naturalHeight * scale;
+      ctx.drawImage(image, (W-width)/2, 90+(1340-height)/2, width, height);
+      contentPages.add(canvas);
+      y=1515;
+      write(rtl ? "ملخص وتحليل الكتاب" : "Book summary and analysis", 32, "#124e3b", true, 52);
+      write(rtl ? "مخرجات مساعدة — وليست نسخة الكتاب الأصلية" : "Supporting outputs — not the original book", 23, "#5c6964", false, 38);
+    }
+  }
   newPage(); ctx.fillStyle="#124e3b"; ctx.fillRect(0,0,W,235); ctx.fillStyle="#f4d79b"; ctx.font="700 32px Arial"; ctx.fillText(rtl?"المكتبة الشخصية الذكية":"Smart Personal Library",x,85,maxWidth); ctx.fillStyle="#ffffff"; ctx.font="700 50px Arial"; ctx.fillText(book.title,x,165,maxWidth); contentPages.add(canvas); y=300;
   const resultMetadata = ((result.overview ?? {}) as Record<string, unknown>).metadata as Record<string, unknown> | undefined;
   write(`${rtl?"المؤلف":"Author"}: ${asText(book.metadata?.author ?? resultMetadata?.author)||(rtl?"غير محدد":"Not specified")}`,28,"#5c6964",false);
@@ -114,7 +142,13 @@ export async function downloadPdfReport(book: PilotBook, result: Record<string, 
   const renderedPages=pages.filter((page)=>contentPages.has(page));
   renderedPages.forEach((page,index)=>{ const c=page.getContext("2d")!; c.direction=rtl?"rtl":"ltr"; c.textAlign=rtl?"right":"left"; c.font="22px Arial"; c.fillStyle="#7b847f"; c.fillText(rtl?`الصفحة ${index+1} من ${renderedPages.length}`:`Page ${index+1} of ${renderedPages.length}`,rtl?W-margin:margin,H-55,maxWidth); });
   const images=await Promise.all(renderedPages.map(canvasToJpeg));
-  downloadBlob(makeImagePdf(images,W,H),`${safeFileName(book.title)}-المخرجات.pdf`);
+  return makeImagePdf(images,W,H);
+}
+
+export async function downloadPdfReport(book: PilotBook, result: Record<string, unknown>, rtl: boolean, questions: ExportQuestion[] = []) {
+  const { downloadBookFile } = await import('./library');
+  const cover = await readReportCover(book, downloadBookFile);
+  downloadBlob(await buildPdfReport(book, result, rtl, questions, cover), `${safeFileName(book.title)}-المخرجات.pdf`);
 }
 
 export async function downloadSavedAudio(url: string, bookTitle: string, index: number) {

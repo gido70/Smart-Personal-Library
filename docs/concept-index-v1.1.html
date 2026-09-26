@@ -989,6 +989,7 @@ function applyEnglish(){
 }
 const queryLang=new URLSearchParams(location.search).get('lang');if(queryLang==='ar'||queryLang==='en')localStorage.setItem('smart-library-language',queryLang);const activeLang=queryLang||localStorage.getItem('smart-library-language')||'ar';if(activeLang==='en')applyEnglish();document.querySelector('#sources .content').insertAdjacentHTML('afterbegin',activeLang==='en'?"<div class='callout'><strong>User-experience rule:</strong> every external source opens in a separate browser tab, so the platform remains open and the reader does not lose their place.</div>":"<div class='callout'><strong>قاعدة تجربة المستخدم:</strong> يفتح كل مصدر أو رابط خارجي في تبويب مستقل، لتبقى المنصة مفتوحة ولا يفقد القارئ موضعه.</div>");document.getElementById('language').onclick=()=>{localStorage.setItem('smart-library-language',activeLang==='en'?'ar':'en');location.reload()};
 </script>
+<section dir="rtl" style="text-align:right;padding:24px"><h2>غلاف الملخص المُنزّل — 26 سبتمبر 2026</h2><p>تصدير PDF يضيف غلاف الكتاب المحفوظ في صفحة افتتاحية تحمل وصف «ملخص وتحليل الكتاب»، مع الحفاظ على نسب الصورة والنص العربي والأسئلة. يستخدم الصور المحفوظة فقط دون تنزيل أصل PDF أو تعديل آلية أغلفة الرف أو الصوت أو الأرشيف. تعذّر الغلاف لا يمنع تصدير النص.</p></section>
 <script>
 const sections=[...document.querySelectorAll('.section')],search=document.getElementById('search'),noResults=document.getElementById('noResults');
 function filter(){
