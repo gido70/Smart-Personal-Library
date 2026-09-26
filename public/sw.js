@@ -1,37 +1,22 @@
-// Cache revision: force every installed app to discard the pre-PDF-fix bundle.
-const CACHE_NAME = "smart-personal-library-v0.10.5-cover-fast-7";
-const APP_SHELL = ["./", "./manifest.webmanifest", "./favicon.svg"];
-
-self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
+// App shell only: private audio lives in account-isolated IndexedDB.
+importScripts('./offline-assets.js');
+const CACHE_NAME = 'spl-shell-offline-' + self.SPL_REV;
+const ROOT = new URL('./', self.registration.scope).href;
+self.addEventListener('install', event => {
+  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll([ROOT, new URL('./manifest.webmanifest',ROOT).href, new URL('./favicon.svg',ROOT).href, ...self.SPL_ASSETS.map(path=>new URL(path,ROOT).href)])).then(()=>self.skipWaiting()));
 });
-
-self.addEventListener("activate", (event) => {
-  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
+self.addEventListener('activate', event => {
+  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key => (key.startsWith('spl-shell-offline-') || key.startsWith('smart-personal-library-')) && key!==CACHE_NAME).map(key=>caches.delete(key)))).then(()=>self.clients.claim()));
 });
-
-self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
-  // Never intercept or cache Supabase/API responses. Library data must always
-  // come from the authenticated network request, not an old browser snapshot.
-  const requestUrl = new URL(event.request.url);
-  if (requestUrl.origin !== self.location.origin) return;
-  if (event.request.mode === "navigate") {
-    event.respondWith(fetch(event.request, { cache: "no-store" }).then((response) => {
-      const copy = response.clone();
-      caches.open(CACHE_NAME).then((cache) => cache.put("./", copy));
-      return response;
-    }).catch(() => caches.match("./")));
-    return;
+self.addEventListener('fetch', event => {
+  if(event.request.method!=='GET')return;
+  const url=new URL(event.request.url);
+  if(url.origin!==self.location.origin)return;
+  if(event.request.mode==='navigate') {
+    event.respondWith(fetch(event.request).catch(()=>caches.open(CACHE_NAME).then(cache=>cache.match(ROOT))));return;
   }
-  // Network-first prevents phones and installed PWAs from remaining on an old
-  // JavaScript/CSS build after a deployment. The cache is only an offline fallback.
-  event.respondWith(fetch(event.request, { cache: "no-store" }).then((response) => {
-      if (!response || (response.status !== 200 && response.type !== "opaque")) return response;
-      const copy = response.clone();
-      caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-      return response;
-    }).catch(() => caches.match(event.request).then((cached) => cached || caches.match("./"))));
+  if(!self.SPL_ASSETS.some(path=>new URL(path,ROOT).href===url.href))return;
+  event.respondWith(caches.open(CACHE_NAME).then(async cache=>(await cache.match(event.request)) || fetch(event.request)));
 });
 
 self.addEventListener("push", (event) => {

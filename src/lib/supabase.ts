@@ -97,6 +97,7 @@ export async function sendExistingAccountMagicLink(email: string) {
 }
 
 export async function signOutLibraryAccount() {
+  localStorage.removeItem("spl-offline-owner");
   if (!supabase) throw new Error("SUPABASE_NOT_CONFIGURED");
   const { error } = await supabase.auth.signOut();
   if (error) throw error;

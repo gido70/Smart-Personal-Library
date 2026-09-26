@@ -1,0 +1,38 @@
+import 'fake-indexeddb/auto';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import ts from 'typescript';
+function load(path,deps={}) {const out={exports:{}};const js=ts.transpileModule(fs.readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;new Function('require','module','exports',js)(id=>{if(!(id in deps))throw Error(id);return deps[id];},out,out.exports);return out.exports;}
+const store=load('src/lib/offlineAudioStore.ts');
+const owner='user-a',key=store.audioKey(owner,'book','ar','onyx');
+const base={owner,key,bookId:'book',title:'كتاب',author:'مؤلف',voice:'onyx',language:'ar',parts:[1,2,3].map(n=>({id:String(n),number:n,path:`${owner}/book/${n}.mp3`,version:'v1',blob:new Blob(['audio'+n],{type:'audio/mpeg'})}))};
+await store.saveLocalBook(base);
+assert.equal((await store.listLocalBooks(owner)).length,1);
+assert.equal((await store.listLocalBooks('user-b')).length,0);
+assert.equal(await store.getLocalBook('user-b',key),undefined);
+await store.deleteLocalBook('user-b',key);assert.ok(await store.getLocalBook(owner,key));
+await assert.rejects(store.saveLocalBook({...base,parts:[{...base.parts[0],blob:undefined}]}));
+assert.ok(store.complete(await store.getLocalBook(owner,key)),'failed replacement preserves complete copy');
+await store.saveTrip({owner,keys:[key],current:key});assert.equal((await store.getTrip(owner)).current,key);
+await assert.rejects(store.saveTrip({owner,keys:['user-b/book/ar/onyx']}));
+await store.savePosition({owner,key,part:1,seconds:42,updatedAt:new Date().toISOString(),dirty:true});assert.equal((await store.positions(owner))[0].seconds,42);
+let downloads=0,version='v2',fail=false;
+const supabase={storage:{from:()=>({info:async(path)=>({data:{id:path,lastModified:version,size:10,etag:version}}),download:async()=>({data:new Blob(['cover'])})})}};
+Object.defineProperty(globalThis,'navigator',{configurable:true,value:{storage:{estimate:async()=>({quota:100000,usage:0}),persist:async()=>true}}});
+globalThis.fetch=async()=>{downloads++;if(fail)throw Error('offline');return {ok:true,blob:async()=>new Blob(['audio data'],{type:'audio/mpeg'})};};
+const api=load('src/lib/offlineAudio.ts',{'./supabase':{supabase,ensurePilotSession:async()=>({user:{id:owner}})},'./library':{getPrivateAudioUrl:async p=>p},'./offlineAudioStore':store});
+await api.prepareOffline(base,undefined,()=>{});assert.equal(downloads,3);
+await api.prepareOffline(base,undefined,()=>{});assert.equal(downloads,3,'complete unchanged audio is never fetched twice');
+version='v3';fail=true;await assert.rejects(api.prepareOffline(base,undefined,()=>{}));
+assert.equal((await store.getLocalBook(owner,key)).parts[0].version.includes('v2'),true,'failed update retains old playable copy');
+const checked=await api.checkVersion(base);assert.equal(store.sameAudio(await store.getLocalBook(owner,key),checked),false);
+await store.deleteLocalBook(owner,key);assert.equal((await store.listLocalBooks(owner)).length,0);
+assert.ok((await store.positions(owner)).length,'local copy deletion keeps listening position');
+assert.ok(!fs.readFileSync('src/lib/offlineAudio.ts','utf8').includes('.remove('),'no cloud deletion API');
+console.log('Offline audio: account isolation, atomic copies, queue/position persistence, deduplication, update detection and safe local deletion passed.');
+
+assert.deepEqual(store.nextTrack({key,part:0},[base],[key]),{key,part:1});
+const second={...base,key:owner+'/second/ar/onyx'};
+assert.deepEqual(store.nextTrack({key,part:2},[base,second],[key,second.key]),{key:second.key,part:0});
+assert.equal(store.nextTrack({key:second.key,part:2},[base,second],[key,second.key]),null);
+console.log('Trip sequencing: part transitions, next book and final stop passed.');
