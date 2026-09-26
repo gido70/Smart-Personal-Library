@@ -1,4 +1,6 @@
--- PROPOSAL ONLY: not applied. Dedicated listening positions; no changes to existing tables.
+-- Applied 2026-09-26 via migration spl_offline_listening_positions after user approval.
+-- Follow-up: spl_listening_permanent_accounts excludes anonymous sign-ins.
+-- Dedicated listening positions; no changes to existing tables.
 begin;
 create table public.spl_listening_positions (
  user_id uuid not null references auth.users(id) on delete cascade,
@@ -11,7 +13,8 @@ create table public.spl_listening_positions (
 );
 alter table public.spl_listening_positions enable row level security;
 create policy listening_owner on public.spl_listening_positions for all to authenticated
- using((select auth.uid())=user_id) with check((select auth.uid())=user_id);
+ using((select auth.uid())=user_id and ((select auth.jwt())->>'is_anonymous')::boolean is false)
+ with check((select auth.uid())=user_id and ((select auth.jwt())->>'is_anonymous')::boolean is false);
 revoke all on public.spl_listening_positions from anon;
 grant select,insert,update,delete on public.spl_listening_positions to authenticated;
 create function public.spl_sync_listening_position(p_audio_key text,p_part integer,p_seconds double precision,p_updated_at timestamptz)
