@@ -14,7 +14,10 @@ export default defineConfig({
   base: "./",
   plugins: [react(), {
     name: "project-concept-index",
-    generateBundle() {
+    generateBundle(_options, bundle) {
+      const assets = Object.keys(bundle).filter(name => /\.(js|css)$/.test(name));
+      const revision = assets.join("|").split("").reduce((hash, char) => ((hash << 5) - hash + char.charCodeAt(0)) | 0, 0).toString(16);
+      this.emitFile({ type: "asset", fileName: "offline-assets.js", source: `self.SPL_ASSETS=${JSON.stringify(assets)};self.SPL_REV=${JSON.stringify(revision)};` });
       this.emitFile({ type: "asset", fileName: "concept-index.html", source: readFileSync(new URL("./docs/concept-index-v1.1.html", import.meta.url), "utf8") });
     },
   }],

@@ -1,3 +1,4 @@
+import OfflineListening from "./OfflineListening";
 import ContinuousAudio from "./ContinuousAudio";
 import "./welcome.css";
 import { loadOriginalCover } from "./lib/bookCovers";
@@ -103,6 +104,7 @@ const audioPartCount = (results: Record<string, unknown> | null) => {
   return Math.min(splitTextForSpeech(spoken).length, 8);
 };
 type View =
+  | "offline"
   | "home"
   | "library"
   | "indexes"
@@ -224,7 +226,10 @@ function describeReminderError(error: unknown, rtl: boolean) {
 export default function Home() {
   const [lang, setLang] = useState<Lang>("ar");
   const [dark, setDark] = useState(false);
-  const [view, setView] = useState<View>("home");
+  const [view, setView] = useState<View>(navigator.onLine ? "home" : "offline");
+  const [offlineOwner, setOfflineOwner] = useState(localStorage.getItem("spl-offline-owner") ?? "");
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  useEffect(() => { const update = () => setIsOnline(navigator.onLine); window.addEventListener("online", update); window.addEventListener("offline", update); return () => { window.removeEventListener("online", update); window.removeEventListener("offline", update); }; }, []);
   const [upload, setUpload] = useState(false);
   const [rights1, setRights1] = useState(false);
   const [rights2, setRights2] = useState(false);
@@ -269,13 +274,14 @@ export default function Home() {
       const permanent = Boolean(session && !(session.user as { is_anonymous?: boolean }).is_anonymous);
       setAuthState(permanent ? "authenticated" : "signed_out");
       setAccountEmail(permanent ? session?.user.email ?? "" : "");
+      if (permanent && session) { localStorage.setItem("spl-offline-owner", session.user.id); setOfflineOwner(session.user.id); }
       if (!permanent) {
         setPilotBooks([]);
         setLibraryStats({ analysedBooks: 0, questions: 0, audioParts: 0 });
       }
     };
     client.auth.getSession().then(({ data }) => applySession(data.session));
-    const { data } = client.auth.onAuthStateChange((_event, session) => applySession(session));
+    const { data } = client.auth.onAuthStateChange((event, session) => { if (event === "SIGNED_OUT" && navigator.onLine) { localStorage.removeItem("spl-offline-owner"); setOfflineOwner(""); } applySession(session); });
     return () => data.subscription.unsubscribe();
   }, []);
   useEffect(() => {
@@ -284,17 +290,6 @@ export default function Home() {
       if (!("serviceWorker" in navigator)) {
         if (!cancelled) setBrowserCacheReady(true);
         return;
-      }
-      if (sessionStorage.getItem("spl-worker-prepared-v0105-cover-7") !== "1") {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        const cacheNames = "caches" in window ? await caches.keys() : [];
-        await Promise.all([
-          ...registrations.map((registration) => registration.unregister()),
-          ...cacheNames
-            .filter((name) => name.startsWith("smart-personal-library-"))
-            .map((name) => caches.delete(name)),
-        ]);
-        sessionStorage.setItem("spl-worker-prepared-v0105-cover-7", "1");
       }
       await navigator.serviceWorker.register("./sw.js");
       if (!cancelled) setBrowserCacheReady(true);
@@ -404,15 +399,10 @@ export default function Home() {
     setActivating(true);
     setNotice(rtl ? "جارٍ تنشيط أحدث نسخة…" : "Activating the latest version…");
     try {
-      if ("serviceWorker" in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(registrations.map((registration) => registration.unregister()));
+      if (navigator.onLine && "serviceWorker" in navigator) {
+        const registration = await navigator.serviceWorker.getRegistration();
+        await registration?.update();
       }
-      if ("caches" in window) {
-        const names = await caches.keys();
-        await Promise.all(names.filter((name) => name.startsWith("smart-personal-library-")).map((name) => caches.delete(name)));
-      }
-      sessionStorage.removeItem("spl-worker-prepared-v0105-cover-7");
       const cleanUrl = new URL(window.location.href);
       cleanUrl.searchParams.set("refresh", Date.now().toString());
       window.location.replace(cleanUrl.toString());
@@ -542,6 +532,7 @@ export default function Home() {
       setView(id as View);
     }
   };
+  if (authState !== "authenticated" && !isOnline && offlineOwner) return <div className={dark ? "app dark" : "app"} dir={rtl ? "rtl" : "ltr"}><main><OfflineListening key={offlineOwner} owner={offlineOwner} books={[]} rtl={rtl} /></main></div>;
   if (authState !== "authenticated") {
     return (
       <LibraryLogin
@@ -661,6 +652,8 @@ export default function Home() {
             onOpenPilot={(book) => { setActivePilotBook(book); setView("pilot"); }}
           />
         )}
+        <button className="secondary" onClick={() => setView("offline")}>{rtl ? "🎧 الاستماع دون إنترنت" : "🎧 Offline listening"}</button>
+        {view === "offline" && offlineOwner && <OfflineListening key={offlineOwner} owner={offlineOwner} books={pilotBooks} rtl={rtl} />}
         {view === "library" && (
           <Library
             rtl={rtl}
