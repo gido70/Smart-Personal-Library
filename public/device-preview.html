@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>معاينة الأجهزة — المكتبة الشخصية الذكية</title>
+<style>
+:root{color-scheme:light;--bg:#f8f5ed;--panel:#fffdf8;--ink:#123f33;--line:#d8cbae;--gold:#926a21}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:Tahoma,Arial,sans-serif}header{padding:18px 24px;background:var(--panel);border-bottom:1px solid var(--line)}.heading,.controls,.devices{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap}.heading{justify-content:space-between;max-width:1400px;margin:auto}h1{font-size:21px;margin:0}a{color:var(--ink);text-underline-offset:4px}button,a{touch-action:manipulation}button{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);padding:9px 16px;cursor:pointer}button:focus-visible,a:focus-visible{outline:3px solid var(--gold);outline-offset:3px}button[aria-pressed="true"]{background:var(--ink);color:white;border-color:var(--ink)}button svg{width:23px;height:23px;vertical-align:middle;margin-inline-end:8px;fill:none;stroke:currentColor;stroke-width:1.7}.controls{margin-top:18px}.status{text-align:center;margin:12px 0 0;font-size:13px;color:var(--gold)}.notice{font-size:13px;text-align:center;margin:12px 16px;line-height:1.7}.stage{height:calc(100dvh - 235px);min-height:260px;overflow:auto;display:flex;justify-content:center;align-items:flex-start;padding:12px}.frame{position:relative;flex-shrink:0;border-radius:22px;border:7px solid var(--ink);overflow:hidden;box-shadow:0 12px 36px #123f3320;background:white}.frame[data-device="desktop"]{border-radius:12px}iframe{border:0;position:absolute;top:0;left:0;transform-origin:top left;background:var(--bg)}@media(max-width:600px){header{padding:14px 12px}.heading{justify-content:center}h1{font-size:18px}.heading a{font-size:13px}.controls{gap:8px;margin-top:12px}button{padding:8px 11px;font-size:14px}.stage{height:calc(100dvh - 280px)}}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#14251f;--panel:#1c3028;--ink:#e8f1e8;--line:#536951;--gold:#ebca85}button[aria-pressed="true"]{color:#123f33}.frame{border-color:#8b9d8e}}
+</style>
+</head>
+<body>
+<header>
+<div class="heading"><h1 id="heading">معاينة الأجهزة</h1><a href="./" id="back">العودة إلى المكتبة</a></div>
+<div class="controls">
+<div class="devices" role="group" aria-label="حجم الجهاز" id="devices">
+<button type="button" data-device="phone" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 5h4M11 19h2"/></svg><span>هاتف</span></button>
+<button type="button" data-device="tablet" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="2" width="18" height="20" rx="2"/><path d="M11 19h2"/></svg><span>تابلت</span></button>
+<button type="button" data-device="desktop" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M12 17v4M7 21h10"/></svg><span>سطح المكتب</span></button>
+</div>
+<button type="button" id="rotate">↻ تبديل الاتجاه</button>
+<button type="button" id="actual" aria-pressed="false">الحجم الطبيعي 100%</button>
+</div>
+<p class="status" id="status" role="status" dir="ltr"></p>
+</header>
+<p class="notice" id="notice">معاينة حية لقياسات العرض؛ لا تحاكي متصفح الهاتف أو تختبر التشغيل دون إنترنت. الإجراءات داخل المكتبة حقيقية.</p>
+<main class="stage" id="stage"><div class="frame" id="frame" data-device="phone"><iframe id="library" src="./" title="معاينة المكتبة الشخصية الذكية"></iframe></div></main>
+<script>
+// This page never changes account data, app styles, or service-worker caches.
+const english = new URLSearchParams(location.search).get('lang') === 'en';
+const words = english ? {phone:'Phone',tablet:'Tablet',desktop:'Desktop'} : {phone:'هاتف',tablet:'تابلت',desktop:'سطح المكتب'};
+if(english){document.documentElement.lang='en';document.documentElement.dir='ltr';document.title='Device preview — Smart Personal Library';document.getElementById('heading').textContent='Device preview';document.getElementById('back').textContent='Back to library';document.getElementById('rotate').textContent='↻ Rotate';document.getElementById('actual').textContent='Actual size 100%';document.getElementById('notice').textContent='Live viewport preview; does not emulate phone browsers or test offline playback. Actions inside the library are real.';document.getElementById('devices').setAttribute('aria-label','Device size');document.getElementById('library').title='Smart Personal Library preview';}
+const sizes={phone:[390,844],tablet:[820,1180],desktop:[1440,900]};
+let device='phone',rotated=false,actual=false;
+const stage=document.getElementById('stage'),frame=document.getElementById('frame'),library=document.getElementById('library');
+const buttons=[...document.querySelectorAll('button[data-device]')];
+buttons.forEach(button=>{button.querySelector('span').textContent=words[button.dataset.device];button.addEventListener('click',()=>{device=button.dataset.device;rotated=false;render();});});
+document.getElementById('rotate').addEventListener('click',()=>{rotated=!rotated;render();});
+document.getElementById('actual').addEventListener('click',()=>{actual=!actual;render();});
+function render(){
+ const [width,height]=rotated?[...sizes[device]].reverse():sizes[device];
+ const scale=actual?1:Math.min(1,Math.max(1,stage.clientWidth-40)/width,Math.max(1,stage.clientHeight-40)/height);
+ frame.style.width=(width*scale+14)+'px';frame.style.height=(height*scale+14)+'px';frame.dataset.device=device;
+ stage.style.justifyContent=width*scale+40>stage.clientWidth?'flex-start':'center';
+ library.style.width=width+'px';library.style.height=height+'px';library.style.transform='scale('+scale+')';
+ buttons.forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.device===device)));
+ document.getElementById('actual').setAttribute('aria-pressed',String(actual));
+ document.getElementById('status').textContent=width+' × '+height+' px · '+Math.round(scale*100)+'%';
+}
+window.addEventListener('resize',render);render();
+</script>
+</body>
+</html>
