@@ -1,5 +1,9 @@
 # Visual polish and in-app back trail
 
+Follow-up: subtle sky-blue and aqua accents in the welcome background, selected
+metric cards, alternating book-card backgrounds and device-preview link. Dedicated
+dark-theme tokens keep contrast; no layout, image or behavior changes.
+
 Scoped presentation CSS: emerald/cream with restrained gold, teal and muted
 accent colours; card depth and shadows without additional image requests;
 clearer touch feedback, safe-area mobile navigation, dark theme, keyboard focus
