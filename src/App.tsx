@@ -653,6 +653,7 @@ export default function Home() {
           />
         )}
         <button className="secondary" onClick={() => setView("offline")}>{rtl ? "🎧 الاستماع دون إنترنت" : "🎧 Offline listening"}</button>
+        {window.self === window.top && <a className="secondary" style={{ display: "inline-flex", alignItems: "center", margin: "8px", padding: "10px 16px", borderRadius: "12px", textDecoration: "none" }} href={`${import.meta.env.BASE_URL}device-preview.html${rtl ? "" : "?lang=en"}`} target="_blank" rel="noopener noreferrer">{rtl ? "▣ معاينة الأجهزة ↗" : "▣ Device preview ↗"}</a>}
         {view === "offline" && offlineOwner && <OfflineListening key={offlineOwner} owner={offlineOwner} books={pilotBooks} rtl={rtl} />}
         {view === "library" && (
           <Library
