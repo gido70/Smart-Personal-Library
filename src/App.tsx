@@ -1,3 +1,4 @@
+import { usePageTrail } from "./lib/usePageTrail";
 import OfflineListening from "./OfflineListening";
 import ContinuousAudio from "./ContinuousAudio";
 import "./welcome.css";
@@ -414,6 +415,17 @@ export default function Home() {
     () => navigation[lang].find((x) => x[0] === view)?.[1] || t.name,
     [lang, view, t.name],
   );
+  const trail = usePageTrail(
+    `${view}:${view === "pilot" ? activePilotBook?.id ?? "" : view === "reader" ? readerBook?.id ?? "" : view === "indexes" ? indexAuthorQuery : ""}`,
+    { view, activePilotBook, readerBook, indexAuthorQuery },
+    (previous) => {
+      setActivePilotBook(pilotBooks.find(book => book.id === previous.activePilotBook?.id) ?? previous.activePilotBook);
+      setReaderBook(previous.readerBook);
+      setIndexAuthorQuery(previous.indexAuthorQuery);
+      setView(previous.view);
+    },
+    authState === "authenticated" ? accountEmail : null,
+  );
   const openReaderFor = (book: PilotBook, initialPage?: number) => {
     setReaderBook({ id: book.id, title: book.title, storagePath: book.storage_path, initialPage });
     setView("reader");
@@ -545,7 +557,7 @@ export default function Home() {
   }
   return (
     <div
-      className={dark ? "app dark" : "app"}
+      className={dark ? "app dark presentation-polish" : "app presentation-polish"}
       dir={rtl ? "rtl" : "ltr"}
       lang={lang}
     >
@@ -630,6 +642,11 @@ export default function Home() {
             </button>
           </div>
         </header>
+        <nav className="quick-actions" aria-label={rtl ? "التنقل السريع" : "Quick navigation"}>
+          <button className="secondary trail-back" disabled={!trail.canBack} onClick={trail.back}>{rtl ? "→ رجوع" : "← Back"}</button>
+        <button className="secondary listening-shortcut" onClick={() => setView("offline")}>{rtl ? "🎧 الاستماع دون إنترنت" : "🎧 Offline listening"}</button>
+        {window.self === window.top && <a className="secondary" style={{ display: "inline-flex", alignItems: "center", margin: "8px", padding: "10px 16px", borderRadius: "12px", textDecoration: "none" }} href={`${import.meta.env.BASE_URL}device-preview.html${rtl ? "" : "?lang=en"}`} target="_blank" rel="noopener noreferrer">{rtl ? "▣ معاينة الأجهزة ↗" : "▣ Device preview ↗"}</a>}
+        </nav>
         {view === "home" && (
           <nav className="mobile-home-toolbar" aria-label={rtl ? "أدوات الصفحة الرئيسية" : "Home page tools"}>
             <button className="tool-home active" aria-current="page" onClick={() => setView("home")}><i>⌂</i><span>{rtl ? "الرئيسية" : "Home"}</span></button>
@@ -652,8 +669,6 @@ export default function Home() {
             onOpenPilot={(book) => { setActivePilotBook(book); setView("pilot"); }}
           />
         )}
-        <button className="secondary" onClick={() => setView("offline")}>{rtl ? "🎧 الاستماع دون إنترنت" : "🎧 Offline listening"}</button>
-        {window.self === window.top && <a className="secondary" style={{ display: "inline-flex", alignItems: "center", margin: "8px", padding: "10px 16px", borderRadius: "12px", textDecoration: "none" }} href={`${import.meta.env.BASE_URL}device-preview.html${rtl ? "" : "?lang=en"}`} target="_blank" rel="noopener noreferrer">{rtl ? "▣ معاينة الأجهزة ↗" : "▣ Device preview ↗"}</a>}
         {view === "offline" && offlineOwner && <OfflineListening key={offlineOwner} owner={offlineOwner} books={pilotBooks} rtl={rtl} />}
         {view === "library" && (
           <Library
@@ -681,13 +696,13 @@ export default function Home() {
           />
         )}
         {view === "book" && (
-          <BookDetail rtl={rtl} onBack={() => setView("library")} />
+          <BookDetail rtl={rtl} onBack={() => trail.canBack ? trail.back() : setView("library")} />
         )}
         {view === "pilot" && activePilotBook && (
           <PilotWorkspace
             rtl={rtl}
             book={activePilotBook}
-            onBack={() => setView("library")}
+            onBack={() => trail.canBack ? trail.back() : setView("library")}
             onOpenReader={(page) => openReaderFor(activePilotBook, page)}
             onReuploadOriginal={openUpload}
             onBookPatched={patchPilotBook}
