@@ -1,3 +1,4 @@
+import { patchPageFlipLifecycle } from "./scripts/pageFlipLifecyclePatch";
 import { execFileSync } from "node:child_process";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
@@ -14,6 +15,12 @@ cpSync(fileURLToPath(new URL("./node_modules/pdfjs-dist/wasm/", import.meta.url)
 export default defineConfig({
   base: "./",
   plugins: [react(), {
+    name: "page-flip-lifecycle",
+    enforce: "pre",
+    transform(code, id) {
+      if (id.replaceAll("\\", "/").endsWith("/page-flip/dist/js/page-flip.module.js")) return patchPageFlipLifecycle(code);
+    },
+  }, {
     name: "project-concept-index",
     generateBundle(_options, bundle) {
       const assets = Object.keys(bundle).filter(name => /\.(js|css)$/.test(name));
