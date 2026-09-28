@@ -111,6 +111,11 @@ export default function PdfFlipBook({ pdf, page, rtl, spread, width, height, zoo
         mobileScrollSupport:true, useMouseEvents:true, showPageCorners:true,
         clickEventForward:true, disableFlipByClick:true, swipeDistance:40,
       });
+      flip.on("init", () => {
+        if (disposed || !flip) return;
+        const index = flip.getCurrentPageIndex();
+        callbacks.current.onPage(reverse && spread && index+1 < pdf.numPages ? toPage(index+1) : toPage(index));
+      });
       flip.loadFromHTML(elements);
       engine.current = flip;
       ready = true;
