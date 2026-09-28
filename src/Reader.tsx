@@ -59,6 +59,7 @@ export default function Reader({
   const [page, setPage] = useState(1);
   const [scale, setScale] = useState(1);
   const [stageWidth, setStageWidth] = useState(600);
+  const [stageHeight, setStageHeight] = useState(600);
   const [rendering, setRendering] = useState(false);
   const [progressError, setProgressError] = useState(false);
   const shellRef = useRef<HTMLElement>(null);
@@ -193,7 +194,7 @@ export default function Reader({
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage || viewMode !== "book") return;
-    const resize = new ResizeObserver(([entry]) => setStageWidth(entry.contentRect.width));
+    const resize = new ResizeObserver(([entry]) => {setStageWidth(entry.contentRect.width);setStageHeight(entry.contentRect.height);});
     resize.observe(stage);
     return () => resize.disconnect();
   }, [viewMode, document]);
@@ -364,7 +365,7 @@ export default function Reader({
           <button className={viewMode === "book" ? "active" : ""} disabled={!document} onClick={chooseBookMode}>{rtl ? "قراءة وتقليب" : "Read & turn"}</button>
         </div>
         <div className="reader-tools">
-          {viewMode === "book" && <><button onClick={() => setScale(Math.max(.75, scale - .25))} title={rtl ? "تصغير" : "Zoom out"}>− {rtl ? "تصغير" : "Zoom out"}</button><button onClick={() => setScale(1)} title={rtl ? "ملاءمة العرض" : "Fit width"}>{rtl ? "ملاءمة" : "Fit"} · {Math.round(scale * 100)}%</button><button onClick={() => setScale(Math.min(3, scale + .25))} title={rtl ? "تكبير" : "Zoom in"}>＋ {rtl ? "تكبير" : "Zoom in"}</button></>}
+          {viewMode === "book" && <><button onClick={() => setScale(Math.max(.75, scale - .25))} title={rtl ? "تصغير" : "Zoom out"}>− {rtl ? "تصغير" : "Zoom out"}</button><button onClick={() => setScale(1)} title={rtl ? "ملاءمة الصفحة" : "Fit page"}>{rtl ? "ملاءمة" : "Fit"} · {Math.round(scale * 100)}%</button><button onClick={() => setScale(Math.min(3, scale + .25))} title={rtl ? "تكبير" : "Zoom in"}>＋ {rtl ? "تكبير" : "Zoom in"}</button></>}
           <button onClick={() => setSettingsOpen(!settingsOpen)} title={rtl ? "إعدادات القارئ" : "Reader settings"}>⚙ {rtl ? "الإعدادات" : "Settings"}</button>
           <button onClick={() => { if (window.document.fullscreenElement) void window.document.exitFullscreen(); else if (shellRef.current?.requestFullscreen) void shellRef.current.requestFullscreen().catch(() => setError(rtl ? "ملء الشاشة غير متاح في هذا المتصفح." : "Fullscreen is unavailable in this browser.")); else setError(rtl ? "ملء الشاشة غير متاح في هذا المتصفح." : "Fullscreen is unavailable in this browser."); }} title={rtl ? "ملء الشاشة" : "Full screen"}>⛶ {rtl ? "ملء الشاشة" : "Full screen"}</button>
         </div>
@@ -390,7 +391,7 @@ export default function Reader({
         <iframe title={fileName} src={`${activeUrl}#page=${page}&view=FitH&toolbar=1&navpanes=0`} />
       </div> : document ? <><div className={`reader-stage layout-${pageLayout}`} ref={stageRef} style={{"--turn-duration": `${speedMs[speed]}ms`} as React.CSSProperties}>
         <div className="reader-page-scroll" ref={scrollRef}>
-          <PdfFlipBook pdf={document} page={page} rtl={effectiveRtl} spread={pageLayout === "spread"} width={stageWidth} zoom={scale} duration={speedMs[speed]}
+          <PdfFlipBook pdf={document} page={page} rtl={effectiveRtl} spread={pageLayout === "spread"} width={stageWidth} height={stageHeight} zoom={scale} duration={speedMs[speed]}
             enabled={compatibility === "passed"} controls={flipControls} onPage={setPage} onBusy={setRendering} onTurn={pageSound}
             onError={() => {setRendering(false);setError(rtl ? "تعذر تجهيز الصفحة. جرّب عرض PDF الأصلي." : "Could not prepare the page. Try Original PDF.");}} />
         </div>

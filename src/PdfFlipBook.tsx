@@ -13,8 +13,8 @@ export type FlipControls = { turn(delta: number): void };
 /** PDF rendering stays local. PageFlip only handles the physical sheet geometry.
  * Eight nearby page rasters at most; all other elements are tiny placeholders.
  * React owns the host; PageFlip exclusively owns a disposable child. */
-export default function PdfFlipBook({ pdf, page, rtl, spread, width, zoom, duration, enabled, controls, onPage, onBusy, onError, onTurn }: {
-  pdf: ReaderPdf; page: number; rtl: boolean; spread: boolean; width: number; zoom: number; duration: number; enabled: boolean;
+export default function PdfFlipBook({ pdf, page, rtl, spread, width, height, zoom, duration, enabled, controls, onPage, onBusy, onError, onTurn }: {
+  pdf: ReaderPdf; page: number; rtl: boolean; spread: boolean; width: number; height: number; zoom: number; duration: number; enabled: boolean;
   controls: MutableRefObject<FlipControls | null>;
   onPage(page: number): void; onBusy(busy: boolean): void; onError(): void; onTurn(): void;
 }) {
@@ -47,7 +47,7 @@ export default function PdfFlipBook({ pdf, page, rtl, spread, width, zoom, durat
       const [{PageFlip: Engine}, first] = await Promise.all([import("page-flip/dist/js/page-flip.module.js"), pdf.getPage(1)]);
       if (disposed) return;
       const natural = first.getViewport({scale:1});
-      const pageWidth = Math.max(120, (width - 24) / (spread ? 2 : 1)) * zoom;
+      const pageWidth = Math.max(100, Math.min((width - 30) / (spread ? 2 : 1), (height - 30) * natural.width / natural.height)) * zoom;
       const pageHeight = pageWidth * natural.height / natural.width;
       block.style.width = `${pageWidth * (spread ? 2 : 1)}px`;
       block.style.height = `${pageHeight}px`;
@@ -155,7 +155,7 @@ export default function PdfFlipBook({ pdf, page, rtl, spread, width, zoom, durat
       flip?.destroy(); block.remove();
       cached.forEach(canvas=>{canvas.width=0;canvas.height=0;}); cached.clear();
     };
-  }, [pdf, width, spread, zoom, reverse, rtl, duration, controls]);
+  }, [pdf, width, height, spread, zoom, reverse, rtl, duration, controls]);
 
   useEffect(() => {
     const flip = engine.current;
