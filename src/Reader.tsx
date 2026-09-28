@@ -1,6 +1,7 @@
 import PdfScrollReader from "./PdfScrollReader";
 import PdfFlipBook, { type FlipControls } from "./PdfFlipBook";
 import { pdfImageOptions } from "./lib/pdfAssets";
+import { readerNetworkOptions } from "./lib/readerLoading";
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { createBookSignedUrl, getReadingProgress, saveReadingProgress } from "./lib/library";
@@ -115,27 +116,25 @@ export default function Reader({
       setPage(1);
       setBookmarks([]);
       try {
-        const signed = await createBookSignedUrl(savedBook.storagePath);
+        const [signed, progress, pdfjs] = await Promise.all([
+          createBookSignedUrl(savedBook.storagePath),
+          getReadingProgress(savedBook.id).catch(() => null),
+          import("pdfjs-dist"),
+        ]);
         if (cancelled) return;
         setRemoteUrl(signed.url);
         setRemoteUrlExpiresAt(signed.expiresAt);
         let restoredPage = Math.max(1, savedBook.initialPage ?? 1);
         let restoredMarks: number[] = [];
-        try {
-          const progress = await getReadingProgress(savedBook.id);
-          if (progress) {
-            if (savedBook.initialPage == null) restoredPage = Math.max(1, progress.page);
-            restoredMarks = progress.bookmarks;
-          }
-        } catch {
-          // Reading progress is a nice-to-have; a failed read must not block opening the book.
+        if (progress) {
+          if (savedBook.initialPage == null) restoredPage = Math.max(1, progress.page);
+          restoredMarks = progress.bookmarks;
         }
         if (cancelled) return;
         setBookmarks(restoredMarks);
         setPage(restoredPage);
-        const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-        const loaded = (await pdfjs.getDocument({ ...pdfImageOptions(), url: signed.url, disableFontFace: true, useSystemFonts: false }).promise) as unknown as PdfDocument;
+        const loaded = (await pdfjs.getDocument({ ...pdfImageOptions(), ...readerNetworkOptions, url: signed.url, disableFontFace: true, useSystemFonts: false }).promise) as unknown as PdfDocument;
         if (cancelled) return;
         setDocument(loaded);
         setViewMode("book");
@@ -170,7 +169,7 @@ export default function Reader({
       setRemoteUrlExpiresAt(signed.expiresAt);
       const pdfjs = await import("pdfjs-dist");
       pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-      const loaded = (await pdfjs.getDocument({ ...pdfImageOptions(), url: signed.url, disableFontFace: true, useSystemFonts: false }).promise) as unknown as PdfDocument;
+      const loaded = (await pdfjs.getDocument({ ...pdfImageOptions(), ...readerNetworkOptions, url: signed.url, disableFontFace: true, useSystemFonts: false }).promise) as unknown as PdfDocument;
       setDocument(loaded);
         setViewMode("book");
       setPage((current) => Math.min(Math.max(current, 1), loaded.numPages));
