@@ -126,7 +126,8 @@ export default function PdfFlipBook({ pdf, page, rtl, spread, width, zoom, durat
       synchronize.current = sync;
       flip.on("flip", event => {
         if (disposed || !ready) return;
-        const number = toPage(Number(event.data));
+        const index = Number(event.data);
+        const number = reverse && spread && index+1 < pdf.numPages ? toPage(index+1) : toPage(index);
         callbacks.current.onPage(number);
         callbacks.current.onTurn();
         void sync(number, false).catch(() => { if (!disposed) callbacks.current.onError(); });
@@ -159,9 +160,9 @@ export default function PdfFlipBook({ pdf, page, rtl, spread, width, zoom, durat
   useEffect(() => {
     const flip = engine.current;
     const target = reverse ? pdf.numPages - page : page - 1;
-    if (!flip || flip.getCurrentPageIndex() === target) return;
+    if (!flip || flip.getCurrentPageIndex() === target || (spread && flip.getCurrentPageIndex()+1 === target)) return;
     void synchronize.current?.(page).catch(() => callbacks.current.onError());
-  }, [page, reverse, pdf]);
+  }, [page, reverse, pdf, spread]);
 
   return <div className="pdf-flip-host" ref={host} dir="ltr" />;
 }
