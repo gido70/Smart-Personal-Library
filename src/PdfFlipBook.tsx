@@ -1,4 +1,5 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
+import { readerPagePlan } from "./lib/readerLoading";
 import type { PageFlip } from "page-flip/dist/js/page-flip.module.js";
 
 export type ReaderPdf = {
@@ -11,7 +12,7 @@ export type ReaderPdf = {
 export type FlipControls = { turn(delta: number): void };
 
 /** PDF rendering stays local. PageFlip only handles the physical sheet geometry.
- * Eight nearby page rasters at most; all other elements are tiny placeholders.
+ * Six nearby page rasters at most; all other elements are tiny placeholders.
  * React owns the host; PageFlip exclusively owns a disposable child. */
 export default function PdfFlipBook({ pdf, page, rtl, spread, width, height, zoom, duration, enabled, controls, onPage, onBusy, onError, onTurn }: {
   pdf: ReaderPdf; page: number; rtl: boolean; spread: boolean; width: number; height: number; zoom: number; duration: number; enabled: boolean;
@@ -37,6 +38,12 @@ export default function PdfFlipBook({ pdf, page, rtl, spread, width, height, zoo
     const block = window.document.createElement("div");
     block.className = "pdf-flip-engine";
     root.append(block);
+    // Block touches while adjacent pages are being prepared, or when the reader is disabled.
+    const guard = (event: Event) => {
+      if (!ready || !callbacks.current.enabled || zoom > 1) { event.stopImmediatePropagation(); }
+    };
+    block.addEventListener("mousedown",guard,true);
+    block.addEventListener("touchstart",guard,true);
     const toIndex = (number: number) => reverse ? pdf.numPages - number : number - 1;
     const toPage = (index: number) => reverse ? pdf.numPages - index : index + 1;
     let flip: PageFlip | null = null;
@@ -89,20 +96,20 @@ export default function PdfFlipBook({ pdf, page, rtl, spread, width, height, zoo
         pending.set(number, job);
         return job;
       };
-      const prepare = async (number: number) => {
-        const index = toIndex(number);
-        const needed = new Set<number>();
-        for (let i = Math.max(0,index-3); i <= Math.min(pdf.numPages-1,index+4); i++) needed.add(toPage(i));
+      const prepare = async (number: number, includeNeighbors = true) => {
+        const plan = readerPagePlan(number, pdf.numPages, reverse, spread);
+        const needed = new Set([...plan.visible, ...plan.nearby]);
         for (const [n,canvas] of cached) {
           if (needed.has(n)) continue;
           canvas.width = 0; canvas.height = 0; canvas.remove(); cached.delete(n);
         }
-        // Current spread first; bounded sequential neighbors avoid PDF worker floods.
-        await renderOne(number);
-        if (spread && index+1 < pdf.numPages) await renderOne(toPage(index+1));
-        for (const n of needed) { if (disposed) return; await renderOne(n); }
+        // Display the requested sheet/spread before waiting for other pages.
+        for (const n of plan.visible) { if (disposed) return; await renderOne(n); }
+        if (includeNeighbors) {
+          for (const n of plan.nearby) { if (disposed) return; await renderOne(n); }
+        }
       };
-      await prepare(callbacks.current.page);
+      await prepare(callbacks.current.page, false);
       if (disposed) return;
       flip = new Engine(block, {
         width:pageWidth, height:pageHeight, size:"fixed", usePortrait:!spread,
@@ -118,6 +125,9 @@ export default function PdfFlipBook({ pdf, page, rtl, spread, width, height, zoo
       });
       flip.loadFromHTML(elements);
       engine.current = flip;
+      // Keep the current page visible while adjacent turning sheets are prepared.
+      await prepare(callbacks.current.page);
+      if (disposed) return;
       ready = true;
       callbacks.current.onBusy(false);
       const sync = async (number: number, jump = true) => {
@@ -145,12 +155,7 @@ export default function PdfFlipBook({ pdf, page, rtl, spread, width, height, zoo
         } else if ((delta > 0) !== reverse) flip.flipNext("bottom");
         else flip.flipPrev("bottom");
       }};
-      // Block touches while adjacent pages are being prepared, or when the reader is disabled.
-      const guard = (event: Event) => {
-        if (!ready || !callbacks.current.enabled || zoom > 1) { event.stopImmediatePropagation(); }
-      };
-      block.addEventListener("mousedown",guard,true);
-      block.addEventListener("touchstart",guard,true);
+
     };
     void initialize().catch(() => { if (!disposed) {callbacks.current.onBusy(false);callbacks.current.onError();} });
     return () => {
