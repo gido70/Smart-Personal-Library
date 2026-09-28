@@ -14,3 +14,18 @@ const render=new Render(); render.start(); assert.equal(frames.size,1);
 const [id,fn]=[...frames][0];frames.delete(id);fn(1);assert.equal(frames.size,1);
 render.stop();assert.equal(frames.size,0);fn(2);assert.equal(frames.size,0);
 console.log('PASS: pinned page-flip animation loop stops on cleanup; stale callback cannot restart it.');
+
+// A left-corner button/drag must work on the single visible portrait sheet.
+const cornerStart=patched.indexOf('isPointOnCorners(t){');
+const cornerEnd=patched.indexOf('}}class',cornerStart)+1;
+const Corners=new Function(`return class {${patched.slice(cornerStart,cornerEnd)}}`)();
+const corners=new Corners();
+corners.getBoundsRect=()=>({pageWidth:300,width:600,height:420});
+corners.render={getOrientation:()=>"portrait",convertToBook:p=>({x:p.x+300,y:p.y})};
+assert.equal(corners.isPointOnCorners({x:10,y:418}),true);
+assert.equal(corners.isPointOnCorners({x:290,y:418}),true);
+assert.equal(corners.isPointOnCorners({x:150,y:210}),false);
+corners.render={getOrientation:()=>"landscape",convertToBook:p=>p};
+assert.equal(corners.isPointOnCorners({x:10,y:418}),true);
+assert.equal(corners.isPointOnCorners({x:300,y:418}),false);
+console.log('PASS: visible left/right corners work in portrait; centre stays non-flipping.');
