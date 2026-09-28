@@ -188,3 +188,12 @@
 .source-reader-page.has-book{padding:8px 12px;max-width:1400px}
 .source-reader-page.has-book>.page-title,.source-reader-page.has-book>.milestone-board{display:none}
 .source-reader-page.has-book .reader-return-bar{top:0;margin-bottom:6px}
+
+/* Plain PDF stays inside its own scroll surface on every device. */
+.reader-shell .native-reader-stage{height:70dvh;min-height:240px;overflow:hidden}
+.pdf-continuous{position:relative;overflow:auto;overscroll-behavior:contain;touch-action:pan-x pan-y pinch-zoom;flex:1;min-height:0;padding:12px;direction:ltr;background:#eeeae1;box-sizing:border-box;overflow-anchor:none}
+.pdf-scroll-sheet{position:relative;margin:0 auto 16px;flex:none;background:white;box-shadow:0 2px 8px #0002;display:flex;align-items:center;justify-content:center}
+.pdf-scroll-sheet canvas{display:block;max-width:100%;max-height:100%;object-fit:contain}
+.pdf-scroll-number{position:absolute;bottom:4px;right:6px;background:#fff;color:#44574e;font:12px sans-serif;padding:2px 6px;border-radius:5px}
+.theme-night .pdf-continuous{background:#14231e}
+@media(orientation:landscape) and (max-height:600px){.reader-shell .native-reader-stage{height:72dvh;min-height:220px}}

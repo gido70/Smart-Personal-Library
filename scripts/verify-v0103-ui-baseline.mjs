@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 // Reader baseline intentionally updated for the 2026-09-28 preview; other surfaces unchanged.
 const expected = new Map([
   ["src/globals.css", "4f089afa839a2964f3d1ac86c891a2ce261c56f160687fbb5ec518b5e0e358dc"],
-  ["src/reader.css", "699248f77c733dff15fc55749e0ce258be76c5c27cdb3fde5c0597f1dda9f923"],
+  ["src/reader.css", "34e5f0c6bc8d24c4ac34cb3d6d30c344ec92cd9bfb817b993feb6d552bbe5bc6"],
   ["src/pilot.css", "48d2bcc4296d54713d520546ef4d29896a5a6ac13e84ab932c2379dfbf688cad"],
 ]);
 
