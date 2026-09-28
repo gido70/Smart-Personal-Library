@@ -22,7 +22,7 @@ type PageLayout = "single" | "spread";
 /** A book already saved in Supabase — passed in by App.tsx when the reader is
  * opened from the library, as opposed to the standalone "pick a local file" entry
  * point. The two paths are never mixed in one button (V0.7 requirement §4.5). */
-export type SavedBookRef = { id: string; title: string; storagePath: string; initialPage?: number };
+export type SavedBookRef = { id: string; title: string; storagePath: string; initialPage?: number; sourceLanguage?: "ar" | "en" | "mixed" | "unknown" };
 
 const speedMs: Record<Speed, number> = { slow: 750, normal: 500, fast: 300 };
 
@@ -92,7 +92,9 @@ export default function Reader({
   const flushProgressRef = useRef(flushProgress);
   flushProgressRef.current = flushProgress;
 
-  const effectiveRtl = direction === "auto" ? rtl : direction === "rtl";
+  const bookRtl = source === "saved" && savedBook?.sourceLanguage === "en" ? false
+    : source === "saved" && savedBook?.sourceLanguage === "ar" ? true : rtl;
+  const effectiveRtl = direction === "auto" ? bookRtl : direction === "rtl";
   const activeUrl = source === "saved" ? remoteUrl : fileUrl;
 
   // --- open a saved library book (Signed URL, no file picker) ---------------

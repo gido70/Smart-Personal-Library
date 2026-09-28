@@ -427,7 +427,7 @@ export default function Home() {
     authState === "authenticated" ? accountEmail : null,
   );
   const openReaderFor = (book: PilotBook, initialPage?: number) => {
-    setReaderBook({ id: book.id, title: book.title, storagePath: book.storage_path, initialPage });
+    setReaderBook({ id: book.id, title: book.title, storagePath: book.storage_path, initialPage, sourceLanguage: book.source_language });
     setView("reader");
   };
   const openReaderStandalone = () => {
