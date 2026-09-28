@@ -38,9 +38,6 @@ check("book page contains a bibliographic catalogue card", /بطاقة فهرس�
 check("catalogue card corrections can be saved without a schema change", /updateBookCatalogMetadata/.test(library) && /catalog_corrected_at/.test(library) && /تحرير بطاقة الفهرسة/.test(app) && /catalog-edit-form/.test(styles));
 check("catalogue card is compact by default and editor opens on demand", /catalog-card-layout/.test(styles) && /catalog-info-grid>div\{display:grid/.test(styles) && /catalog-card-actions/.test(app) && /!catalogEditing/.test(app));
 check("book readiness is explicit and visible on compact mobile cards", /جاهز للأرشفة/.test(app) && /بانتظار التحليل/.test(app) && /تعذر التحليل/.test(app) && /book-status-badge/.test(styles) && /mobile-shelf-track \.book-status-badge/.test(styles));
-check("device reader routes Arabic and English per speech chunk", /detectSpeechLanguage\(chunk/.test(reader) && /bestDeviceVoice/.test(reader) && /utterance\.lang = chunkLanguage/.test(reader));
-check("Samsung and mobile users can refresh and test installed voices", /SamsungBrowser/.test(reader) && /تحديث الأصوات/.test(reader) && /اختبار الصوت/.test(reader) && /refreshDeviceVoices/.test(reader));
-check("free device speech can continue through following book pages", /continuousSpeech/.test(reader) && /continueSpeechRef/.test(reader) && /اقرأ من هنا وتابع/.test(reader));
 check("unknown books remain explicitly unclassified instead of defaulting to 000\/010", /return \{ deweyMain: "", deweyBranch: "" \}/.test(app) && /غير مصنف/.test(app));
 check("empty library samples never invoke paid actions", /SAMPLE_BOOKS/.test(app) && /display-only examples/.test(app));
 check("empty library presents six samples", /رحلة في تاريخ العلوم/.test(app) && /مدخل إلى علم النفس/.test(app));

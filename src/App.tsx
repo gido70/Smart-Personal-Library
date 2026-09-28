@@ -189,7 +189,7 @@ const navigation = {
     ["home", "الرئيسية", "⌂"],
     ["library", "مكتبتي", "▥"],
     ["indexes", "فهارس المكتبة", "⌕"],
-    ["reader", "القارئ والصوت المجاني", "◫"],
+    ["reader", "قارئ الكتاب الأصلي", "◫"],
     ["upload", "أضف كتابًا", "＋"],
     ["progress", "التقدم والتنبيهات", "🔔"],
     ["librarian", "أمين المكتبة", "✦"],
@@ -200,7 +200,7 @@ const navigation = {
     ["home", "Home", "⌂"],
     ["library", "My library", "▥"],
     ["indexes", "Library indexes", "⌕"],
-    ["reader", "Free reader & voice", "◫"],
+    ["reader", "Original book reader", "◫"],
     ["upload", "Add a book", "＋"],
     ["progress", "Progress & alerts", "🔔"],
     ["librarian", "Library assistant", "✦"],
@@ -2784,20 +2784,20 @@ function PilotWorkspace({
                 ? "الكتاب الأصلي مؤرشف"
                 : "The original book is archived"
               : rtl
-              ? "افتح الكتاب واستمع بصوت الجهاز"
-              : "Read with your device voice"}
+              ? "اقرأ الكتاب الأصلي"
+              : "Read the original book"}
           </h3>
           <p>
             {originalRemoved
               ? rtl
-                ? "النسخة المعرفية ونتائجها محفوظة. أعد رفع PDF نفسه إذا أردت القراءة الكاملة بصوت الجهاز."
-                : "The knowledge copy and its results are saved. Re-upload the same PDF for full reading with device voice."
+                ? "النسخة المعرفية ونتائجها محفوظة. أعد رفع PDF نفسه إذا أردت قراءة الكتاب كاملاً."
+                : "The knowledge copy and its results are saved. Re-upload the same PDF for reading the full original."
               : rtl
-              ? "يقرأ النص الأصلي على جهازك بلا إرسال إلى OpenAI وبلا خصم من رصيدك."
-              : "Reads the original text on your device. Nothing is sent to OpenAI and no API credit is used."}
+              ? "اعرض صفحات الكتاب الأصلية وكبّرها واحفظ موضع القراءة، دون تكلفة تحليل."
+              : "View and zoom original pages and save your position, without analysis charges."}
           </p>
           <button className="secondary" onClick={originalRemoved ? onReuploadOriginal : () => onOpenReader()}>
-            {originalRemoved ? "↥" : "◫"} {originalRemoved ? (rtl ? "أعد رفع الأصل من «أضف كتابًا»" : "Re-upload original from Add a book") : (rtl ? "فتح القارئ والصوت المجاني" : "Open free reader & voice")}
+            {originalRemoved ? "↥" : "◫"} {originalRemoved ? (rtl ? "أعد رفع الأصل من «أضف كتابًا»" : "Re-upload original from Add a book") : (rtl ? "فتح قارئ الكتاب الأصلي" : "Open original book reader")}
           </button>
         </div>
         <div className="paid-lane">
@@ -3229,15 +3229,15 @@ function PilotWorkspace({
                 <p className="locked-note">
                   🔒{" "}
                   {rtl
-                    ? "قريبًا — غير مفعّلة في وضع التكلفة الصفرية لهذا الإصدار. صوت الجهاز المجاني متاح في القارئ."
-                    : "Coming soon — disabled in this build's Zero-Cost Mode. Free device voice is available in the reader."}
+                    ? "قريبًا — غير مفعّلة في وضع التكلفة الصفرية لهذا الإصدار."
+                    : "Coming soon — disabled in this build's Zero-Cost Mode."}
                 </p>
               ) : (
                 <>
                   <p>
                     {rtl
-                      ? `تقدير الخلاصة الصوتية: ${money(estimates.audio)}. صوت الجهاز المجاني موجود في القارئ.`
-                      : `Estimated audio summary: ${money(estimates.audio)}. Free device voice is available in the reader.`}
+                      ? `تقدير الخلاصة الصوتية: ${money(estimates.audio)}.`
+                      : `Estimated audio summary: ${money(estimates.audio)}.`}
                   </p>
                   <p className="voice-preview-note">
                     {rtl
