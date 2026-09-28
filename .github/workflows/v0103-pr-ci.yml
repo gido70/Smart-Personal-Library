@@ -13,10 +13,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - name: Require synchronized project index
+        env:
+          INDEX_BASE: ${{ github.event.pull_request.base.sha || 'HEAD^' }}
+        run: node scripts/check-index-sync.mjs "$INDEX_BASE" HEAD
       - run: npm ci
       - run: npm test
       - run: npm run build
