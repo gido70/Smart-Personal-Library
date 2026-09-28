@@ -336,7 +336,7 @@ export default function Reader({
     else close();
   };
 
-  return <div className="page source-reader-page">
+  return <div className={`page source-reader-page${activeUrl ? " has-book" : ""}`}>
     <nav className="reader-return-bar" aria-label={rtl ? "العودة من القارئ" : "Leave reader"}>
       <button onClick={() => leaveReader("home")}>⌂ <span>{rtl ? "الرئيسية" : "Home"}</span></button>
       <button onClick={() => leaveReader("library")}>▥ <span>{rtl ? "المكتبة" : "Library"}</span></button>

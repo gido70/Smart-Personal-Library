@@ -179,3 +179,12 @@
 .pdf-page-placeholder{font-size:13px;color:#52655e;display:block;text-align:center;padding-top:40%}
 
 .reader-help{margin:0;padding:8px 14px;background:var(--card);color:var(--soft);font-size:13px;line-height:1.7;text-align:center}
+
+/* Focus the opened original book without changing other app pages. */
+.app:has(.source-reader-page.has-book){display:block}
+.app:has(.source-reader-page.has-book)>.sidebar,.app:has(.source-reader-page.has-book)>.mobile-nav{display:none}
+.app:has(.source-reader-page.has-book)>main{padding-bottom:12px}
+.app:has(.source-reader-page.has-book) .topbar{position:static}
+.source-reader-page.has-book{padding:8px 12px;max-width:1400px}
+.source-reader-page.has-book>.page-title,.source-reader-page.has-book>.milestone-board{display:none}
+.source-reader-page.has-book .reader-return-bar{top:0;margin-bottom:6px}
