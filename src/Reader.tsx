@@ -17,7 +17,6 @@ type Theme = "linen" | "paper" | "library" | "night";
 type Direction = "auto" | "rtl" | "ltr";
 type Speed = "slow" | "normal" | "fast";
 type PageLayout = "single" | "spread";
-type Compatibility = "untested" | "passed" | "failed";
 
 
 /** A book already saved in Supabase — passed in by App.tsx when the reader is
@@ -72,7 +71,6 @@ export default function Reader({
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [compatibility, setCompatibility] = useState<Compatibility>("untested");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [navigatorOpen, setNavigatorOpen] = useState(false);
   const [bookmarks, setBookmarks] = useState<number[]>([]);
@@ -106,7 +104,6 @@ export default function Reader({
       setError("");
       setSavedBookError("");
       setDocument(null);
-      setCompatibility("untested");
       setSavedProgressReady(false);
       setSource("saved");
       setFileUrl("");
@@ -221,15 +218,15 @@ export default function Reader({
 
   useEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
-      if (!document || viewMode !== "book" || compatibility !== "passed") return;
+      if (!document || viewMode !== "book") return;
       if ((event.target as HTMLElement)?.closest("input, select, textarea, button, [contenteditable=true]")) return;
       if (event.key === "ArrowRight" || event.key === "ArrowLeft") event.preventDefault();
-      if (event.key === "ArrowRight") turn(effectiveRtl ? -1 : 1);
-      if (event.key === "ArrowLeft") turn(effectiveRtl ? 1 : -1);
+      if (event.key === "ArrowRight") turn(effectiveRtl ? 1 : -1);
+      if (event.key === "ArrowLeft") turn(effectiveRtl ? -1 : 1);
     };
     window.addEventListener("keydown", keyboard);
     return () => window.removeEventListener("keydown", keyboard);
-  }, [document, effectiveRtl, viewMode, page, compatibility, speed, rendering, pageLayout]);
+  }, [document, effectiveRtl, viewMode, page, speed, rendering, pageLayout]);
 
   // --- temporary local read (file picker, never uploaded) --------------------
   const openFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -241,7 +238,7 @@ export default function Reader({
     let savedMarks: number[] = [];
     try { const stored = JSON.parse(localStorage.getItem(`${key}:marks`) || "[]"); if (Array.isArray(stored)) savedMarks = stored.filter(n => Number.isInteger(n) && n > 0); } catch { /* Ignore damaged local bookmarks. */ }
     setSource("local");
-    setLoading(true); setError(""); setDocument(null); setCompatibility("untested");
+    setLoading(true); setError(""); setDocument(null);
     setFileUrl(localUrl); setFileName(selected.name); setFileKey(key); setBookmarks(savedMarks);
     setViewMode("native"); setPage(Math.max(saved, 1));
     try {
@@ -264,17 +261,7 @@ export default function Reader({
 
   const chooseBookMode = () => {
     if (!document) return;
-    if (compatibility === "failed") {
-      setError(rtl ? "هذا الملف لم يجتز اختبار سلامة العربية؛ استمر بالعرض المطابق للأصل." : "This file did not pass the fidelity check; continue in Original view.");
-      return;
-    }
     setError(""); setViewMode("book");
-  };
-
-  const approveCompatibility = () => { setCompatibility("passed"); setError(""); };
-  const rejectCompatibility = () => {
-    setCompatibility("failed"); setViewMode("native");
-    setError(rtl ? "تم إيقاف محرك الكتاب لهذا الملف حتى لا نعتمد نصًا عربيًا مشوهًا." : "Book mode was disabled for this file to avoid distorted text.");
   };
 
   const toggleBookmark = () => {
@@ -289,7 +276,7 @@ export default function Reader({
     if (fileUrl) URL.revokeObjectURL(fileUrl);
     setFileUrl(""); setRemoteUrl(""); setRemoteUrlExpiresAt(0); setSavedBookError("");
     setDocument(null); setFileName(""); setFileKey(""); setPage(1); setError("");
-    setCompatibility("untested"); setBookmarks([]);
+    setBookmarks([]);
     setSavedProgressReady(false);
     setSource("none");
     onExitSavedBook?.();
@@ -340,11 +327,11 @@ export default function Reader({
 
       {loading && <p className="reader-help" role="status">{rtl ? "جارٍ فتح الكتاب. قد يستغرق الملف الكبير وقتًا أطول…" : "Opening the book. Large files may take longer…"}</p>}
       {savedBookError && <div className="reader-error" role="alert">{savedBookError}<button onClick={retrySavedBook}>{rtl ? "أعد المحاولة" : "Retry"}</button></div>}
-      {viewMode === "book" && <p className="reader-help">{scale > 1 ? (rtl ? "حرّك الصفحة لرؤية الجزء المكبّر. للمتابعة استخدم «التالي» أو أعد «ملاءمة»." : "Scroll to explore the zoomed page. Use Next, or Fit to turn by dragging.") : (rtl ? "اسحب زاوية الصفحة أو استخدم «التالي». للتكبير اضغط «تكبير»." : "Drag a page corner or use Next. Choose Zoom in for larger text.")}</p>}
+      {viewMode === "book" && <p className="reader-help">{scale > 1 ? (rtl ? "حرّك الصفحة لرؤية الجزء المكبّر. للمتابعة استخدم «التالي» أو أعد «ملاءمة»." : "Scroll to explore the zoomed page. Use Next, or Fit to turn by dragging.") : (rtl ? (effectiveRtl ? "للتالي اسحب زاوية الصفحة من اليسار إلى اليمين، أو اضغط «التالي»." : "للتالي اسحب زاوية الصفحة من اليمين إلى اليسار، أو اضغط «التالي».") : (effectiveRtl ? "Drag a left corner to the right for the next page, or use Next." : "Drag a right corner to the left for the next page, or use Next."))}</p>}
       {settingsOpen && <aside className="reader-options">
         <div><b>{rtl ? "العلامات المرجعية" : "Bookmarks"}</b><div className="option-row"><button className={bookmarks.includes(page) ? "selected" : ""} onClick={toggleBookmark} title={rtl ? "علامة الصفحة" : "Bookmark"}>⌑ {bookmarks.includes(page) ? (rtl ? "إزالة العلامة" : "Remove bookmark") : (rtl ? "حفظ علامة" : "Bookmark")}</button></div></div>
         <div><b>{rtl ? "بيئة القراءة" : "Reading scene"}</b><div className="option-row themes">{(["linen","paper","library","night"] as Theme[]).map(item => <button key={item} className={theme === item ? "active" : ""} onClick={() => setTheme(item)}>{rtl ? ({linen:"هادئة",paper:"ورق",library:"مكتبة",night:"ليل"} as Record<Theme,string>)[item] : item}</button>)}</div></div>
-        <div><b>{rtl ? "اتجاه الكتاب" : "Book direction"}</b><div className="option-row">{(["auto","rtl","ltr"] as Direction[]).map(item => <button key={item} className={direction === item ? "active" : ""} onClick={() => setDirection(item)}>{item === "auto" ? (rtl ? "تلقائي" : "Auto") : (item === "rtl" ? (rtl ? "العربية: إلى اليسار" : "Arabic: turn left") : (rtl ? "الإنجليزية: إلى اليمين" : "English: turn right"))}</button>)}</div></div>
+        <div><b>{rtl ? "اتجاه الكتاب" : "Book direction"}</b><div className="option-row">{(["auto","rtl","ltr"] as Direction[]).map(item => <button key={item} className={direction === item ? "active" : ""} onClick={() => setDirection(item)}>{item === "auto" ? (rtl ? "تلقائي" : "Auto") : (item === "rtl" ? (rtl ? "العربية: إلى اليمين" : "Arabic: turn right") : (rtl ? "الإنجليزية: إلى اليسار" : "English: turn left"))}</button>)}</div></div>
         <div><b>{rtl ? "سرعة التقليب" : "Turn speed"}</b><div className="option-row">{(["slow","normal","fast"] as Speed[]).map(item => <button key={item} className={speed === item ? "active" : ""} onClick={() => setSpeed(item)}>{rtl ? ({slow:"هادئ",normal:"طبيعي",fast:"سريع"} as Record<Speed,string>)[item] : item}</button>)}</div></div>
         <div><b>{rtl ? "عرض الصفحات" : "Page layout"}</b><div className="option-row"><button className={pageLayout === "single" ? "active" : ""} onClick={() => { setPageLayout("single"); setScale(1); }}>{rtl ? "صفحة واحدة" : "Single page"}</button><button className={pageLayout === "spread" ? "active" : ""} onClick={() => { setPageLayout("spread"); setScale(1); }}>{rtl ? "صفحتان" : "Two pages"}</button></div><small>{rtl ? "صفحة واحدة أنسب للهاتف الرأسي، وصفحتان للأفقي والتابلت." : "Single page suits portrait phones; two pages suit landscape and tablets."}</small></div>
       </aside>}
@@ -360,19 +347,18 @@ export default function Reader({
       </> : document ? <><div className={`reader-stage layout-${pageLayout}`} ref={stageRef} style={{"--turn-duration": `${speedMs[speed]}ms`} as React.CSSProperties}>
         <div className="reader-page-scroll" ref={scrollRef}>
           <PdfFlipBook pdf={document} page={page} rtl={effectiveRtl} spread={pageLayout === "spread"} width={stageWidth} height={stageHeight} zoom={scale} duration={speedMs[speed]}
-            enabled={compatibility === "passed"} controls={flipControls} onPage={setPage} onBusy={setRendering} onTurn={() => undefined}
+            enabled={true} controls={flipControls} onPage={setPage} onBusy={setRendering} onTurn={() => undefined}
             onError={() => {setRendering(false);setError(rtl ? "تعذر تجهيز الصفحة. جرّب عرض PDF العادي." : "Could not prepare the page. Try Standard PDF.");}} />
         </div>
         {rendering && <span className="reader-loading" role="status">{rtl ? "جارٍ تجهيز الصفحات…" : "Preparing pages…"}</span>}
 
       </div>
-        {compatibility === "untested" && <div className="compatibility-gate"><span>{rtl ? "اختبار سلامة النص" : "Text fidelity check"}</span><h3>{rtl ? "هل هذه الصفحة مطابقة للنص في العرض الأصلي؟" : "Does this page match the Original view?"}</h3><p>{rtl ? "افحص اتصال الحروف، ترتيب الكلمات، الأرقام، والخطوط اللاتينية. لن يعمل التقليب قبل إجابتك." : "Check character rendering, word order, numbers, and mixed-language text. Page turning stays locked until you confirm."}</p><div><button className="approve" disabled={rendering} onClick={approveCompatibility}>✓ {rtl ? "نعم، الصفحة صحيحة" : "Yes, it matches"}</button><button className="reject" onClick={rejectCompatibility}>× {rtl ? "لا، يوجد تشويه" : "No, text is distorted"}</button></div></div>}
-      <footer className="reader-footer"><button onClick={() => turn(-1)} disabled={page === 1 || compatibility !== "passed" || rendering}>{rtl ? "السابق" : "Previous"}</button><div><input type="range" min="1" max={document.numPages} value={page} aria-label={rtl ? "انتقل إلى صفحة" : "Go to page"} disabled={compatibility !== "passed" || rendering} onChange={e => setPage(Number(e.target.value))}/><span>{rtl ? `${pageLayout === "spread" ? "الصفحتان" : "الصفحة"} ${page}${pageLayout === "spread" && page < document.numPages ? `–${page+1}` : ""} من ${document.numPages}` : `Page${pageLayout === "spread" ? "s" : ""} ${page}${pageLayout === "spread" && page < document.numPages ? `–${page+1}` : ""} of ${document.numPages}`}</span></div><button onClick={() => turn(1)} disabled={page + (pageLayout === "spread" ? 1 : 0) >= document.numPages || compatibility !== "passed" || rendering}>{rtl ? "التالي" : "Next"}</button></footer></> : null}
+      <footer className="reader-footer"><button onClick={() => turn(-1)} disabled={page === 1 || rendering}>{rtl ? "السابق" : "Previous"}</button><div><input type="range" min="1" max={document.numPages} value={page} aria-label={rtl ? "انتقل إلى صفحة" : "Go to page"} disabled={rendering} onChange={e => setPage(Number(e.target.value))}/><span>{rtl ? `${pageLayout === "spread" ? "الصفحتان" : "الصفحة"} ${page}${pageLayout === "spread" && page < document.numPages ? `–${page+1}` : ""} من ${document.numPages}` : `Page${pageLayout === "spread" ? "s" : ""} ${page}${pageLayout === "spread" && page < document.numPages ? `–${page+1}` : ""} of ${document.numPages}`}</span></div><button onClick={() => turn(1)} disabled={page + (pageLayout === "spread" ? 1 : 0) >= document.numPages || rendering}>{rtl ? "التالي" : "Next"}</button></footer></> : null}
       {error && <div className="reader-error inline">{error}<details><summary>{rtl ? "عارض المتصفح البديل" : "Browser viewer fallback"}</summary><iframe title={fileName} style={{width:"100%",height:"65dvh"}} src={`${activeUrl}#page=${page}&view=Fit`} /></details></div>}
       {progressError && <div className="reader-error" role="status">{rtl ? "لم يُحفظ موضع القراءة في الحساب بعد. تحقق من الاتصال." : "Reading position has not saved to your account yet. Check your connection."}<button onClick={flushProgress}>{rtl ? "أعد الحفظ" : "Retry save"}</button></div>}
       <div className="local-proof">◆ {isSaved ? (rtl ? "يُحفظ رقم الصفحة والعلامات في مكتبتك؛ لا يُعاد رفع ملف الكتاب — هو محفوظ أصلًا في مساحتك الخاصة." : "Page position and bookmarks are saved to your library; the book file itself is not re-uploaded — it is already stored in your private space.") : (rtl ? "يُحفظ رقم الصفحة والعلامات فقط على هذا الجهاز؛ ملف الكتاب غير محفوظ في المنصة." : "Only page position and bookmarks are stored on this device; the book file is not stored.")}</div>
     </section>}
 
-    <section className="milestone-board panel"><div><span>{rtl ? "يعمل الآن" : "Working now"}</span><strong>{rtl ? "صفحات الكتاب الأصلي" : "Original book pages"}</strong><p>{rtl ? "قراءة وتكبير وعلامات مرجعية؛ الصوت المحفوظ متاح في صفحة الكتاب." : "Read, zoom and bookmark. Saved audio is available on the book page."}</p></div><div><span>{rtl ? "حاجز جودة" : "Quality gate"}</span><strong>{rtl ? "اختبار بصري قبل التقليب" : "Visual check before turning"}</strong><p>{rtl ? "الفشل يعيد الملف للأصل ولا يعتمد التشويه." : "Failure returns to Original view and rejects distorted text."}</p></div><div><span>{rtl ? "حدود المجاني" : "Free-mode limits"}</span><strong>{rtl ? "النص الأصلي فقط" : "Original text only"}</strong><p>{rtl ? "الترجمة والتلخيص والصوت الاحترافي خدمات AI اختيارية منفصلة." : "Translation, summaries, and professional voice are separate optional AI services."}</p></div></section>
+    <section className="milestone-board panel"><div><span>{rtl ? "يعمل الآن" : "Working now"}</span><strong>{rtl ? "صفحات الكتاب الأصلي" : "Original book pages"}</strong><p>{rtl ? "قراءة وتكبير وعلامات مرجعية؛ الصوت المحفوظ متاح في صفحة الكتاب." : "Read, zoom and bookmark. Saved audio is available on the book page."}</p></div><div><span>{rtl ? "خيار عرض آخر" : "Alternative view"}</span><strong>{rtl ? "عرض PDF العادي" : "Standard PDF"}</strong><p>{rtl ? "يمكنك التحويل إلى التمرير الرأسي في أي وقت." : "Switch to vertical scrolling at any time."}</p></div><div><span>{rtl ? "حدود المجاني" : "Free-mode limits"}</span><strong>{rtl ? "النص الأصلي فقط" : "Original text only"}</strong><p>{rtl ? "الترجمة والتلخيص والصوت الاحترافي خدمات AI اختيارية منفصلة." : "Translation, summaries, and professional voice are separate optional AI services."}</p></div></section>
   </div>;
 }

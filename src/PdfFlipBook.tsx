@@ -23,7 +23,7 @@ export default function PdfFlipBook({ pdf, page, rtl, spread, width, height, zoo
   const synchronize = useRef<((page: number) => Promise<void>) | null>(null);
   const callbacks = useRef({onPage,onBusy,onError,onTurn,enabled,page});
   callbacks.current = {onPage,onBusy,onError,onTurn,enabled,page};
-  const reverse = !rtl; // User-selected forward gesture: Arabic right→left, English left→right.
+  const reverse = rtl; // Forward: Arabic left→right; English right→left.
 
   useEffect(() => {
     const root = host.current;
@@ -138,14 +138,14 @@ export default function PdfFlipBook({ pdf, page, rtl, spread, width, height, zoo
         void sync(number, false).catch(() => { if (!disposed) callbacks.current.onError(); });
       });
       controls.current = {turn(delta) {
-        if (!ready || !callbacks.current.enabled || !flip || flip.getState() !== "read") return;
+        if (!ready || !callbacks.current.enabled || !flip || !["read", "fold_corner"].includes(flip.getState())) return;
         if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
           const number = Math.min(pdf.numPages,Math.max(1,callbacks.current.page+delta*(spread?2:1)));
           void sync(number).then(() => {if(!disposed) callbacks.current.onPage(number);}).catch(() => callbacks.current.onError());
         } else if ((delta > 0) !== reverse) flip.flipNext("bottom");
         else flip.flipPrev("bottom");
       }};
-      // Block touches while adjacent pages are being prepared, or before fidelity approval.
+      // Block touches while adjacent pages are being prepared, or when the reader is disabled.
       const guard = (event: Event) => {
         if (!ready || !callbacks.current.enabled || zoom > 1) { event.stopImmediatePropagation(); }
       };
