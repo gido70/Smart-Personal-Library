@@ -38,6 +38,12 @@ export default function PdfFlipBook({ pdf, page, rtl, spread, width, height, zoo
     const block = window.document.createElement("div");
     block.className = "pdf-flip-engine";
     root.append(block);
+    // Block touches while adjacent pages are being prepared, or when the reader is disabled.
+    const guard = (event: Event) => {
+      if (!ready || !callbacks.current.enabled || zoom > 1) { event.stopImmediatePropagation(); }
+    };
+    block.addEventListener("mousedown",guard,true);
+    block.addEventListener("touchstart",guard,true);
     const toIndex = (number: number) => reverse ? pdf.numPages - number : number - 1;
     const toPage = (index: number) => reverse ? pdf.numPages - index : index + 1;
     let flip: PageFlip | null = null;
@@ -149,12 +155,7 @@ export default function PdfFlipBook({ pdf, page, rtl, spread, width, height, zoo
         } else if ((delta > 0) !== reverse) flip.flipNext("bottom");
         else flip.flipPrev("bottom");
       }};
-      // Block touches while adjacent pages are being prepared, or when the reader is disabled.
-      const guard = (event: Event) => {
-        if (!ready || !callbacks.current.enabled || zoom > 1) { event.stopImmediatePropagation(); }
-      };
-      block.addEventListener("mousedown",guard,true);
-      block.addEventListener("touchstart",guard,true);
+
     };
     void initialize().catch(() => { if (!disposed) {callbacks.current.onBusy(false);callbacks.current.onError();} });
     return () => {
