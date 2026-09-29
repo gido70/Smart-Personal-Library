@@ -3,10 +3,10 @@ import { readFileSync } from "node:fs";
 const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 const migration = readFileSync(new URL("../supabase/migrations/20260901_0007_spl_reviewer_access_draft.sql", import.meta.url), "utf8");
 
-for (const required of ["معاينة نسخة المشرف", "نسخة المشرف", "ReviewerPreview", "مرحبًا بك في المكتبة الشخصية الذكية", "الاستماع إلى الصوت المحفوظ", "التقييم والملاحظات"]) {
+for (const required of ["معاينة نسخة المستخدم", "نسخة المستخدم", "ReviewerPreview", "مرحبًا بك في المكتبة الشخصية الذكية", "الاستماع إلى الصوت المحفوظ", "التقييم والملاحظات"]) {
   if (!app.includes(required)) throw new Error(`Reviewer preview is missing: ${required}`);
 }
-for (const required of ["const visibleBooks = books;", "isBookArchived(book)", "سؤال للنقاش مع المشرف", "نسخة معرفية مؤرشفة", "هذه المعاينة ليست دليلًا", "افتح الكتاب الأصلي في قارئ المالك"]) {
+for (const required of ["const visibleBooks = books;", "isBookArchived(book)", "سؤال للنقاش مع المستخدم", "نسخة معرفية مؤرشفة", "هذه المعاينة ليست دليلًا", "افتح الكتاب الأصلي في قارئ المالك"]) {
   const start = app.indexOf("function ReviewerPreview");
   const end = app.indexOf("function LibraryLogin", start);
   if (!app.slice(start, end).includes(required)) throw new Error(`Reviewer research preview is missing: ${required}`);
