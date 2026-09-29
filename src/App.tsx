@@ -261,6 +261,7 @@ export default function Home() {
   const [reminderCount, setReminderCount] = useState(0);
   const t = text[lang];
   const rtl = lang === "ar";
+  const supervisorRoute = new URLSearchParams(window.location.search).has("supervisor");
   useEffect(() => {
     const saved = localStorage.getItem("spl-lang");
     if (saved === "ar" || saved === "en") setLang(saved);
@@ -555,6 +556,14 @@ export default function Home() {
       />
     );
   }
+  if (supervisorRoute) {
+    return <div className={dark ? "app dark reviewer-standalone" : "app reviewer-standalone"} dir={rtl ? "rtl" : "ltr"} lang={lang}>
+      <main className="reviewer-standalone-main">
+        <header className="reviewer-standalone-header"><strong>{rtl ? "المكتبة الشخصية الذكية · عرض المشرف" : "Smart Personal Library · Supervisor view"}</strong><div><button className="secondary" onClick={switchLang}>{rtl ? "English" : "العربية"}</button><button className="secondary" onClick={() => signOutLibraryAccount()}>{rtl ? "تسجيل الخروج" : "Sign out"}</button></div></header>
+        {view === "reader" && readerBook ? <Reader rtl={rtl} savedBook={readerBook} onHome={() => { setReaderBook(null); setView("reviewer"); }} onLibrary={() => { setReaderBook(null); setView("reviewer"); }} onExitSavedBook={() => { setReaderBook(null); setView("reviewer"); }} /> : <ReviewerPreview rtl={rtl} books={pilotBooks} onOpenOriginal={(book) => { setActivePilotBook(book); openReaderFor(book); }} />}
+      </main>
+    </div>;
+  }
   return (
     <div
       className={dark ? "app dark presentation-polish" : "app presentation-polish"}
@@ -592,7 +601,7 @@ export default function Home() {
               ? "مكتبتك قابلة للنمو. لا يبدأ التحليل أو السؤال أو الصوت الاحترافي إلا بعد تأكيدك."
               : "Your library can grow. Analysis, questions, and professional audio start only after your confirmation."}
           </p>
-          <button className="reviewer-preview-link" onClick={() => setView("reviewer")}>
+          <button className="reviewer-preview-link" onClick={() => window.open(`${window.location.pathname}?supervisor=1`, "_blank", "noopener,noreferrer")}>
             ◉ {rtl ? "معاينة نسخة المشرف" : "Preview reviewer view"}
           </button>
         </div>
@@ -730,7 +739,7 @@ export default function Home() {
         {view === "progress" && <Progress rtl={rtl} title={pageTitle} books={pilotBooks.filter((book) => !isBookArchived(book))} />}
         {view === "librarian" && <Librarian rtl={rtl} title={pageTitle} />}
         {view === "feedback" && <Feedback rtl={rtl} t={t} />}
-        {view === "reviewer" && <ReviewerPreview rtl={rtl} books={pilotBooks} onBack={() => setView("home")} onOpenOriginal={(book) => { setActivePilotBook(book); openReaderFor(book); }} />}
+        
         {view === "guide" && <UserGuide rtl={rtl} onUpload={openUpload} onLibrary={() => setView("library")} onActivate={activateLatestVersion} activating={activating} />}
       </main>
       <nav className="mobile-nav">
@@ -770,7 +779,7 @@ export default function Home() {
   );
 }
 
-function ReviewerPreview({ rtl, books, onBack, onOpenOriginal }: { rtl: boolean; books: PilotBook[]; onBack: () => void; onOpenOriginal: (book: PilotBook) => void }) {
+function ReviewerPreview({ rtl, books, onOpenOriginal }: { rtl: boolean; books: PilotBook[]; onOpenOriginal: (book: PilotBook) => void }) {
   const visibleBooks = books;
   const [selectedBookId, setSelectedBookId] = useState(visibleBooks.find((book) => !isBookArchived(book))?.id ?? visibleBooks[0]?.id ?? "");
   const [results, setResults] = useState<Record<string, unknown> | null>(null);
@@ -815,7 +824,6 @@ function ReviewerPreview({ rtl, books, onBack, onOpenOriginal }: { rtl: boolean;
 
   return (
     <div className="page reviewer-preview-page">
-      <button className="back" onClick={onBack}>→ {rtl ? "العودة إلى حساب المالك" : "Back to owner account"}</button>
       <section className="reviewer-hero">
         <span className="eyebrow">{rtl ? "نسخة المشرف والمراجع" : "Supervisor and reviewer view"}</span>
         <h2>{rtl ? "مرحبًا بك في المكتبة الشخصية الذكية" : "Welcome to the Smart Personal Library"}</h2>
@@ -1003,7 +1011,7 @@ function Dashboard({
             <button className="secondary" onClick={() => setView("library")}>
               ▥ {rtl ? "افتح مكتبتي" : "Open my library"}
             </button>
-            <button className="secondary reviewer-home-button" onClick={() => setView("reviewer")}>
+            <button className="secondary reviewer-home-button" onClick={() => window.open(`${window.location.pathname}?supervisor=1`, "_blank", "noopener,noreferrer")}>
               ◉ {rtl ? "نسخة المشرف" : "Reviewer view"}
             </button>
           </div>

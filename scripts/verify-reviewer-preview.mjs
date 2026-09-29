@@ -11,6 +11,11 @@ for (const required of ["const visibleBooks = books;", "isBookArchived(book)", "
   const end = app.indexOf("function LibraryLogin", start);
   if (!app.slice(start, end).includes(required)) throw new Error(`Reviewer research preview is missing: ${required}`);
 }
+for (const required of ['supervisorRoute', 'window.location.pathname}?supervisor=1', 'reviewer-standalone', 'تسجيل الخروج']) {
+  if (!app.includes(required)) throw new Error(`Standalone supervisor route is missing: ${required}`);
+}
+const preview = app.slice(app.indexOf("function ReviewerPreview"), app.indexOf("function LibraryLogin", app.indexOf("function ReviewerPreview")));
+if (preview.includes("العودة إلى حساب المالك")) throw new Error("Supervisor preview must not link back to owner account");
 for (const forbidden of ["onUpload={", "invokeBookAI("]) {
   const start = app.indexOf("function ReviewerPreview");
   const end = app.indexOf("function LibraryLogin", start);
