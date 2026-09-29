@@ -771,16 +771,18 @@ export default function Home() {
 }
 
 function ReviewerPreview({ rtl, books, onBack }: { rtl: boolean; books: PilotBook[]; onBack: () => void }) {
-  const visibleBooks = books.filter((book) => !isBookArchived(book));
-  const [selectedBookId, setSelectedBookId] = useState(visibleBooks[0]?.id ?? "");
+  const visibleBooks = books;
+  const [selectedBookId, setSelectedBookId] = useState(visibleBooks.find((book) => !isBookArchived(book))?.id ?? visibleBooks[0]?.id ?? "");
   const [results, setResults] = useState<Record<string, unknown> | null>(null);
   const [audioUrls, setAudioUrls] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const selectedBook = visibleBooks.find((book) => book.id === selectedBookId) ?? visibleBooks[0];
+  const activeCount = visibleBooks.filter((book) => !isBookArchived(book)).length;
+  const archiveCount = visibleBooks.length - activeCount;
 
   useEffect(() => {
-    if (!selectedBook && visibleBooks[0]) setSelectedBookId(visibleBooks[0].id);
+    if (!selectedBook && visibleBooks[0]) setSelectedBookId(visibleBooks.find((book) => !isBookArchived(book))?.id ?? visibleBooks[0].id);
   }, [selectedBook, visibleBooks]);
 
   useEffect(() => {
@@ -817,19 +819,20 @@ function ReviewerPreview({ rtl, books, onBack }: { rtl: boolean; books: PilotBoo
       <section className="reviewer-hero">
         <span className="eyebrow">{rtl ? "نسخة المشرف والمراجع" : "Supervisor and reviewer view"}</span>
         <h2>{rtl ? "مرحبًا بك في المكتبة الشخصية الذكية" : "Welcome to the Smart Personal Library"}</h2>
-        <p>{rtl ? "تصفح الكتب المختارة، راجع المخرجات، واستمع إلى الصوت المحفوظ، ثم دوّن تقييمك وملاحظاتك." : "Review selected books and saved outputs, listen to saved audio, then record your evaluation."}</p>
+        <p>{rtl ? "بدأتُ من كتب اخترتُها وأردتُ قراءتها، لكن الوقت وحجم بعضها ولغتها أخّرت وصولي إليها. صنعتُ هذا النموذج لأختبر كيف يمكن لتنظيم الكتاب وخريطته وخلاصته وصوته أن تفتح مداخل إلى معرفته، ومتى يعود القارئ إلى الأصل." : "I began with books I chose and wanted to read, but time, length, and language delayed me. I built this prototype to examine whether cataloguing, maps, summaries, and audio can open paths into their content, and when readers return to the source."}</p>
+        <div className="reviewer-research-question"><strong>{rtl ? "سؤال للنقاش مع المشرف" : "Question for the supervisor"}</strong><p>{rtl ? "كيف تؤثر المداخل النصية والصوتية المدعومة بالذكاء الاصطناعي في وصول المستفيد إلى معرفة كتاب اختاره مسبقًا، وفهمه له، وتفاعله مع مصدره الأصلي حين تسمح اللغة بذلك؟" : "How do AI-assisted text and audio entry points affect access to, understanding of, and engagement with a self-selected book and, when language permits, its source?"}</p><small>{rtl ? "سؤال أولي قيد الصياغة؛ هذه المعاينة ليست دليلًا على فاعلية المنصة أو مقترحًا منهجيًا معتمدًا." : "A working question; this preview does not establish effectiveness or constitute an approved research proposal."}</small></div>
         <b>{rtl ? "معاينة المالك — لا توجد صلاحيات مشاركة خارجية بعد" : "Owner preview — external sharing is not enabled yet"}</b>
       </section>
       <div className="reviewer-layout">
         <aside className="panel reviewer-books">
-          <h3>{rtl ? "الكتب المتاحة للمراجعة" : "Books available for review"}</h3>
+          <h3>{rtl ? "الكتب في تجربة المالك" : "Books in the owner pilot"}</h3><p>{rtl ? `${activeCount} كتب أصلية نشطة، و${archiveCount} نسخ معرفية مؤرشفة` : `${activeCount} active originals and ${archiveCount} archived knowledge copies`}</p>
           {visibleBooks.length ? visibleBooks.map((book, index) => <button key={book.id} className={selectedBook?.id === book.id ? "active" : ""} onClick={() => setSelectedBookId(book.id)}>
-            <span>{String(index + 1).padStart(2, "0")}</span><strong>{book.title}</strong>
+            <span>{String(index + 1).padStart(2, "0")}</span><strong>{book.title}</strong><small>{isBookArchived(book) ? (rtl ? "نسخة معرفية مؤرشفة" : "Archived knowledge copy") : (rtl ? "كتاب أصلي نشط" : "Active original")}</small>
           </button>) : <p>{rtl ? "لا توجد كتب مختارة حاليًا." : "No books are selected yet."}</p>}
         </aside>
         <main className="reviewer-content">
           {selectedBook && <>
-            <section className="panel reviewer-book-heading"><OriginalPdfCover book={selectedBook} /><div><span className="eyebrow">{rtl ? "كتاب مختار" : "Selected book"}</span><h3>{selectedBook.title}</h3><p>{rtl ? "النتائج المعروضة محفوظة مسبقًا ولا يبدأ فتح هذه الصفحة أي معالجة جديدة." : "These results are already saved; opening this page starts no new processing."}</p></div></section>
+            <section className="panel reviewer-book-heading"><OriginalPdfCover book={selectedBook} /><div><span className="eyebrow">{isBookArchived(selectedBook) ? (rtl ? "نسخة معرفية مؤرشفة" : "Archived knowledge copy") : (rtl ? "كتاب أصلي نشط" : "Active original")}</span><h3>{selectedBook.title}</h3><p>{isBookArchived(selectedBook) ? (rtl ? "تُبقي الأرشفة البطاقة والمخرجات المحفوظة وتُفرغ مكانًا لكتاب أصلي جديد. قد لا يكون ملف الكتاب الأصلي متاحًا هنا." : "Archiving retains the catalogue card and saved outputs while freeing an original-book slot. The original PDF may no longer be available here.") : (rtl ? "كتاب في الرف النشط؛ النتائج أدناه محفوظة مسبقًا ولا يبدأ عرضها أي معالجة جديدة." : "An active original; the outputs below are saved and viewing them starts no new processing.")}</p></div></section>
             {loading && <section className="panel">{rtl ? "جارٍ تحميل النتائج المحفوظة…" : "Loading saved results…"}</section>}
             {!loading && results && <section className="panel reviewer-results"><h3>{rtl ? "الخلاصة والتحليل" : "Summary and analysis"}</h3><PaidResultView result={results} rtl={rtl} /></section>}
             {!loading && !results && <section className="panel"><p>{rtl ? "لا توجد خلاصة محفوظة لهذا الكتاب." : "No saved summary is available for this book."}</p></section>}
@@ -837,7 +840,7 @@ function ReviewerPreview({ rtl, books, onBack }: { rtl: boolean; books: PilotBoo
             {error && <div className="reader-error inline">{error}</div>}
             <section className="panel reviewer-feedback-form">
               <span className="eyebrow">{rtl ? "التقييم والملاحظات" : "Evaluation and notes"}</span>
-              <h3>{rtl ? "رأي المشرف أو المراجع" : "Reviewer feedback"}</h3>
+              <h3>{rtl ? "أسئلة للنقاش العلمي" : "Questions for academic discussion"}</h3><p>{rtl ? "هل المشكلة البحثية محددة؟ ما الدور الذي يستحق الاختبار من هذه المداخل؟ وهل يساعد الملخص على العودة إلى الأصل أم قد يكتفي به القارئ؟ في حالة حاجز اللغة، كيف نقيس الوصول إلى المعرفة دون افتراض القدرة على قراءة الأصل؟" : "Is the research problem specific? Which entry point merits testing? Do summaries lead to the source or replace it? When language is a barrier, how should access to knowledge be measured without assuming the source can be read?"}</p><p>{rtl ? "الملاحظات هنا إرشادية لصياغة البحث، وليست بيانات مشاركين في دراسة." : "These notes guide research design; they are not participant data."}</p>
               <label>{rtl ? "التقييم العام" : "Overall rating"}<select defaultValue=""><option value="" disabled>{rtl ? "اختر من 1 إلى 5" : "Choose 1 to 5"}</option>{[1,2,3,4,5].map((n) => <option key={n}>{n}</option>)}</select></label>
               <label>{rtl ? "أبرز ملاحظة" : "Main observation"}<textarea placeholder={rtl ? "اكتب ملاحظتك حول الفكرة أو الاستخدام أو النتائج…" : "Write your observation about the idea, usability, or results…"} /></label>
               <label>{rtl ? "اقتراح للتطوير" : "Improvement suggestion"}<textarea placeholder={rtl ? "ما الذي تقترح إضافته أو تغييره؟" : "What should be added or changed?"} /></label>
