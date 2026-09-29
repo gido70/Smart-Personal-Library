@@ -192,3 +192,9 @@
 /* Explicit foreground prevents the dark hero's white text inheriting onto this light card. */
 .reviewer-hero .reviewer-research-question{background:#f4efe4;color:#111111}
 .reviewer-hero .reviewer-research-question p,.reviewer-hero .reviewer-research-question strong,.reviewer-hero .reviewer-research-question small{color:#111111}
+
+.shared-cover{width:100%;max-width:100px;height:auto;border-radius:8px;box-shadow:var(--shadow)}
+.shared-cover-placeholder{padding:12px;border:1px solid var(--line);border-radius:8px;overflow-wrap:anywhere}
+.shared-audio-track{display:grid;gap:8px;margin:14px 0}.shared-audio-track audio{width:100%}
+.shared-supervisor .reviewer-books>button{grid-template-columns:1fr}.shared-book-select{display:none}
+@media(max-width:760px){.shared-supervisor .reviewer-books{display:none}.shared-book-select{display:grid;gap:8px;margin:16px 0;padding:12px;background:var(--card);border-radius:12px}.shared-book-select select{width:100%;min-height:48px;background:var(--card2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:10px}.shared-supervisor .reviewer-layout{grid-template-columns:minmax(0,1fr)}.shared-supervisor .reviewer-content{min-width:0}.shared-supervisor .reviewer-book-heading{grid-template-columns:70px minmax(0,1fr)}}
