@@ -178,3 +178,13 @@
 @media(max-width:760px){.reviewer-layout{grid-template-columns:1fr}.reviewer-books{position:static;display:flex;gap:8px;overflow-x:auto}.reviewer-books h3,.reviewer-books p{flex-basis:100%}.reviewer-books>button{flex:0 0 210px}.reviewer-book-heading{grid-template-columns:78px 1fr}.reviewer-book-heading h3{font-size:20px}.reviewer-hero{padding:19px}.reviewer-hero h2{font-size:28px}}
 
 .upload-error{padding:12px;border:1px solid #b44734;border-radius:12px;color:#9b2617;background:#fff2ee;overflow-wrap:anywhere}
+
+/* The supervisor preview has its own route and no owner navigation. */
+.reviewer-standalone{min-height:100vh;display:block}
+.reviewer-standalone-main{width:min(1200px,100%);margin:auto;padding:clamp(12px,3vw,32px)}
+.reviewer-standalone-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;margin-bottom:18px;border:1px solid var(--line);border-radius:14px;background:var(--card)}
+.reviewer-standalone-header>div{display:flex;gap:8px;flex-wrap:wrap}
+.reviewer-standalone .reviewer-preview-page{padding:0;width:100%;max-width:none}
+.reviewer-research-question{margin:16px 0;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--card2);line-height:1.8}
+.reviewer-research-question p{margin:6px 0}
+@media(max-width:760px){.reviewer-standalone-main{padding:12px}.reviewer-standalone-header{align-items:flex-start}}
