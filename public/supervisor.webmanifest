@@ -1,6 +1,6 @@
 {
-  "name": "المكتبة الشخصية الذكية — المشرف",
-  "short_name": "عرض المشرف",
+  "name": "المكتبة الشخصية الذكية — المستخدم",
+  "short_name": "عرض المستخدم",
   "id": "./supervisor",
   "start_url": "./?supervisor=share",
   "scope": "./",

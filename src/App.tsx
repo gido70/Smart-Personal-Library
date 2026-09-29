@@ -559,7 +559,7 @@ export default function Home() {
   if (supervisorRoute) {
     return <div className={dark ? "app dark reviewer-standalone" : "app reviewer-standalone"} dir={rtl ? "rtl" : "ltr"} lang={lang}>
       <main className="reviewer-standalone-main">
-        <header className="reviewer-standalone-header"><strong>{rtl ? "المكتبة الشخصية الذكية · عرض المشرف" : "Smart Personal Library · Supervisor view"}</strong><div><button className="secondary" onClick={switchLang}>{rtl ? "English" : "العربية"}</button><button className="secondary" onClick={() => signOutLibraryAccount()}>{rtl ? "تسجيل الخروج" : "Sign out"}</button></div></header>
+        <header className="reviewer-standalone-header"><strong>{rtl ? "المكتبة الشخصية الذكية · عرض المستخدم" : "Smart Personal Library · User view"}</strong><div><button className="secondary" onClick={switchLang}>{rtl ? "English" : "العربية"}</button><button className="secondary" onClick={() => signOutLibraryAccount()}>{rtl ? "تسجيل الخروج" : "Sign out"}</button></div></header>
         {view === "reader" && readerBook ? <Reader rtl={rtl} savedBook={readerBook} onHome={() => { setReaderBook(null); setView("reviewer"); }} onLibrary={() => { setReaderBook(null); setView("reviewer"); }} onExitSavedBook={() => { setReaderBook(null); setView("reviewer"); }} /> : <ReviewerPreview rtl={rtl} books={pilotBooks} onOpenOriginal={(book) => { setActivePilotBook(book); openReaderFor(book); }} />}
       </main>
     </div>;
@@ -602,7 +602,7 @@ export default function Home() {
               : "Your library can grow. Analysis, questions, and professional audio start only after your confirmation."}
           </p>
           <button className="reviewer-preview-link" onClick={() => window.open(`${window.location.pathname}?supervisor=1`, "_blank", "noopener,noreferrer")}>
-            ◉ {rtl ? "معاينة نسخة المشرف" : "Preview reviewer view"}
+            ◉ {rtl ? "معاينة نسخة المستخدم" : "Preview user view"}
           </button>
         </div>
         <div className="profile">
@@ -825,10 +825,10 @@ function ReviewerPreview({ rtl, books, onOpenOriginal }: { rtl: boolean; books: 
   return (
     <div className="page reviewer-preview-page">
       <section className="reviewer-hero">
-        <span className="eyebrow">{rtl ? "نسخة المشرف والمراجع" : "Supervisor and reviewer view"}</span>
+        <span className="eyebrow">{rtl ? "نسخة المستخدم" : "User view"}</span>
         <h2>{rtl ? "مرحبًا بك في المكتبة الشخصية الذكية" : "Welcome to the Smart Personal Library"}</h2>
         <p>{rtl ? "بدأتُ من كتب اخترتُها وأردتُ قراءتها، لكن الوقت وحجم بعضها ولغتها أخّرت وصولي إليها. صنعتُ هذا النموذج لأختبر كيف يمكن لتنظيم الكتاب وخريطته وخلاصته وصوته أن تفتح مداخل إلى معرفته، ومتى يعود القارئ إلى الأصل." : "I began with books I chose and wanted to read, but time, length, and language delayed me. I built this prototype to examine whether cataloguing, maps, summaries, and audio can open paths into their content, and when readers return to the source."}</p>
-        <div className="reviewer-research-question"><strong>{rtl ? "سؤال للنقاش مع المشرف" : "Question for the supervisor"}</strong><p>{rtl ? "كيف تؤثر المداخل النصية والصوتية المدعومة بالذكاء الاصطناعي في وصول المستفيد إلى معرفة كتاب اختاره مسبقًا، وفهمه له، وتفاعله مع مصدره الأصلي حين تسمح اللغة بذلك؟" : "How do AI-assisted text and audio entry points affect access to, understanding of, and engagement with a self-selected book and, when language permits, its source?"}</p><small>{rtl ? "سؤال أولي قيد الصياغة؛ هذه المعاينة ليست دليلًا على فاعلية المنصة أو مقترحًا منهجيًا معتمدًا." : "A working question; this preview does not establish effectiveness or constitute an approved research proposal."}</small></div>
+        <div className="reviewer-research-question"><strong>{rtl ? "سؤال للنقاش مع المستخدم" : "Question for the user"}</strong><p>{rtl ? "كيف تؤثر المداخل النصية والصوتية المدعومة بالذكاء الاصطناعي في وصول المستفيد إلى معرفة كتاب اختاره مسبقًا، وفهمه له، وتفاعله مع مصدره الأصلي حين تسمح اللغة بذلك؟" : "How do AI-assisted text and audio entry points affect access to, understanding of, and engagement with a self-selected book and, when language permits, its source?"}</p><small>{rtl ? "سؤال أولي قيد الصياغة؛ هذه المعاينة ليست دليلًا على فاعلية المنصة أو مقترحًا منهجيًا معتمدًا." : "A working question; this preview does not establish effectiveness or constitute an approved research proposal."}</small></div>
         <b>{rtl ? "معاينة المالك — لا توجد صلاحيات مشاركة خارجية بعد" : "Owner preview — external sharing is not enabled yet"}</b>
       </section>
       <div className="reviewer-layout">
@@ -852,7 +852,7 @@ function ReviewerPreview({ rtl, books, onOpenOriginal }: { rtl: boolean; books: 
               <label>{rtl ? "التقييم العام" : "Overall rating"}<select defaultValue=""><option value="" disabled>{rtl ? "اختر من 1 إلى 5" : "Choose 1 to 5"}</option>{[1,2,3,4,5].map((n) => <option key={n}>{n}</option>)}</select></label>
               <label>{rtl ? "أبرز ملاحظة" : "Main observation"}<textarea placeholder={rtl ? "اكتب ملاحظتك حول الفكرة أو الاستخدام أو النتائج…" : "Write your observation about the idea, usability, or results…"} /></label>
               <label>{rtl ? "اقتراح للتطوير" : "Improvement suggestion"}<textarea placeholder={rtl ? "ما الذي تقترح إضافته أو تغييره؟" : "What should be added or changed?"} /></label>
-              <button className="primary" disabled>{rtl ? "إرسال التقييم — يتفعّل بعد ربط حساب المشرف" : "Submit — enabled after reviewer access is connected"}</button>
+              <button className="primary" disabled>{rtl ? "إرسال التقييم — يتفعّل بعد ربط حساب المستخدم" : "Submit — enabled after reviewer access is connected"}</button>
             </section>
           </>}
         </main>
@@ -1012,7 +1012,7 @@ function Dashboard({
               ▥ {rtl ? "افتح مكتبتي" : "Open my library"}
             </button>
             <button className="secondary reviewer-home-button" onClick={() => window.open(`${window.location.pathname}?supervisor=1`, "_blank", "noopener,noreferrer")}>
-              ◉ {rtl ? "نسخة المشرف" : "Reviewer view"}
+              ◉ {rtl ? "نسخة المستخدم" : "User view"}
             </button>
           </div>
         </div>
