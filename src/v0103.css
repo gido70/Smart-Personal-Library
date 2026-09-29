@@ -188,3 +188,7 @@
 .reviewer-research-question{margin:16px 0;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--card2);line-height:1.8}
 .reviewer-research-question p{margin:6px 0}
 @media(max-width:760px){.reviewer-standalone-main{padding:12px}.reviewer-standalone-header{align-items:flex-start}}
+
+/* Explicit foreground prevents the dark hero's white text inheriting onto this light card. */
+.reviewer-hero .reviewer-research-question{background:#f4efe4;color:#111111}
+.reviewer-hero .reviewer-research-question p,.reviewer-hero .reviewer-research-question strong,.reviewer-hero .reviewer-research-question small{color:#111111}
