@@ -1,5 +1,4 @@
 import { createClient } from "npm:@supabase/supabase-js@2.112.4";
-const expectedHash = "8c9245f9a07466032b680626e7c06d9497c151b634ea9d5853882c567f2c310b";
 const owner = "4de003e1-6f38-49a3-9a4e-9f0e68efcd70";
 const permitted = ["80e7f4cb-6b20-433b-a8b4-acfc7d26da79","f553a7ce-6e0a-41e9-9841-f971f8b6daa8","3c285dbd-f788-4100-afcb-2e00598064a0","ab3fcc42-4b4f-4571-8772-f5ffd25843be","214e4827-d6e1-479b-a224-25ec76565add","d31af32b-e8b5-411a-acac-c28371f74868","beef397f-c437-4069-88f6-76868645fb14"];
 const ttl = 900;
@@ -12,12 +11,20 @@ Deno.serve(async(req:Request)=>{
  try {
   const raw=await req.text(); if(raw.length>1024)return reply({error:"INVALID_REQUEST"},400);
   const input=JSON.parse(raw);
-  if(typeof input.token!=="string" || !/^[a-f0-9]{64}$/.test(input.token))return reply({error:"ACCESS_DENIED"},403);
-  const digest=new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(input.token)));
-  const actual=Array.from(digest,x=>x.toString(16).padStart(2,"0")).join("");
-  let diff=0;for(let i=0;i<expectedHash.length;i++)diff|=actual.charCodeAt(i)^expectedHash.charCodeAt(i);
-  if(diff!==0)return reply({error:"ACCESS_DENIED"},403);
   const db=createClient(Deno.env.get("SUPABASE_URL")!,Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,{auth:{persistSession:false,autoRefreshToken:false}});
+  const hash=async(value:string)=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value))),x=>x.toString(16).padStart(2,"0")).join("");
+  if(input.action==="login"){
+   if(typeof input.pin!=="string"||!/^\d{6}$/.test(input.pin))return reply({error:"ACCESS_DENIED"},403);
+   const session=Array.from(crypto.getRandomValues(new Uint8Array(32)),x=>x.toString(16).padStart(2,"0")).join("");
+   const {data,error}=await db.rpc("spl_supervisor_access",{p_action:"login",p_hash:await hash(input.pin),p_new_hash:await hash(session)});
+   if(error)throw error;
+   if(!data?.ok)return reply({error:data?.status===429?"TOO_MANY_ATTEMPTS":"ACCESS_DENIED"},data?.status||403);
+   return reply({token:session});
+  }
+  if(typeof input.token!=="string"||!/^[a-f0-9]{64}$/.test(input.token))return reply({error:"ACCESS_DENIED"},403);
+  const {data:access,error:accessError}=await db.rpc("spl_supervisor_access",{p_action:"session",p_hash:await hash(input.token)});
+  if(accessError)throw accessError;
+  if(!access?.ok)return reply({error:"ACCESS_DENIED"},403);
   if(input.action==="list"){
    const {data,error}=await db.from("spl_books").select("id,title,source_language,output_language,metadata").eq("user_id",owner).in("id",permitted);
    if(error)throw error;
