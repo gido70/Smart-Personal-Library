@@ -811,7 +811,7 @@ html[dir="ltr"] .content,html[dir="ltr"] th,html[dir="ltr"] td{text-align:left;d
 #technical-journey dt{margin-top:18px}#technical-journey dd{margin-inline-start:0;margin-top:5px}
 </style>
 </head>
-<body>
+<body><aside dir="rtl" style="padding:16px;text-align:right;background:#edf6f1"><a href="research-index.html" style="color:#075bb1;font-weight:bold">إندكس الرحلة البحثية — العنوان والسؤال والخارطة والمنهجية</a><span lang="en" dir="ltr"> · Research journey index</span></aside>
 <div class="shell">
 <aside class="sidebar">
   <div class="brand">
@@ -1026,7 +1026,7 @@ function applyEnglish(){
  const tags=['15–20 minute overview','Chapter summaries','Arabic ↔ English','Audio in two languages','Personal AI librarian','Page-linked citations','Progress & reminders','Local source reader'];document.querySelectorAll('.hero-tags span').forEach((s,i)=>s.textContent=tags[i]);
  const stats=[['20','minutes for the main overview'],['4','layers for understanding each book'],['1','private library for every user'],['0','protected books preinstalled']];document.querySelectorAll('.stat').forEach((s,i)=>{s.querySelector('strong').textContent=stats[i][0];s.querySelector('span').textContent=stats[i][1]});document.getElementById('noResults').textContent='No matching section. Try another word.';
  Object.entries(EN.sections).forEach(([id,v])=>{const s=document.getElementById(id);s.dataset.keywords=v.keys;s.querySelector('.section-title h2').textContent=v.title;s.querySelector('.section-title p').textContent=v.sub;s.querySelector('.content').innerHTML=v.html});
- document.querySelector('.footer').innerHTML='<strong>Smart Personal Library — Founding Concept Index</strong><br>Project index v2.3 — 28 September 2026. A separate research index is the next stage.';
+ document.querySelector('.footer').innerHTML='<strong>Smart Personal Library — Founding Concept Index</strong><br>Project index v2.3 — 28 September 2026. The separate research index is available at research-index.html.';
 }
 const queryLang=new URLSearchParams(location.search).get('lang');if(queryLang==='ar'||queryLang==='en')localStorage.setItem('smart-library-language',queryLang);const activeLang=queryLang||localStorage.getItem('smart-library-language')||'ar';if(activeLang==='en')applyEnglish();document.querySelector('#sources .content').insertAdjacentHTML('afterbegin',activeLang==='en'?"<div class='callout'><strong>User-experience rule:</strong> every external source opens in a separate browser tab, so the platform remains open and the reader does not lose their place.</div>":"<div class='callout'><strong>قاعدة تجربة المستخدم:</strong> يفتح كل مصدر أو رابط خارجي في تبويب مستقل، لتبقى المنصة مفتوحة ولا يفقد القارئ موضعه.</div>");document.getElementById('language').onclick=()=>{localStorage.setItem('smart-library-language',activeLang==='en'?'ar':'en');location.reload()};
 </script>
@@ -1057,6 +1057,9 @@ document.querySelectorAll('a[href^="http://"],a[href^="https://"]').forEach(a=>{
 
 AR.sections["change-register"].html="<div class='callout'><strong>29 سبتمبر 2026 — تسمية المستخدم:</strong><p>استبدلت التسمية السابقة بالمستخدم في شاشة الرمز وعرض الكتب وأزرار المعاينة واسم التطبيق عند التثبيت. هذه تسمية لعرض الفكرة وجمع الأسئلة دون افتراض دور إشرافي. الرابط والرمز وصلاحيات الوصول باقية. التحقق: فحص المعاينة والبناء وبوابة مزامنة الإندكس؛ اختبار التثبيت على هاتف فعلي ما زال متبقيًا.</p></div>"+AR.sections["change-register"].html;
 EN.sections["change-register"].html="<div class='callout'><strong>29 September 2026 — user view naming:</strong><p>I renamed the access screen, book view, preview buttons and installed app labels to User. This presents the idea without assigning an academic supervisory role. Access routes, PIN and permissions remain unchanged. Validation covers the preview check, build and index synchronization gate; physical-device installation remains unverified.</p></div>"+EN.sections["change-register"].html;
+
+AR.sections["change-register"].html="<div class='callout'><strong>30 سبتمبر 2026 — الإندكس البحثي 0.1:</strong><p>أنشأتُ صفحة مستقلة باسم research-index.html، تربط السؤال والعنوان والخارطة والمنهجية والقرارات ونقطة التوقف. أميز المقترحات عن القرارات المعتمدة؛ الفجوة العلمية والعينة والأدوات لم تثبت بعد. أتحقق من البناء وبوابة الإندكس وبنية RTL والروابط؛ اختبار هاتف فعلي لم يُنجز.</p></div>"+AR.sections["change-register"].html;
+EN.sections["change-register"].html="<div class='callout'><strong>30 September 2026 — research index 0.1:</strong><p>I add research-index.html for the working title, question, roadmap, proposed methods, decisions and next step. Proposals are distinguished from approved decisions; the literature gap, sample and measures are not established. Validation covers build, index gate, RTL structure and links; physical phone testing remains pending.</p></div>"+EN.sections["change-register"].html;
 </script>
 </body>
 </html>
