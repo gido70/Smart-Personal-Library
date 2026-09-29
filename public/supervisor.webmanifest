@@ -1,0 +1,20 @@
+{
+  "name": "المكتبة الشخصية الذكية — المشرف",
+  "short_name": "عرض المشرف",
+  "id": "./supervisor",
+  "start_url": "./?supervisor=share",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f8f5ed",
+  "theme_color": "#123f33",
+  "lang": "ar",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

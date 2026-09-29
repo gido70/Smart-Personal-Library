@@ -23,7 +23,7 @@ type PageLayout = "single" | "spread";
 /** A book already saved in Supabase — passed in by App.tsx when the reader is
  * opened from the library, as opposed to the standalone "pick a local file" entry
  * point. The two paths are never mixed in one button (V0.7 requirement §4.5). */
-export type SavedBookRef = { id: string; title: string; storagePath: string; initialPage?: number; sourceLanguage?: "ar" | "en" | "mixed" | "unknown" };
+export type SavedBookRef = { id: string; title: string; storagePath: string; initialPage?: number; sourceLanguage?: "ar" | "en" | "mixed" | "unknown"; sharedAccess?: () => Promise<{ url: string; expiresAt: number }>; readOnly?: boolean };
 
 const speedMs: Record<Speed, number> = { slow: 750, normal: 500, fast: 300 };
 
@@ -117,8 +117,8 @@ export default function Reader({
       setBookmarks([]);
       try {
         const [signed, progress, pdfjs] = await Promise.all([
-          createBookSignedUrl(savedBook.storagePath),
-          getReadingProgress(savedBook.id).catch(() => null),
+          savedBook.sharedAccess ? savedBook.sharedAccess() : createBookSignedUrl(savedBook.storagePath),
+          savedBook.readOnly ? Promise.resolve(null) : getReadingProgress(savedBook.id).catch(() => null),
           import("pdfjs-dist"),
         ]);
         if (cancelled) return;
@@ -164,7 +164,7 @@ export default function Reader({
     setLoading(true);
     setSavedBookError("");
     try {
-      const signed = await createBookSignedUrl(savedBook.storagePath);
+      const signed = await (savedBook.sharedAccess ? savedBook.sharedAccess() : createBookSignedUrl(savedBook.storagePath));
       setRemoteUrl(signed.url);
       setRemoteUrlExpiresAt(signed.expiresAt);
       const pdfjs = await import("pdfjs-dist");
@@ -198,7 +198,7 @@ export default function Reader({
     if (source === "local" && fileKey) {
       try { localStorage.setItem(`${fileKey}:page`, String(page)); } catch { /* Storage may be disabled. */ }
     }
-    if (source !== "saved" || !savedBook || !savedProgressReady) return;
+    if (source !== "saved" || !savedBook || savedBook.readOnly || !savedProgressReady) return;
     pendingProgress.current = { id: savedBook.id, page, bookmarks: [...bookmarks] };
     progressSaveTimer.current = window.setTimeout(() => flushProgressRef.current(), 600);
     return () => { if (progressSaveTimer.current) window.clearTimeout(progressSaveTimer.current); };

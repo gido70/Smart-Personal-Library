@@ -1745,7 +1745,7 @@ function describeAiError(value: unknown, rtl: boolean) {
   return code ? (rtl ? ar[code] : en[code]) : raw || (rtl ? "تعذر إكمال الطلب." : "The request could not be completed.");
 }
 
-function PaidResultView({ result, rtl }: { result: Record<string, unknown>; rtl: boolean }) {
+export function PaidResultView({ result, rtl }: { result: Record<string, unknown>; rtl: boolean }) {
   const data = result as PaidBookResult;
   const ideas = data.overview?.key_ideas ?? [];
   const returns = data.overview?.return_to_source ?? [];
