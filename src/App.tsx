@@ -604,6 +604,7 @@ export default function Home() {
           <button className="reviewer-preview-link" onClick={() => window.open(`${window.location.pathname}?supervisor=1`, "_blank", "noopener,noreferrer")}>
             ◉ {rtl ? "معاينة نسخة المستخدم" : "Preview user view"}
           </button>
+          <a className="reviewer-preview-link" href="./research-index.html" target="_blank" rel="noopener noreferrer">{rtl ? "إندكس الرحلة البحثية" : "Research journey index"}</a>
         </div>
         <div className="profile">
           <span>ع</span>
@@ -1014,6 +1015,7 @@ function Dashboard({
             <button className="secondary reviewer-home-button" onClick={() => window.open(`${window.location.pathname}?supervisor=1`, "_blank", "noopener,noreferrer")}>
               ◉ {rtl ? "نسخة المستخدم" : "User view"}
             </button>
+            <a className="secondary reviewer-home-button" href="./research-index.html" target="_blank" rel="noopener noreferrer">{rtl ? "إندكس الرحلة البحثية" : "Research journey index"}</a>
           </div>
         </div>
         <div className="quote-mark">
