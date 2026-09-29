@@ -3,7 +3,7 @@ importScripts('./offline-assets.js');
 const CACHE_NAME = 'spl-shell-offline-' + self.SPL_REV;
 const ROOT = new URL('./', self.registration.scope).href;
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll([ROOT, new URL('./manifest.webmanifest',ROOT).href, new URL('./favicon.svg',ROOT).href, ...self.SPL_ASSETS.map(path=>new URL(path,ROOT).href)])).then(()=>self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll([ROOT, new URL('./manifest.webmanifest',ROOT).href, new URL('./supervisor.webmanifest',ROOT).href, new URL('./user.html',ROOT).href, new URL('./favicon.svg',ROOT).href, ...self.SPL_ASSETS.map(path=>new URL(path,ROOT).href)])).then(()=>self.skipWaiting()));
 });
 self.addEventListener('activate', event => {
   event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key => (key.startsWith('spl-shell-offline-') || key.startsWith('smart-personal-library-')) && key!==CACHE_NAME).map(key=>caches.delete(key)))).then(()=>self.clients.claim()));
@@ -13,7 +13,7 @@ self.addEventListener('fetch', event => {
   const url=new URL(event.request.url);
   if(url.origin!==self.location.origin)return;
   if(event.request.mode==='navigate') {
-    event.respondWith(fetch(event.request).catch(()=>caches.open(CACHE_NAME).then(cache=>cache.match(ROOT))));return;
+    event.respondWith(fetch(event.request).catch(()=>caches.open(CACHE_NAME).then(cache=>cache.match(url.pathname.endsWith("/user.html") || url.searchParams.get("supervisor")==="share" ? new URL("./user.html",ROOT).href : ROOT))));return;
   }
   if(!self.SPL_ASSETS.some(path=>new URL(path,ROOT).href===url.href))return;
   event.respondWith(caches.open(CACHE_NAME).then(async cache=>(await cache.match(event.request)) || fetch(event.request)));

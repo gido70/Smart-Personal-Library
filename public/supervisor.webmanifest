@@ -1,9 +1,9 @@
 {
   "name": "المكتبة الشخصية الذكية — المستخدم",
   "short_name": "عرض المستخدم",
-  "id": "./supervisor",
-  "start_url": "./?supervisor=share",
-  "scope": "./",
+  "id": "./user.html",
+  "start_url": "./user.html",
+  "scope": "./user.html",
   "display": "standalone",
   "background_color": "#f8f5ed",
   "theme_color": "#123f33",
