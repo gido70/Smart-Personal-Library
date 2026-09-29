@@ -10,5 +10,5 @@ import "./v0103.css";
 import "./presentation-polish.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>{new URLSearchParams(window.location.search).get("supervisor")==="share" ? <SharedSupervisor/> : <App />}</React.StrictMode>,
+  <React.StrictMode>{(window.location.pathname.endsWith("/user.html") || new URLSearchParams(window.location.search).get("supervisor")==="share") ? <SharedSupervisor/> : <App />}</React.StrictMode>,
 );

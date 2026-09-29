@@ -36,5 +36,5 @@ export default defineConfig({
       this.emitFile({ type: "asset", fileName: "release.json", source: JSON.stringify({ commit, builtAt, index: "concept-index.html" }) });
     },
   }],
-  build: { outDir: "dist" },
+  build: { outDir: "dist", rollupOptions: { input: { main: fileURLToPath(new URL("./index.html", import.meta.url)), user: fileURLToPath(new URL("./user.html", import.meta.url)) } } },
 });
