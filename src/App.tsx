@@ -730,7 +730,7 @@ export default function Home() {
         {view === "progress" && <Progress rtl={rtl} title={pageTitle} books={pilotBooks.filter((book) => !isBookArchived(book))} />}
         {view === "librarian" && <Librarian rtl={rtl} title={pageTitle} />}
         {view === "feedback" && <Feedback rtl={rtl} t={t} />}
-        {view === "reviewer" && <ReviewerPreview rtl={rtl} books={pilotBooks} onBack={() => setView("home")} />}
+        {view === "reviewer" && <ReviewerPreview rtl={rtl} books={pilotBooks} onBack={() => setView("home")} onOpenOriginal={(book) => { setActivePilotBook(book); openReaderFor(book); }} />}
         {view === "guide" && <UserGuide rtl={rtl} onUpload={openUpload} onLibrary={() => setView("library")} onActivate={activateLatestVersion} activating={activating} />}
       </main>
       <nav className="mobile-nav">
@@ -770,7 +770,7 @@ export default function Home() {
   );
 }
 
-function ReviewerPreview({ rtl, books, onBack }: { rtl: boolean; books: PilotBook[]; onBack: () => void }) {
+function ReviewerPreview({ rtl, books, onBack, onOpenOriginal }: { rtl: boolean; books: PilotBook[]; onBack: () => void; onOpenOriginal: (book: PilotBook) => void }) {
   const visibleBooks = books;
   const [selectedBookId, setSelectedBookId] = useState(visibleBooks.find((book) => !isBookArchived(book))?.id ?? visibleBooks[0]?.id ?? "");
   const [results, setResults] = useState<Record<string, unknown> | null>(null);
@@ -832,7 +832,7 @@ function ReviewerPreview({ rtl, books, onBack }: { rtl: boolean; books: PilotBoo
         </aside>
         <main className="reviewer-content">
           {selectedBook && <>
-            <section className="panel reviewer-book-heading"><OriginalPdfCover book={selectedBook} /><div><span className="eyebrow">{isBookArchived(selectedBook) ? (rtl ? "نسخة معرفية مؤرشفة" : "Archived knowledge copy") : (rtl ? "كتاب أصلي نشط" : "Active original")}</span><h3>{selectedBook.title}</h3><p>{isBookArchived(selectedBook) ? (rtl ? "تُبقي الأرشفة البطاقة والمخرجات المحفوظة وتُفرغ مكانًا لكتاب أصلي جديد. قد لا يكون ملف الكتاب الأصلي متاحًا هنا." : "Archiving retains the catalogue card and saved outputs while freeing an original-book slot. The original PDF may no longer be available here.") : (rtl ? "كتاب في الرف النشط؛ النتائج أدناه محفوظة مسبقًا ولا يبدأ عرضها أي معالجة جديدة." : "An active original; the outputs below are saved and viewing them starts no new processing.")}</p></div></section>
+            <section className="panel reviewer-book-heading"><OriginalPdfCover book={selectedBook} /><div><span className="eyebrow">{isBookArchived(selectedBook) ? (rtl ? "نسخة معرفية مؤرشفة" : "Archived knowledge copy") : (rtl ? "كتاب أصلي نشط" : "Active original")}</span><h3>{selectedBook.title}</h3><p>{isBookArchived(selectedBook) ? (rtl ? "تُبقي الأرشفة البطاقة والمخرجات المحفوظة وتُفرغ مكانًا لكتاب أصلي جديد. قد لا يكون ملف الكتاب الأصلي متاحًا هنا." : "Archiving retains the catalogue card and saved outputs while freeing an original-book slot. The original PDF may no longer be available here.") : (rtl ? "كتاب في الرف النشط؛ النتائج أدناه محفوظة مسبقًا ولا يبدأ عرضها أي معالجة جديدة." : "An active original; the outputs below are saved and viewing them starts no new processing.")}</p>{!isBookArchived(selectedBook) && selectedBook.storage_path && <button className="secondary" onClick={() => onOpenOriginal(selectedBook)}>{rtl ? "افتح الكتاب الأصلي في قارئ المالك" : "Open the original in the owner reader"}</button>}</div></section>
             {loading && <section className="panel">{rtl ? "جارٍ تحميل النتائج المحفوظة…" : "Loading saved results…"}</section>}
             {!loading && results && <section className="panel reviewer-results"><h3>{rtl ? "الخلاصة والتحليل" : "Summary and analysis"}</h3><PaidResultView result={results} rtl={rtl} /></section>}
             {!loading && !results && <section className="panel"><p>{rtl ? "لا توجد خلاصة محفوظة لهذا الكتاب." : "No saved summary is available for this book."}</p></section>}
