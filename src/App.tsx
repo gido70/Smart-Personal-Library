@@ -58,6 +58,56 @@ import {
   type BookReminder,
 } from "./lib/reminders";
 
+// Private research index: stored in the owner-only "spl-research" bucket, opened and replaced from the owner view.
+function ResearchIndexButtons({ rtl, className }: { rtl: boolean; className: string }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const ownerPath = async () => {
+    if (!supabase) throw new Error("NO_CLIENT");
+    const { data } = await supabase.auth.getUser();
+    const user = data.user;
+    if (!user || (user as { is_anonymous?: boolean }).is_anonymous) throw new Error("NO_OWNER");
+    return `${user.id}/research-index.html`;
+  };
+  const openIndex = async () => {
+    const win = window.open("", "_blank");
+    try {
+      const path = await ownerPath();
+      const { data, error } = await supabase!.storage.from("spl-research").download(path);
+      if (error || !data) throw error ?? new Error("NO_FILE");
+      const html = await data.text();
+      if (!win) throw new Error("POPUP_BLOCKED");
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+    } catch {
+      win?.close();
+      window.alert(rtl ? "تعذر فتح الإندكس. ارفعه أولًا بزر «تحديث الإندكس»، وتأكد من تسجيل الدخول." : "Could not open the research index. Upload it first with “Update index” and make sure you are signed in.");
+    }
+  };
+  const uploadIndex = async (file: File) => {
+    setBusy(true);
+    try {
+      const path = await ownerPath();
+      const { error } = await supabase!.storage.from("spl-research").upload(path, file, { upsert: true, contentType: "text/html" });
+      if (error) throw error;
+      window.alert(rtl ? "تم تحديث الإندكس." : "Research index updated.");
+    } catch {
+      window.alert(rtl ? "تعذر رفع الإندكس. تأكد من تسجيل الدخول ومن إنشاء مخزن spl-research." : "Upload failed. Check sign-in and that the spl-research bucket exists.");
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+  return (
+    <>
+      <button className={className} onClick={() => void openIndex()}>{rtl ? "إندكس الرحلة البحثية" : "Research journey index"}</button>
+      <button className={className} disabled={busy} onClick={() => fileRef.current?.click()}>{busy ? "…" : rtl ? "تحديث الإندكس" : "Update index"}</button>
+      <input ref={fileRef} type="file" accept=".html,text/html" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadIndex(f); }} />
+    </>
+  );
+}
+
 type Lang = "ar" | "en";
 type ProfessionalVoice = "marin" | "cedar" | "coral" | "onyx" | "nova" | "sage";
 const PROFESSIONAL_VOICES: ProfessionalVoice[] = ["marin", "cedar", "coral", "onyx", "nova", "sage"];
@@ -604,7 +654,7 @@ export default function Home() {
           <button className="reviewer-preview-link" onClick={() => window.open(`${window.location.pathname}?supervisor=1`, "_blank", "noopener,noreferrer")}>
             ◉ {rtl ? "معاينة نسخة المستخدم" : "Preview user view"}
           </button>
-          <a className="reviewer-preview-link" href="./research-index.html" target="_blank" rel="noopener noreferrer">{rtl ? "إندكس الرحلة البحثية" : "Research journey index"}</a>
+          <ResearchIndexButtons rtl={rtl} className="reviewer-preview-link" />
         </div>
         <div className="profile">
           <span>ع</span>
@@ -1015,7 +1065,7 @@ function Dashboard({
             <button className="secondary reviewer-home-button" onClick={() => window.open(`${window.location.pathname}?supervisor=1`, "_blank", "noopener,noreferrer")}>
               ◉ {rtl ? "نسخة المستخدم" : "User view"}
             </button>
-            <a className="secondary reviewer-home-button" href="./research-index.html" target="_blank" rel="noopener noreferrer">{rtl ? "إندكس الرحلة البحثية" : "Research journey index"}</a>
+            <ResearchIndexButtons rtl={rtl} className="secondary reviewer-home-button" />
           </div>
         </div>
         <div className="quote-mark">
