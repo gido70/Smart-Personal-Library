@@ -62,3 +62,5 @@
 .dark .prototype-note .reviewer-preview-link.owner-primary{color:#10241e}
 @media (max-height:820px){.sidebar nav button{padding-top:9px;padding-bottom:9px}.prototype-note p{display:none}}
 .welcome-actions .owner-study-home{display:inline-flex}
+.tool-study{--tool-color:#1f8a5b}
+.prototype-note .reviewer-preview-link{height:auto;white-space:normal}
