@@ -1,0 +1,27 @@
+.rd{display:grid;gap:14px;max-width:1200px}
+.rd-head h2{margin:0 0 4px}
+.rd-head p{margin:0;color:var(--soft)}
+.rd-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.rd-card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;color:var(--ink)}
+.rd-card h3{margin:0 0 10px}
+.rd-steps{margin:0;padding-inline-start:20px;line-height:1.9}
+.rd-flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+.rd-flow div{display:grid;justify-items:center;gap:2px;padding:10px 6px;border:1px solid var(--line);border-radius:12px;background:var(--card2)}
+.rd-flow strong{font-size:1.5rem;color:var(--green2)}
+.rd-flow span{font-size:.85rem;color:var(--soft);text-align:center}
+.rd-flow .rd-out strong{color:var(--red,#b94a3d)}
+.rd-on{color:var(--green2)}.rd-off{color:var(--red,#b94a3d)}
+.rd-muted{color:var(--soft);font-size:.9rem}
+.rd-inline{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.rd-inline input[type=number]{width:70px;margin-inline-start:6px;padding:6px;border:1px solid var(--line);border-radius:8px;background:var(--card2);color:var(--ink)}
+.rd-created{margin-top:12px;display:grid;gap:8px}
+.rd-warn{background:color-mix(in srgb,var(--gold) 15%,var(--card));border-inline-start:4px solid var(--gold);padding:8px 10px;border-radius:8px;margin:0}
+.rd-invite{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px;border:1px dashed var(--line);border-radius:10px}
+.rd-invite code{font-size:1.05rem;letter-spacing:.08em}
+.rd-table{overflow-x:auto}
+.rd-table table{width:100%;border-collapse:collapse;font-size:.9rem;min-width:900px}
+.rd-table th,.rd-table td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:start;vertical-align:middle}
+.rd-table th{color:var(--soft);font-weight:800}
+.rd-table tr.rd-test{opacity:.6}
+.rd-table button{padding:4px 12px;min-height:30px}
+.rd-error{background:color-mix(in srgb,var(--red,#b94a3d) 12%,var(--card));color:var(--red,#b94a3d);border:1px solid var(--red,#b94a3d);padding:10px;border-radius:10px;font-weight:700}
