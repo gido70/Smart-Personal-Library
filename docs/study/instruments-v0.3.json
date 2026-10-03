@@ -1,0 +1,1515 @@
+[
+ {
+  "key": "consent",
+  "version": "0.3",
+  "title": "دعوة للمشاركة في دراسة بحثية",
+  "sections": [
+   {
+    "id": "info",
+    "title": "معلومات الدراسة",
+    "blocks": [
+     [
+      "عنوان الدراسة",
+      "الكتاب مصدرًا للمعرفة في زمن المعلومة السريعة: تصميم منصة عربية مدعومة بالذكاء الاصطناعي وتقييم دقة الفهم المستمد منها."
+     ],
+     [
+      "الباحث",
+      "[الاسم]، [البرنامج والجامعة]. المشرف: [الاسم والصفة]."
+     ],
+     [
+      "هدف الدراسة",
+      "نختبر منصة تساعد القارئ على فهم معرفة كتاب يملكه، عبر خريطة ذهنية وخلاصة وأسئلة ومقاطع صوتية مولّدة بالذكاء الاصطناعي، مع ربطها بمواضعها في الكتاب. نريد أن نعرف هل هي سهلة الاستخدام، وهل يأتي الفهم المستمد منها دقيقًا، وهل تدفع إلى الرجوع للكتاب نفسه."
+     ],
+     [
+      "ما المطلوب منك",
+      "(١) استبيان قبلي نحو ١٠ دقائق. (٢) رفع كتاب واحد تملك نسخة مشروعة منه، لا يزيد على ٤٠٠ صفحة، واستخدام المنصة معه خلال ٧ أيام بالقدر الذي تريده. (٣) استبيان بعدي بعد ٧ أيام، نحو ١٥ دقيقة. (٤) سؤال متابعة قصير بعد ١٤ يومًا أخرى، نحو ٣ دقائق. (٥) قد ندعوك لاحقًا إلى مقابلة اختيارية، ولك أن ترفض."
+     ],
+     [
+      "ما نجمعه",
+      "إجاباتك عن الاستبيانات، وسجلات استخدامك للمنصة (مثل فتح الخلاصة ومدة الاستماع وفتح الكتاب الأصلي). لا نطلب اسمك ولا بريدك. لا نسألك عن عنوان الكتاب، لكن اسم ملفه يُحفظ معه لتشغيل المنصة ويُحذف معه. تُعرَّف برمز فقط."
+     ],
+     [
+      "ملف الكتاب",
+      "يُعالَج لتوليد المخرجات لك، ولا يُشارك مع أي جهة. يطّلع عليه الباحث ومصحح ثانٍ ملتزم بالسرية فقط، لغرض واحد: مقارنة إجاباتك عن أسئلة الفهم بالكتاب نفسه. تُرسل نصوص الكتاب إلى خدمة OpenAI لتوليد المخرجات وفق شروط واجهتها البرمجية. يُحذف الملف في نهاية الدراسة."
+     ],
+     [
+      "التخزين والاطلاع",
+      "تُحفظ البيانات في قاعدة بيانات محمية، ولا يطّلع على البيانات المرمّزة إلا الباحث [والمشرف]. تُنشر النتائج مجمّعة فقط، وقد تُقتبس عبارات من إجاباتك المفتوحة دون ما يعرّف بك. تُحذف البيانات الخام بعد [المدة]."
+     ],
+     [
+      "الطوعية والانسحاب",
+      "مشاركتك طوعية تمامًا. يمكنك الانسحاب في أي وقت دون ذكر سبب، وطلب حذف بياناتك قبل [تاريخ بدء التحليل]."
+     ],
+     [
+      "المخاطر والفوائد",
+      "لا نتوقع مخاطر تتجاوز استخدامك المعتاد للإنترنت. قد تحتوي المخرجات المولّدة على أخطاء، والكتاب الأصلي هو المرجع. لا يوجد مقابل مادي."
+     ],
+     [
+      "للتواصل",
+      "[بريد الباحث]. للاستفسار عن حقوقك: [جهة الأخلاقيات]."
+     ]
+    ]
+   }
+  ],
+  "checks": [
+   {
+    "code": "CONSENT_AGE",
+    "text": "عمري ١٨ سنة أو أكثر.",
+    "required": true
+   },
+   {
+    "code": "CONSENT_BOOK",
+    "text": "أملك نسخة مشروعة من الكتاب الذي سأرفعه.",
+    "required": true
+   },
+   {
+    "code": "CONSENT_AGREE",
+    "text": "قرأت ما سبق، وأوافق على المشاركة.",
+    "required": true
+   },
+   {
+    "code": "CONSENT_INTERVIEW",
+    "text": "أوافق على أن أُدعى إلى مقابلة لاحقة (اختياري).",
+    "required": false
+   }
+  ]
+ },
+ {
+  "key": "pre",
+  "version": "0.3",
+  "title": "الاستبيان القبلي",
+  "minutes": "٨–١٠",
+  "sections": [
+   {
+    "id": "demo",
+    "title": "بيانات أساسية",
+    "items": [
+     {
+      "code": "PRE_AGE",
+      "type": "single",
+      "text": "الفئة العمرية",
+      "options": [
+       "١٨–٢٤",
+       "٢٥–٣٤",
+       "٣٥–٤٤",
+       "٤٥–٥٤",
+       "٥٥ فأكثر"
+      ],
+      "required": true
+     },
+     {
+      "code": "PRE_GENDER",
+      "type": "single",
+      "text": "الجنس",
+      "options": [
+       "ذكر",
+       "أنثى",
+       "أفضّل عدم الإجابة"
+      ],
+      "required": false
+     },
+     {
+      "code": "PRE_EDU",
+      "type": "single",
+      "text": "أعلى مؤهل دراسي",
+      "options": [
+       "ثانوي أو أقل",
+       "دبلوم",
+       "بكالوريوس",
+       "ماجستير",
+       "دكتوراه"
+      ],
+      "required": true
+     },
+     {
+      "code": "PRE_FIELD",
+      "type": "single",
+      "text": "مجال التخصص أو العمل",
+      "options": [
+       "علوم إنسانية واجتماعية",
+       "شرعية",
+       "تربوية",
+       "صحية",
+       "هندسية وتقنية",
+       "علوم طبيعية",
+       "إدارية واقتصادية",
+       "أخرى"
+      ],
+      "required": true,
+      "other": true
+     },
+     {
+      "code": "PRE_COUNTRY",
+      "type": "country",
+      "text": "بلد الإقامة",
+      "required": true
+     },
+     {
+      "code": "PRE_L1",
+      "type": "single",
+      "text": "اللغة الأولى",
+      "options": [
+       "العربية",
+       "أخرى"
+      ],
+      "required": true,
+      "other": true
+     },
+     {
+      "code": "PRE_EN",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أقرأ بها",
+        "",
+        "",
+        "",
+        "أقرأ بها كتبًا متخصصة بسهولة"
+       ]
+      },
+      "text": "ما مستوى قراءتك للإنجليزية؟",
+      "required": true
+     }
+    ]
+   },
+   {
+    "id": "habits",
+    "title": "عادات القراءة",
+    "items": [
+     {
+      "code": "PRE_BOOKS12",
+      "type": "single",
+      "text": "كم كتابًا قرأته كاملًا في آخر ١٢ شهرًا؟",
+      "options": [
+       "لا شيء",
+       "١–٢",
+       "٣–٥",
+       "٦–١٢",
+       "أكثر من ١٢"
+      ],
+      "required": true
+     },
+     {
+      "code": "PRE_FORMATS",
+      "type": "multi",
+      "text": "بأي الأشكال تقرأ عادة؟",
+      "options": [
+       "ورقي",
+       "PDF أو كتاب إلكتروني",
+       "كتب صوتية",
+       "تطبيقات ملخصات",
+       "لا أقرأ كتبًا حاليًا"
+      ],
+      "required": true
+     },
+     {
+      "code": "PRE_HOURS",
+      "type": "single",
+      "text": "كم ساعة تقرأ أسبوعيًا تقريبًا؟",
+      "options": [
+       "أقل من ساعة",
+       "١–٢",
+       "٣–٥",
+       "٦–١٠",
+       "أكثر من ١٠"
+      ],
+      "required": true
+     },
+     {
+      "code": "PRE_AIUSE",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "أبدًا",
+        "نادرًا",
+        "أحيانًا",
+        "غالبًا",
+        "دائمًا"
+       ]
+      },
+      "text": "كم مرة تستخدم أدوات الذكاء الاصطناعي في القراءة أو فهم الكتب؟",
+      "required": true
+     }
+    ]
+   },
+   {
+    "id": "deferred",
+    "title": "المكتبة المؤجلة",
+    "items": [
+     {
+      "code": "PRE_UNREAD",
+      "type": "single",
+      "text": "كم كتابًا اقتنيته بنية قراءته ولم تقرأه بعد؟",
+      "options": [
+       "لا شيء",
+       "١–٥",
+       "٦–١٥",
+       "١٦–٥٠",
+       "أكثر من ٥٠"
+      ],
+      "required": true
+     },
+     {
+      "code": "PRE_REASONS",
+      "type": "multi",
+      "text": "ما أسباب تأجيلك قراءتها؟",
+      "options": [
+       "ضيق الوقت",
+       "طول الكتاب",
+       "لغة الكتاب",
+       "صعوبة المحتوى",
+       "ضعف الدافع",
+       "انشغالي بالمحتوى الرقمي",
+       "أفضّل أشكالًا أخرى (صوتي، ملخصات، فيديو)",
+       "أخرى"
+      ],
+      "required": true,
+      "other": true
+     },
+     {
+      "code": "PRE_REASONS_TOP3",
+      "type": "rank",
+      "text": "رتّب أهم ثلاثة أسباب مما اخترت",
+      "from_code": "PRE_REASONS",
+      "pick": 3,
+      "required": true,
+      "show_if": {
+       "code": "PRE_REASONS",
+       "min_count": 3
+      }
+     },
+     {
+      "code": "PRE_LASTBOOK",
+      "type": "text",
+      "text": "صف آخر كتاب نويت قراءته ولم تقرأه، ولماذا لم تقرأه.",
+      "required": false
+     }
+    ]
+   },
+   {
+    "id": "book",
+    "title": "الكتاب المختار",
+    "items": [
+     {
+      "code": "PRE_BOOK_CAT",
+      "type": "single",
+      "text": "تصنيف الكتاب",
+      "options": [
+       "فكر وفلسفة",
+       "دين",
+       "تاريخ وسير",
+       "علوم",
+       "تطوير ذات",
+       "إدارة واقتصاد",
+       "أدب",
+       "تقنية",
+       "أخرى"
+      ],
+      "required": true,
+      "other": true
+     },
+     {
+      "code": "PRE_BOOK_LANG",
+      "type": "single",
+      "text": "لغة الكتاب",
+      "options": [
+       "العربية",
+       "الإنجليزية",
+       "أخرى"
+      ],
+      "required": true
+     },
+     {
+      "code": "PRE_BOOK_PAGES",
+      "type": "number",
+      "text": "عدد صفحاته تقريبًا",
+      "min": 1,
+      "max": 400,
+      "required": true
+     },
+     {
+      "code": "PRE_BOOK_WHY",
+      "type": "single",
+      "text": "لماذا اخترت هذا الكتاب؟",
+      "options": [
+       "أنوي قراءته منذ مدة",
+       "أحتاجه لعمل أو دراسة",
+       "فضول تجاه موضوعه",
+       "أريد أن أقرر هل يستحق القراءة",
+       "أخرى"
+      ],
+      "required": true,
+      "other": true
+     },
+     {
+      "code": "PRE_BOOK_PRIOR",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أعرف عنه شيئًا",
+        "",
+        "",
+        "",
+        "أعرفه جيدًا"
+       ]
+      },
+      "text": "ما معرفتك المسبقة بموضوعه؟",
+      "required": true
+     },
+     {
+      "code": "PRE_BOOK_INTENT",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أنوي إطلاقًا",
+        "",
+        "",
+        "",
+        "أنوي بالتأكيد"
+       ]
+      },
+      "text": "لو توفر لك الوقت، ما مدى نيتك قراءته كاملًا؟",
+      "required": true
+     },
+     {
+      "code": "PRE_BOOK_READ",
+      "type": "single",
+      "text": "هل قرأت منه شيئًا قبل اليوم؟",
+      "options": [
+       "لا",
+       "صفحات قليلة",
+       "فصلًا أو أكثر",
+       "معظمه"
+      ],
+      "required": true
+     }
+    ]
+   },
+   {
+    "id": "attitudes",
+    "title": "اتجاهاتك قبل الاستخدام",
+    "source": [
+     {
+      "name": "S-TIAS",
+      "cite": "McGrath, M. J., Lack, O., Tisch, J., & Duenser, A. (2025). Frontiers in Artificial Intelligence, 8, 1582880; Jian, J.-Y., Bisantz, A. M., & Drury, C. G. (2000). International Journal of Cognitive Ergonomics, 4(1), 53–71.",
+      "status": "ترجمة مؤقتة من الباحث؛ تنتظر الترجمة الأمامية والعكسية"
+     },
+     {
+      "name": "مُطوَّر من الباحث",
+      "status": "يحتاج تحكيمًا (CVR) وتجربة وألفا كرونباخ"
+     }
+    ],
+    "items": [
+     {
+      "code": "TRUST1",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 7,
+       "labels": [
+        "لا إطلاقًا",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "إلى أقصى حد"
+       ]
+      },
+      "text": "أنا واثق من أدوات الذكاء الاصطناعي التي تلخّص الكتب.",
+      "required": true
+     },
+     {
+      "code": "TRUST2",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 7,
+       "labels": [
+        "لا إطلاقًا",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "إلى أقصى حد"
+       ]
+      },
+      "text": "أدوات الذكاء الاصطناعي التي تلخّص الكتب موثوقة في أدائها.",
+      "required": true
+     },
+     {
+      "code": "TRUST3",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 7,
+       "labels": [
+        "لا إطلاقًا",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "إلى أقصى حد"
+       ]
+      },
+      "text": "أستطيع أن أثق بأدوات الذكاء الاصطناعي التي تلخّص الكتب.",
+      "required": true
+     },
+     {
+      "code": "SRC1",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": "أثق بما أعرفه من كتاب كامل أكثر مما أعرفه من إجابات سريعة على الإنترنت.",
+      "required": true
+     },
+     {
+      "code": "SRC2",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": "حين أريد فهم موضوع فهمًا عميقًا، أرجع إلى كتاب.",
+      "required": true
+     },
+     {
+      "code": "SRC3",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": "تكفيني المقاطع القصيرة والإجابات السريعة لفهم معظم الموضوعات.",
+      "required": true,
+      "reverse": true
+     },
+     {
+      "code": "ATTN1",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": "للتأكد من انتباهك، اختر «لا أوافق» في هذا البند.",
+      "required": true,
+      "attention": 2
+     },
+     {
+      "code": "SRC4",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": "حين أستشهد بفكرة، أحرص على معرفة الكتاب الذي جاءت منه.",
+      "required": true
+     },
+     {
+      "code": "EXP1",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": "أتوقع أن تساعدني المنصة على فهم أفكار الكتاب الذي اخترته.",
+      "required": true
+     },
+     {
+      "code": "EXP2",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": "أتوقع أن توفر عليّ المنصة وقتًا مقارنة بقراءة الكتاب وحده.",
+      "required": true
+     },
+     {
+      "code": "EXP3",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": "أتوقع أن تزيد المنصة رغبتي في قراءة الكتاب نفسه.",
+      "required": true
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "key": "post",
+  "version": "0.3",
+  "title": "الاستبيان البعدي",
+  "minutes": "١٢–١٥",
+  "instructions": "أجب عن أسئلة الفهم من ذاكرتك، دون فتح المنصة أو الكتاب. لا توجد إجابة صحيحة واحدة، ونريد فهمك أنت.",
+  "sections": [
+   {
+    "id": "und",
+    "title": "فهمك للكتاب",
+    "timed": true,
+    "source": [
+     {
+      "name": "الاسترجاع الحر + معيار التصحيح",
+      "status": "يُصحح بمعيار الوثيقة؛ اتفاق مصححين بكابا الموزون"
+     }
+    ],
+    "items": [
+     {
+      "code": "UND_IDEA1",
+      "type": "text",
+      "text": "الفكرة الأولى من أهم ثلاث أفكار في الكتاب، بكلماتك.",
+      "required": true,
+      "min_words": 10
+     },
+     {
+      "code": "UND_IDEA2",
+      "type": "text",
+      "text": "الفكرة الثانية.",
+      "required": true,
+      "min_words": 10
+     },
+     {
+      "code": "UND_IDEA3",
+      "type": "text",
+      "text": "الفكرة الثالثة.",
+      "required": true,
+      "min_words": 10
+     },
+     {
+      "code": "UND_THESIS",
+      "type": "text",
+      "text": "ما الرسالة أو الحجة الرئيسة للكتاب؟ في جملة أو جملتين.",
+      "required": true
+     },
+     {
+      "code": "UND_APPLY",
+      "type": "text",
+      "text": "اذكر موقفًا في حياتك أو عملك يمكن أن تطبق فيه فكرة من الكتاب، وما الفكرة.",
+      "required": true
+     },
+     {
+      "code": "UND_SELF",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لم أفهمها",
+        "",
+        "",
+        "",
+        "فهمتها جيدًا"
+       ]
+      },
+      "text": "إلى أي مدى تشعر أنك فهمت أفكار الكتاب الرئيسة؟",
+      "required": true
+     }
+    ]
+   },
+   {
+    "id": "sus",
+    "title": "سهولة الاستخدام",
+    "source": [
+     {
+      "name": "A-SUS",
+      "cite": "AlGhannam, B. A., Albustan, S. A., Al-Hassan, A. A., & Albustan, L. A. (2018). International Journal of Human–Computer Interaction, 34(9), 799–804; Brooke, J. (1996). SUS: A quick and dirty usability scale.",
+      "status": "النص العربي المنشور لم يُدخل بعد؛ لا يُفعَّل القسم قبل إدخاله حرفيًا"
+     }
+    ],
+    "pending": true,
+    "items": [
+     {
+      "code": "SUS1",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": null,
+      "text_en": "I think that I would like to use this system frequently.",
+      "reverse": false,
+      "required": true
+     },
+     {
+      "code": "SUS2",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": null,
+      "text_en": "I found the system unnecessarily complex.",
+      "reverse": true,
+      "required": true
+     },
+     {
+      "code": "SUS3",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": null,
+      "text_en": "I thought the system was easy to use.",
+      "reverse": false,
+      "required": true
+     },
+     {
+      "code": "SUS4",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": null,
+      "text_en": "I think that I would need the support of a technical person to be able to use this system.",
+      "reverse": true,
+      "required": true
+     },
+     {
+      "code": "SUS5",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": null,
+      "text_en": "I found the various functions in this system were well integrated.",
+      "reverse": false,
+      "required": true
+     },
+     {
+      "code": "SUS6",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": null,
+      "text_en": "I thought there was too much inconsistency in this system.",
+      "reverse": true,
+      "required": true
+     },
+     {
+      "code": "SUS7",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": null,
+      "text_en": "I would imagine that most people would learn to use this system very quickly.",
+      "reverse": false,
+      "required": true
+     },
+     {
+      "code": "SUS8",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": null,
+      "text_en": "I found the system very cumbersome to use.",
+      "reverse": true,
+      "required": true
+     },
+     {
+      "code": "SUS9",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": null,
+      "text_en": "I felt very confident using the system.",
+      "reverse": false,
+      "required": true
+     },
+     {
+      "code": "SUS10",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": null,
+      "text_en": "I needed to learn a lot of things before I could get going with this system.",
+      "reverse": true,
+      "required": true
+     }
+    ]
+   },
+   {
+    "id": "comp",
+    "title": "فائدة مكونات المنصة",
+    "source": [
+     {
+      "name": "مُطوَّر من الباحث",
+      "status": "يحتاج تحكيمًا (CVR) وتجربة وألفا كرونباخ"
+     }
+    ],
+    "items": [
+     {
+      "code": "COMP_SUM_USED",
+      "type": "single",
+      "text": "هل استخدمت: الخلاصة؟",
+      "options": [
+       "نعم",
+       "لا"
+      ],
+      "required": true
+     },
+     {
+      "code": "COMP_SUM_USEFUL",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "غير مفيد",
+        "",
+        "",
+        "",
+        "مفيد جدًا"
+       ]
+      },
+      "text": "ما مدى فائدة «الخلاصة» لفهم الكتاب؟",
+      "required": true,
+      "show_if": {
+       "code": "COMP_SUM_USED",
+       "eq": "نعم"
+      }
+     },
+     {
+      "code": "COMP_MAP_USED",
+      "type": "single",
+      "text": "هل استخدمت: الخريطة الذهنية؟",
+      "options": [
+       "نعم",
+       "لا"
+      ],
+      "required": true
+     },
+     {
+      "code": "COMP_MAP_USEFUL",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "غير مفيد",
+        "",
+        "",
+        "",
+        "مفيد جدًا"
+       ]
+      },
+      "text": "ما مدى فائدة «الخريطة الذهنية» لفهم الكتاب؟",
+      "required": true,
+      "show_if": {
+       "code": "COMP_MAP_USED",
+       "eq": "نعم"
+      }
+     },
+     {
+      "code": "COMP_CH_USED",
+      "type": "single",
+      "text": "هل استخدمت: الفصول والأفكار؟",
+      "options": [
+       "نعم",
+       "لا"
+      ],
+      "required": true
+     },
+     {
+      "code": "COMP_CH_USEFUL",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "غير مفيد",
+        "",
+        "",
+        "",
+        "مفيد جدًا"
+       ]
+      },
+      "text": "ما مدى فائدة «الفصول والأفكار» لفهم الكتاب؟",
+      "required": true,
+      "show_if": {
+       "code": "COMP_CH_USED",
+       "eq": "نعم"
+      }
+     },
+     {
+      "code": "COMP_Q_USED",
+      "type": "single",
+      "text": "هل استخدمت: أسئلة الفهم؟",
+      "options": [
+       "نعم",
+       "لا"
+      ],
+      "required": true
+     },
+     {
+      "code": "COMP_Q_USEFUL",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "غير مفيد",
+        "",
+        "",
+        "",
+        "مفيد جدًا"
+       ]
+      },
+      "text": "ما مدى فائدة «أسئلة الفهم» لفهم الكتاب؟",
+      "required": true,
+      "show_if": {
+       "code": "COMP_Q_USED",
+       "eq": "نعم"
+      }
+     },
+     {
+      "code": "COMP_AUDIO_USED",
+      "type": "single",
+      "text": "هل استخدمت: المقاطع الصوتية؟",
+      "options": [
+       "نعم",
+       "لا"
+      ],
+      "required": true
+     },
+     {
+      "code": "COMP_AUDIO_USEFUL",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "غير مفيد",
+        "",
+        "",
+        "",
+        "مفيد جدًا"
+       ]
+      },
+      "text": "ما مدى فائدة «المقاطع الصوتية» لفهم الكتاب؟",
+      "required": true,
+      "show_if": {
+       "code": "COMP_AUDIO_USED",
+       "eq": "نعم"
+      }
+     },
+     {
+      "code": "COMP_JUMP_USED",
+      "type": "single",
+      "text": "هل استخدمت: الانتقال إلى الصفحة في الكتاب الأصلي؟",
+      "options": [
+       "نعم",
+       "لا"
+      ],
+      "required": true
+     },
+     {
+      "code": "COMP_JUMP_USEFUL",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "غير مفيد",
+        "",
+        "",
+        "",
+        "مفيد جدًا"
+       ]
+      },
+      "text": "ما مدى فائدة «الانتقال إلى الصفحة في الكتاب الأصلي» لفهم الكتاب؟",
+      "required": true,
+      "show_if": {
+       "code": "COMP_JUMP_USED",
+       "eq": "نعم"
+      }
+     },
+     {
+      "code": "COMP_BEST",
+      "type": "single",
+      "text": "أي مكوّن كان الأنفع؟",
+      "options_from_used": [
+       "الخلاصة",
+       "الخريطة الذهنية",
+       "الفصول والأفكار",
+       "أسئلة الفهم",
+       "المقاطع الصوتية",
+       "الانتقال إلى الصفحة في الكتاب الأصلي"
+      ],
+      "required": true
+     }
+    ]
+   },
+   {
+    "id": "acc",
+    "title": "الدقة والثقة",
+    "source": [
+     {
+      "name": "S-TIAS",
+      "cite": "McGrath, M. J., Lack, O., Tisch, J., & Duenser, A. (2025). Frontiers in Artificial Intelligence, 8, 1582880; Jian, J.-Y., Bisantz, A. M., & Drury, C. G. (2000). International Journal of Cognitive Ergonomics, 4(1), 53–71.",
+      "status": "ترجمة مؤقتة من الباحث؛ تنتظر الترجمة الأمامية والعكسية"
+     },
+     {
+      "name": "مُطوَّر من الباحث",
+      "status": "يحتاج تحكيمًا (CVR) وتجربة وألفا كرونباخ"
+     }
+    ],
+    "items": [
+     {
+      "code": "ACC1",
+      "type": "single",
+      "text": "هل وجدت في مخرجات المنصة معلومة تخالف ما في الكتاب؟",
+      "options": [
+       "نعم",
+       "لا",
+       "لم أتحقق"
+      ],
+      "required": true
+     },
+     {
+      "code": "ACC1_DETAIL",
+      "type": "text",
+      "text": "صف ما وجدته باختصار.",
+      "required": true,
+      "show_if": {
+       "code": "ACC1",
+       "eq": "نعم"
+      }
+     },
+     {
+      "code": "ACC2",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": "نقلت الخلاصة أفكار الكتاب نقلًا دقيقًا.",
+      "required": true,
+      "na": "لم أستخدمها"
+     },
+     {
+      "code": "ACC3",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": "كانت الإحالات إلى الصفحات تقودني إلى الموضع الصحيح.",
+      "required": true,
+      "na": "لم أستخدمها"
+     },
+     {
+      "code": "TRUST1",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 7,
+       "labels": [
+        "لا إطلاقًا",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "إلى أقصى حد"
+       ]
+      },
+      "text": "أنا واثق من هذه المنصة.",
+      "required": true
+     },
+     {
+      "code": "TRUST2",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 7,
+       "labels": [
+        "لا إطلاقًا",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "إلى أقصى حد"
+       ]
+      },
+      "text": "هذه المنصة موثوقة في أدائها.",
+      "required": true
+     },
+     {
+      "code": "TRUST3",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 7,
+       "labels": [
+        "لا إطلاقًا",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "إلى أقصى حد"
+       ]
+      },
+      "text": "أستطيع أن أثق بهذه المنصة.",
+      "required": true
+     },
+     {
+      "code": "SRC1",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": "أثق بما أعرفه من كتاب كامل أكثر مما أعرفه من إجابات سريعة على الإنترنت.",
+      "required": true
+     },
+     {
+      "code": "SRC2",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": "حين أريد فهم موضوع فهمًا عميقًا، أرجع إلى كتاب.",
+      "required": true
+     },
+     {
+      "code": "ATTN2",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": "للتأكد من انتباهك، اختر «لا أوافق» في هذا البند.",
+      "required": true,
+      "attention": 2
+     },
+     {
+      "code": "SRC3",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": "تكفيني المقاطع القصيرة والإجابات السريعة لفهم معظم الموضوعات.",
+      "required": true,
+      "reverse": true
+     },
+     {
+      "code": "SRC4",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": "حين أستشهد بفكرة، أحرص على معرفة الكتاب الذي جاءت منه.",
+      "required": true
+     }
+    ]
+   },
+   {
+    "id": "ret",
+    "title": "العودة إلى الكتاب",
+    "source": [
+     {
+      "name": "مُطوَّر من الباحث",
+      "status": "يحتاج تحكيمًا (CVR) وتجربة وألفا كرونباخ"
+     }
+    ],
+    "items": [
+     {
+      "code": "RET1",
+      "type": "single",
+      "text": "كم مرة فتحت الكتاب الأصلي خلال الأيام السبعة؟",
+      "options": [
+       "لا مرة",
+       "مرة",
+       "٢–٥",
+       "أكثر من ٥"
+      ],
+      "required": true
+     },
+     {
+      "code": "RET2",
+      "type": "multi",
+      "text": "لماذا فتحته؟",
+      "options": [
+       "التحقق من معلومة",
+       "التوسع في فكرة",
+       "قراءة فصل كامل",
+       "الفضول",
+       "أخرى"
+      ],
+      "required": true,
+      "other": true,
+      "show_if": {
+       "code": "RET1",
+       "ne": "لا مرة"
+      }
+     },
+     {
+      "code": "RET3",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أنوي إطلاقًا",
+        "",
+        "",
+        "",
+        "أنوي بالتأكيد"
+       ]
+      },
+      "text": "بعد استخدام المنصة، ما مدى نيتك قراءة الكتاب كاملًا؟",
+      "required": true
+     },
+     {
+      "code": "RET4",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أوافق بشدة",
+        "لا أوافق",
+        "محايد",
+        "أوافق",
+        "أوافق بشدة"
+       ]
+      },
+      "text": "ساعدتني المنصة على معرفة أي أجزاء الكتاب تستحق القراءة.",
+      "required": true
+     }
+    ]
+   },
+   {
+    "id": "open",
+    "title": "ملاحظات (اختيارية)",
+    "items": [
+     {
+      "code": "OPEN_BEST",
+      "type": "text",
+      "text": "ما أكثر ما أفادك في المنصة؟",
+      "required": false
+     },
+     {
+      "code": "OPEN_WORST",
+      "type": "text",
+      "text": "ما أكثر ما أزعجك أو أربكك؟",
+      "required": false
+     },
+     {
+      "code": "OPEN_SUGGEST",
+      "type": "text",
+      "text": "ما الذي تقترح تغييره؟",
+      "required": false
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "key": "followup",
+  "version": "0.3",
+  "title": "المتابعة",
+  "minutes": "٣",
+  "sections": [
+   {
+    "id": "fu",
+    "title": "بعد أسبوعين",
+    "source": [
+     {
+      "name": "مُطوَّر من الباحث",
+      "status": "يحتاج تحكيمًا (CVR) وتجربة وألفا كرونباخ"
+     }
+    ],
+    "items": [
+     {
+      "code": "FU_IDEA1",
+      "type": "text",
+      "text": "من ذاكرتك: أهم فكرة تتذكرها من الكتاب.",
+      "required": true
+     },
+     {
+      "code": "FU_IDEA2",
+      "type": "text",
+      "text": "فكرة ثانية تتذكرها.",
+      "required": true
+     },
+     {
+      "code": "FU_RETURN",
+      "type": "single",
+      "text": "منذ الاستبيان السابق، إلى ماذا رجعت؟",
+      "options": [
+       "لم أرجع",
+       "المنصة فقط",
+       "الكتاب الأصلي فقط",
+       "كلاهما"
+      ],
+      "required": true
+     },
+     {
+      "code": "FU_READ",
+      "type": "single",
+      "text": "كم قرأت من الكتاب الأصلي حتى الآن؟",
+      "options": [
+       "لا شيء",
+       "أقل من ربعه",
+       "ربعه إلى نصفه",
+       "أكثر من نصفه",
+       "كاملًا"
+      ],
+      "required": true
+     },
+     {
+      "code": "FU_CITE",
+      "type": "single",
+      "text": "هل استشهدت بفكرة من الكتاب أو ناقشتها مع أحد؟",
+      "options": [
+       "نعم",
+       "لا"
+      ],
+      "required": true
+     },
+     {
+      "code": "FU_CITE_SRC",
+      "type": "single",
+      "text": "حين ذكرتها، إلى أي مصدر نسبتها؟",
+      "options": [
+       "الكتاب ومؤلفه",
+       "المنصة",
+       "لم أذكر مصدرًا"
+      ],
+      "required": true,
+      "show_if": {
+       "code": "FU_CITE",
+       "eq": "نعم"
+      }
+     },
+     {
+      "code": "FU_INTENT",
+      "type": "likert",
+      "scale": {
+       "min": 1,
+       "max": 5,
+       "labels": [
+        "لا أنوي إطلاقًا",
+        "",
+        "",
+        "",
+        "أنوي بالتأكيد"
+       ]
+      },
+      "text": "ما مدى نيتك قراءة الكتاب كاملًا الآن؟",
+      "required": true
+     }
+    ]
+   }
+  ]
+ }
+]
