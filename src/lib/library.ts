@@ -4,7 +4,7 @@ import { renderCoverFromPdf } from "./coverRendering";
 import { rememberBookCover, coverCompatibilityOptions } from "./bookCovers";
 import { buildIntakeCatalogue, needsCatalogueRepair } from "./autoCatalogue";
 import { pdfImageOptions, ACTIVE_COVER_FILENAME } from "./pdfAssets";
-import { ensurePilotSession, supabase } from "./supabase";
+import { AI_FUNCTION, ensurePilotSession, supabase } from "./supabase";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { prepareUpload, sampleCataloguePages } from "./uploadPreparation";
 import { boundedRead, uploadBookChunks, type BookUploadProgress } from "./bookUpload";
@@ -674,7 +674,7 @@ export async function invokeBookAI(bookId: string, action: "process" | "ask" | "
       catch (error) { throw new Error(`ANALYSIS_SOURCE_PREPARATION: ${error instanceof Error ? error.message : String(error)}`); }
     }
   }
-  const { data, error } = await supabase!.functions.invoke("spl-ai", {
+  const { data, error } = await supabase!.functions.invoke(AI_FUNCTION, {
     body: { ...payload, action, bookId, ...source },
   });
   if (error) {

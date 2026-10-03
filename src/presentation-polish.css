@@ -45,3 +45,10 @@
 .prototype-note .reviewer-preview-link{color:var(--ink);background:var(--card);border:1px solid var(--line)}
 .prototype-note .reviewer-preview-link:hover:not(:disabled){border-color:var(--gold);background:var(--card2)}
 .prototype-note .reviewer-preview-link:disabled{opacity:.6;cursor:wait}
+
+/* Study participant mode */
+.participant-banner{margin:0 0 14px;padding:10px 14px;border-radius:12px;background:color-mix(in srgb,var(--gold) 14%,var(--card));border:1px solid var(--line);color:var(--ink);font-weight:700}
+.participant-banner:empty{display:none}
+.participant-banner a{color:var(--green2)}
+.participant-guide-page{min-height:auto;background:transparent;padding:0}
+.prototype-note .participant-back{display:block;text-align:center;text-decoration:none;line-height:38px}

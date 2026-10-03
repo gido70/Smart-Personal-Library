@@ -9,6 +9,7 @@ import { ensureAnonymousSession, giveConsent, joinStudy, loadInstruments, loadPa
 type Phase = "loading" | "fatal" | "ready";
 
 const dateFmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString("ar", { dateStyle: "full", timeStyle: "short" }) : "");
+const PLATFORM = "index.html?participant=1";
 const isDue = (iso: string | null) => Boolean(iso && Date.now() >= new Date(iso).getTime());
 
 export default function StudyParticipant() {
@@ -149,7 +150,8 @@ function Stage({ participant, instruments, onSubmit, onConsented }: {
         <div className="study-card">
           <h2>شكرًا، اكتمل الاستبيان القبلي ✅</h2>
           <p>الخطوة التالية: رفع كتابك واستخدام المنصة معه لمدة ٧ أيام.</p>
-          <div className="study-note">رفع الكتاب للمشاركين يُفعَّل في التحديث القادم من المنصة. سيصلك تنبيه من الباحث عند تفعيله، وتعود إلى هذه الصفحة برمزك نفسه.</div>
+          <p>اضغط الزر لفتح المنصة، ثم «أضف كتابًا» وارفع ملف PDF لكتاب تملكه أردت قراءته ولم تقرأه (حتى ٤٠٠ صفحة). بعد الرفع ينتظر كتابك موافقة الباحث، ومن لحظة الموافقة تبدأ أيامك السبعة.</p>
+          <div className="study-actions"><a className="study-primary" href={PLATFORM}>افتح المنصة وارفع كتابك</a></div>
         </div>
       );
     case "using":
@@ -158,9 +160,10 @@ function Stage({ participant, instruments, onSubmit, onConsented }: {
       }
       return (
         <div className="study-card">
-          <h2>فترة الاستخدام جارية</h2>
-          <p>استخدم المنصة مع كتابك بالقدر الذي تريده.</p>
-          <div className="study-note">يُفتح الاستبيان البعدي في: <strong>{dateFmt(participant.post_due_at)}</strong></div>
+          <h2>{participant.post_due_at ? "فترة الاستخدام جارية" : "كتابك بانتظار موافقة الباحث"}</h2>
+          <p>{participant.post_due_at ? "استخدم المنصة مع كتابك بالقدر الذي تريده." : "يمكنك فتح كتابك وقراءته الآن. يُفتح التحليل بعد موافقة الباحث، ومنها تبدأ أيامك السبعة."}</p>
+          {participant.post_due_at && <div className="study-note">يُفتح الاستبيان البعدي في: <strong>{dateFmt(participant.post_due_at)}</strong></div>}
+          <div className="study-actions"><a className="study-primary" href={PLATFORM}>افتح المنصة</a></div>
         </div>
       );
     case "post_done":
@@ -170,6 +173,8 @@ function Stage({ participant, instruments, onSubmit, onConsented }: {
       return (
         <div className="study-card">
           <h2>شكرًا، اكتمل الاستبيان البعدي ✅</h2>
+          <p>الخلاصة والصوت لكتابك لك الآن: نزّلهما من صفحة كتابك في المنصة قبل نهاية الدراسة.</p>
+          <div className="study-actions"><a className="study-secondary" href={PLATFORM}>افتح المنصة</a></div>
           <div className="study-note">بقي سؤال متابعة قصير يُفتح في: <strong>{dateFmt(participant.followup_due_at)}</strong></div>
         </div>
       );

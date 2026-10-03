@@ -28,3 +28,11 @@
 .rd-guide summary{cursor:pointer;font-weight:800;font-size:1.05rem}
 .rd-guide h4{margin:12px 0 4px}
 .rd-guide ol,.rd-guide ul{margin:0;padding-inline-start:20px;line-height:1.9}
+.rd-rowact{white-space:nowrap;display:flex;gap:6px}
+.rd-del{color:var(--red,#b94a3d)}
+.rd-answers td{background:var(--card2)}
+.rd-answers details{margin:6px 0}
+.rd-answers summary{cursor:pointer;font-weight:800}
+.rd-answers table{min-width:0;width:100%;font-size:.85rem}
+.rd-answers td{border-bottom:1px dashed var(--line);padding:4px 6px}
+.rd-table tr.rd-test.rd-answers{opacity:1}
