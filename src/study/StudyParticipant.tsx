@@ -17,6 +17,10 @@ export default function StudyParticipant() {
   const [fatal, setFatal] = useState("");
   const [participant, setParticipant] = useState<Participant | null>(null);
   const [instruments, setInstruments] = useState<Record<string, Instrument>>({});
+  // A link carrying a code while this browser is already enrolled with another code (shared device,
+  // replacement code, or the researcher testing): ask before switching instead of silently ignoring it.
+  const [urlCode] = useState(() => new URLSearchParams(window.location.search).get("code") ?? "");
+  const [switching, setSwitching] = useState(false);
 
   const refresh = useCallback(async () => {
     const p = await loadParticipant();
@@ -24,6 +28,7 @@ export default function StudyParticipant() {
     if (p) setInstruments(await loadInstruments());
   }, []);
 
+  useEffect(() => { if (phase === "ready" && participant && urlCode) setSwitching(true); }, [phase, participant, urlCode]);
   useEffect(() => {
     document.title = "المشاركة في الدراسة — المكتبة الشخصية الذكية";
     (async () => {
@@ -47,7 +52,7 @@ export default function StudyParticipant() {
   let body: React.ReactNode;
   if (phase === "loading") body = <div className="study-card"><p>جارٍ التحميل…</p></div>;
   else if (phase === "fatal") body = <div className="study-card"><div className="study-error" role="alert">{fatal}</div></div>;
-  else if (!participant) body = <JoinScreen onJoined={refresh} />;
+  else if (!participant || switching) body = <JoinScreen onJoined={async () => { setSwitching(false); await refresh(); }} onCancel={participant ? () => { setSwitching(false); window.history.replaceState(null, "", window.location.pathname); } : undefined} current={participant?.code} />;
   else body = <Stage participant={participant} instruments={instruments} onSubmit={submit} onConsented={refresh} />;
 
   return (
@@ -57,12 +62,12 @@ export default function StudyParticipant() {
         <p>المشاركة في الدراسة البحثية</p>
       </header>
       <main>{body}{phase === "ready" && <ParticipantGuide />}</main>
-      {participant && <Footer participant={participant} onWithdrawn={refresh} />}
+      {participant && !switching && <Footer participant={participant} onWithdrawn={refresh} onSwitch={() => setSwitching(true)} />}
     </div>
   );
 }
 
-function JoinScreen({ onJoined }: { onJoined: () => Promise<void> }) {
+function JoinScreen({ onJoined, onCancel, current }: { onJoined: () => Promise<void>; onCancel?: () => void; current?: string }) {
   const [code, setCode] = useState(() => new URLSearchParams(window.location.search).get("code") ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -81,7 +86,8 @@ function JoinScreen({ onJoined }: { onJoined: () => Promise<void> }) {
   };
   return (
     <div className="study-card">
-      <h2>أهلًا بك</h2>
+      <h2>{current ? "الدخول برمز آخر" : "أهلًا بك"}</h2>
+      {current && <div className="study-note">هذا المتصفح مسجّل حاليًا بالرمز <strong dir="ltr">{current}</strong>. إن دخلت برمز آخر، تعود إلى {current} لاحقًا بإدخال رمز دعوته نفسه.</div>}
       <p>اكتب رمز المشاركة الذي وصلك من الباحث. الرمز شخصي، فلا تشاركه مع أحد.</p>
       <label className="study-field">
         <span>رمز المشاركة</span>
@@ -89,7 +95,7 @@ function JoinScreen({ onJoined }: { onJoined: () => Promise<void> }) {
           onChange={event => setCode(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void join(); }} placeholder="مثال: K7M3QX9P2A" />
       </label>
       {error && <div className="study-error" role="alert">{error}</div>}
-      <div className="study-actions"><button type="button" className="study-primary" disabled={busy} onClick={() => void join()}>{busy ? "جارٍ التحقق…" : "دخول"}</button></div>
+      <div className="study-actions"><button type="button" className="study-primary" disabled={busy} onClick={() => void join()}>{busy ? "جارٍ التحقق…" : "دخول"}</button>{onCancel && <button type="button" className="study-secondary" onClick={onCancel}>البقاء على {current}</button>}</div>
       <p className="study-muted study-small">إن غيّرت جهازك أو متصفحك، أدخل الرمز نفسه لتكمل من حيث توقفت.</p>
     </div>
   );
@@ -187,7 +193,7 @@ function Stage({ participant, instruments, onSubmit, onConsented }: {
   }
 }
 
-function Footer({ participant, onWithdrawn }: { participant: Participant; onWithdrawn: () => Promise<void> }) {
+function Footer({ participant, onWithdrawn, onSwitch }: { participant: Participant; onWithdrawn: () => Promise<void>; onSwitch: () => void }) {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState("");
   const canWithdraw = participant.status !== "withdrawn" && participant.status !== "followup_done";
@@ -202,6 +208,7 @@ function Footer({ participant, onWithdrawn }: { participant: Participant; onWith
   return (
     <footer className="study-footer">
       <span>رمزك: <strong dir="ltr">{participant.code}</strong>{participant.is_test ? " · تجريبي" : ""}</span>
+      {!confirming && <button type="button" className="study-link study-switch" onClick={onSwitch}>الدخول برمز آخر</button>}
       {canWithdraw && !confirming && <button type="button" className="study-link" onClick={() => setConfirming(true)}>الانسحاب من الدراسة</button>}
       {confirming && (
         <span className="study-confirm">
