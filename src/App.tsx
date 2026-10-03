@@ -1,4 +1,6 @@
 import { usePageTrail } from "./lib/usePageTrail";
+import { lazy, Suspense } from "react";
+const ResearcherDashboard = lazy(() => import("./study/ResearcherDashboard"));
 import OfflineListening from "./OfflineListening";
 import ContinuousAudio from "./ContinuousAudio";
 import "./welcome.css";
@@ -166,6 +168,7 @@ type View =
   | "librarian"
   | "feedback"
   | "reviewer"
+  | "study"
   | "guide";
 
 const text = {
@@ -655,6 +658,7 @@ export default function Home() {
             ◉ {rtl ? "معاينة نسخة المستخدم" : "Preview user view"}
           </button>
           <ResearchIndexButtons rtl={rtl} className="reviewer-preview-link" />
+          <button className="reviewer-preview-link" onClick={() => setView("study")}>{rtl ? "لوحة الدراسة (المشاركون)" : "Study dashboard"}</button>
         </div>
         <div className="profile">
           <span>ع</span>
@@ -791,6 +795,7 @@ export default function Home() {
         {view === "librarian" && <Librarian rtl={rtl} title={pageTitle} />}
         {view === "feedback" && <Feedback rtl={rtl} t={t} />}
         
+        {view === "study" && <Suspense fallback={null}><ResearcherDashboard rtl={rtl} /></Suspense>}
         {view === "guide" && <UserGuide rtl={rtl} onUpload={openUpload} onLibrary={() => setView("library")} onActivate={activateLatestVersion} activating={activating} />}
       </main>
       <nav className="mobile-nav">
