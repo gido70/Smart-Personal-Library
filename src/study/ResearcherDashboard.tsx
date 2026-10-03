@@ -10,7 +10,8 @@ type Row = {
   book_pages: number | null; book_linked_at: string | null; ai_approved_at: string | null; post_due_at: string | null;
   followup_due_at: string | null; reward_granted_at: string | null; rebind_count: number; created_at: string;
 };
-type Resp = { participant_id: string; instrument_key: string; attention_passed: boolean | null; submitted_at: string };
+type Resp = { participant_id: string; instrument_key: string; instrument_version: string; attention_passed: boolean | null; submitted_at: string; started_at: string | null; answers: Record<string, unknown> };
+type InstRow = { key: string; version: string; definition: { sections: { title: string; items?: { code: string; text: string | null; text_en?: string }[] }[] } };
 type Settings = { ai_enabled: boolean; max_pages: number; max_process: number; max_asks: number; max_audio_sets: number; max_previews: number };
 type Invite = { code: string; invite: string };
 
@@ -47,6 +48,8 @@ export default function ResearcherDashboard({ rtl }: { rtl: boolean }) {
   const [isTest, setIsTest] = useState(false);
   const [created, setCreated] = useState<Invite[]>([]);
   const [busy, setBusy] = useState("");
+  const [insts, setInsts] = useState<InstRow[]>([]);
+  const [open, setOpen] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!supabase) return;
@@ -54,14 +57,16 @@ export default function ResearcherDashboard({ rtl }: { rtl: boolean }) {
     const { data: ok } = await supabase.rpc("spl_study_is_researcher");
     setAllowed(Boolean(ok));
     if (!ok) return;
-    const [p, r, s] = await Promise.all([
+    const [p, r, ins, s] = await Promise.all([
       supabase.from("spl_study_participants").select("id,code,is_test,status,consent_version,interview_ok,book_pages,book_linked_at,ai_approved_at,post_due_at,followup_due_at,reward_granted_at,rebind_count,created_at").order("code"),
-      supabase.from("spl_study_responses").select("participant_id,instrument_key,attention_passed,submitted_at"),
+      supabase.from("spl_study_responses").select("participant_id,instrument_key,instrument_version,attention_passed,submitted_at,started_at,answers"),
+      supabase.from("spl_study_instruments").select("key,version,definition"),
       supabase.rpc("spl_study_settings", { p_ai_enabled: null }),
     ]);
     if (p.error || r.error || s.error) setError("تعذر تحميل بيانات الدراسة. حدّث الصفحة.");
     setRows((p.data ?? []) as Row[]);
     setResps((r.data ?? []) as Resp[]);
+    setInsts((ins.data ?? []) as InstRow[]);
     if (s.data?.ok) setSettings(s.data as Settings);
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -110,6 +115,21 @@ export default function ResearcherDashboard({ rtl }: { rtl: boolean }) {
     setBusy("");
     if (data?.ok) setSettings(data as Settings); else setError("تعذر تغيير المفتاح.");
   };
+  const removeTest = async (row: Row) => {
+    if (!supabase || !row.is_test) return;
+    if (!window.confirm(`حذف المشارك التجريبي ${row.code} وكل إجاباته وسجلاته نهائيًا؟`)) return;
+    setBusy(row.id);
+    const { error: e } = await supabase.from("spl_study_participants").delete().eq("id", row.id).eq("is_test", true);
+    setBusy("");
+    if (e) setError("تعذر الحذف."); else { setOpen(null); await load(); }
+  };
+  const labelOf = (key: string, version: string, code: string) => {
+    const def = insts.find(i => i.key === key && i.version === version)?.definition;
+    const base = code.replace(/_OTHER$/, "");
+    for (const sec of def?.sections ?? []) for (const it of sec.items ?? []) if (it.code === base) return (it.text ?? it.text_en ?? code) + (code.endsWith("_OTHER") ? " (أخرى)" : "");
+    return code;
+  };
+  const fmt = (v: unknown) => Array.isArray(v) ? v.join("، ") : v === null || v === undefined ? "—" : String(v);
   const copy = async (text: string) => { try { await navigator.clipboard.writeText(text); } catch { window.prompt("انسخ النص:", text); } };
 
   return (
@@ -202,11 +222,11 @@ export default function ResearcherDashboard({ rtl }: { rtl: boolean }) {
       <section className="rd-card">
         <h3>المشاركون ({rows.length})</h3>
         <div className="rd-table"><table>
-          <thead><tr><th>الرمز</th><th>المرحلة</th><th>الموافقة</th><th>القبلي</th><th>الكتاب</th><th>موافقتك</th><th>البعدي يُفتح</th><th>البعدي</th><th>الحافز</th><th>المتابعة</th></tr></thead>
+          <thead><tr><th>الرمز</th><th>المرحلة</th><th>الموافقة</th><th>القبلي</th><th>الكتاب</th><th>موافقتك</th><th>البعدي يُفتح</th><th>البعدي</th><th>الحافز</th><th>المتابعة</th><th></th></tr></thead>
           <tbody>{rows.map(r => {
             const pre = respOf(r.id, "pre"), post = respOf(r.id, "post"), fu = respOf(r.id, "followup");
             const att = (x?: Resp) => !x ? "—" : `${d(x.submitted_at)} ${x.attention_passed === false ? "⚠️ انتباه" : x.attention_passed ? "✓" : ""}`;
-            return (
+            return [
               <tr key={r.id} className={r.is_test ? "rd-test" : ""}>
                 <td><b dir="ltr">{r.code}</b>{r.rebind_count > 0 && <small title="أعاد إدخال الرمز من جهاز آخر"> ↻{r.rebind_count}</small>}</td>
                 <td>{STATUS[r.status] ?? r.status}</td>
@@ -218,11 +238,25 @@ export default function ResearcherDashboard({ rtl }: { rtl: boolean }) {
                 <td>{att(post)}</td>
                 <td>{r.reward_granted_at ? `✓ ${d(r.reward_granted_at)}` : "—"}</td>
                 <td>{att(fu)}</td>
-              </tr>
-            );
+                <td className="rd-rowact">
+                  {(pre || post || fu) && <button className="secondary" onClick={() => setOpen(open === r.id ? null : r.id)}>{open === r.id ? "إخفاء" : "الإجابات"}</button>}
+                  {r.is_test && <button className="secondary rd-del" disabled={busy === r.id} onClick={() => void removeTest(r)}>حذف</button>}
+                </td>
+              </tr>,
+              open === r.id ? (
+                <tr key={r.id + "-a"} className="rd-answers"><td colSpan={11}>
+                  {[pre, post, fu].filter(Boolean).map(x => (
+                    <details key={x!.instrument_key} open>
+                      <summary>{x!.instrument_key === "pre" ? "القبلي" : x!.instrument_key === "post" ? "البعدي" : "المتابعة"} · نسخة {x!.instrument_version}{x!.started_at ? ` · ${Math.round((new Date(x!.submitted_at).getTime() - new Date(x!.started_at).getTime()) / 60000)} دقيقة` : ""}</summary>
+                      <table><tbody>{Object.entries(x!.answers).map(([k, v]) => <tr key={k}><td dir="ltr">{k}</td><td>{labelOf(x!.instrument_key, x!.instrument_version, k)}</td><td><b>{fmt(v)}</b></td></tr>)}</tbody></table>
+                    </details>
+                  ))}
+                </td></tr>
+              ) : null,
+            ];
           })}</tbody>
         </table></div>
-        <p className="rd-muted">⚠️ انتباه = رسب في بند الانتباه: يحصل على الحافز، وتُستبعد بياناته من التحليل. السطر الباهت مشارك تجريبي.</p>
+        <p className="rd-muted">⚠️ انتباه = رسب في بند الانتباه: يحصل على الحافز، وتُستبعد بياناته من التحليل. السطر الباهت مشارك تجريبي: لا يدخل التحليل ولا مخطط التدفق، ويمكن حذفه بزر «حذف».</p>
       </section>
     </div>
   );

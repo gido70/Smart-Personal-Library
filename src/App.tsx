@@ -6,7 +6,7 @@ import ContinuousAudio from "./ContinuousAudio";
 import "./welcome.css";
 import { loadOriginalCover } from "./lib/bookCovers";
 import { suggestClassification } from "./lib/autoCatalogue";
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Reader, { type SavedBookRef } from "./Reader";
 import {
   getBookResults,
@@ -45,7 +45,9 @@ import {
   type LibraryAuthor,
 } from "./lib/library";
 import { downloadPdfReport, downloadSavedAudio, downloadWordReport } from "./lib/exports";
-import { signInLibraryAccount, signOutLibraryAccount, signUpLibraryAccount, supabase, supabaseConfigured } from "./lib/supabase";
+import { participantMode, signInLibraryAccount, signOutLibraryAccount, signUpLibraryAccount, supabase, supabaseConfigured } from "./lib/supabase";
+import ParticipantGuide from "./study/ParticipantGuide";
+import "./study/study.css";
 import { PAID_PILOT_MAX_BOOKS, ZERO_COST_MODE } from "./lib/config";
 import { runLocalStructuralAnalysis, type LocalAnalysisProgress } from "./lib/localAnalysis";
 import { boundedRead, type BookUploadStage } from "./lib/bookUpload";
@@ -237,6 +239,7 @@ const text = {
   },
 };
 
+const PARTICIPANT_VIEWS: readonly string[] = ["home", "library", "reader", "upload", "guide"];
 const navigation = {
   ar: [
     ["home", "الرئيسية", "⌂"],
@@ -311,6 +314,13 @@ export default function Home() {
   const [indexAuthorQuery, setIndexAuthorQuery] = useState("");
   const [authState, setAuthState] = useState<"loading" | "signed_out" | "authenticated">("loading");
   const [accountEmail, setAccountEmail] = useState("");
+  const [participant, setParticipant] = useState<{ code: string; status: string; book_id: string | null; ai_approved_at: string | null; post_due_at: string | null; reward_granted_at: string | null } | null>(null);
+  const loadParticipant = useCallback(async () => {
+    if (!participantMode || !supabase) return null;
+    const { data } = await supabase.from("spl_study_participants").select("code,status,book_id,ai_approved_at,post_due_at,reward_granted_at").maybeSingle();
+    setParticipant(data ?? null);
+    return data ?? null;
+  }, []);
   const [reminderCount, setReminderCount] = useState(0);
   const t = text[lang];
   const rtl = lang === "ar";
@@ -327,10 +337,12 @@ export default function Home() {
     }
     const applySession = (session: Awaited<ReturnType<typeof client.auth.getSession>>["data"]["session"]) => {
       const permanent = Boolean(session && !(session.user as { is_anonymous?: boolean }).is_anonymous);
-      setAuthState(permanent ? "authenticated" : "signed_out");
-      setAccountEmail(permanent ? session?.user.email ?? "" : "");
+      // Study participants use their anonymous session from study.html; the owner path is unchanged.
+      const studyParticipant = participantMode && Boolean(session) && !permanent;
+      setAuthState(permanent || studyParticipant ? "authenticated" : "signed_out");
+      setAccountEmail(permanent ? session?.user.email ?? "" : studyParticipant ? "مشارك في الدراسة" : "");
       if (permanent && session) { localStorage.setItem("spl-offline-owner", session.user.id); setOfflineOwner(session.user.id); }
-      if (!permanent) {
+      if (!permanent && !studyParticipant) {
         setPilotBooks([]);
         setLibraryStats({ analysedBooks: 0, questions: 0, audioParts: 0 });
       }
@@ -339,6 +351,7 @@ export default function Home() {
     const { data } = client.auth.onAuthStateChange((event, session) => { if (event === "SIGNED_OUT" && navigator.onLine) { localStorage.removeItem("spl-offline-owner"); setOfflineOwner(""); } applySession(session); });
     return () => data.subscription.unsubscribe();
   }, []);
+  useEffect(() => { if (participantMode && authState === "authenticated") void loadParticipant(); }, [authState, loadParticipant]);
   useEffect(() => {
     let cancelled = false;
     const prepareCurrentWorker = async () => {
@@ -524,20 +537,32 @@ export default function Home() {
         }
       }
       setPercent(100);
+      let studyNotice = "";
+      if (participantMode && supabase) {
+        const { data: linked } = await supabase.rpc("spl_study_link_book", { p_book: book.id });
+        const res = (linked ?? {}) as { ok?: boolean; error?: string; pages?: number; max?: number };
+        studyNotice = res.ok
+          ? "رُبط كتابك بالدراسة. بانتظار موافقة الباحث؛ يمكنك تصفح كتابك وقراءته الآن، ويُفتح التحليل بعد الموافقة."
+          : res.error === "BOOK_TOO_LONG" ? `عدد صفحات هذا الكتاب ${res.pages} وحد الدراسة ${res.max}. احذفه من مكتبتك واختر كتابًا آخر.`
+          : res.error === "PAGES_UNKNOWN" ? "تعذر معرفة عدد صفحات الكتاب. تواصل مع الباحث."
+          : res.error === "WRONG_STAGE" ? "كتاب الدراسة مربوط مسبقًا أو أن مرحلتك لا تسمح بالربط."
+          : "تعذر ربط الكتاب بالدراسة. تواصل مع الباحث برمزك.";
+        await loadParticipant();
+      }
       const all = await boundedRead(listPilotBooks(), "BOOK_LOOKUP_TIMEOUT");
       const refreshed = all.find((item) => item.id === book.id) ?? book;
       setPilotBooks(all);
       setActivePilotBook(refreshed);
       setUpload(false);
       setView("pilot");
-      setNotice(
-        deduped
+      setNotice(studyNotice ||
+        (deduped
           ? rtl
             ? "هذا الكتاب موجود بالفعل في مكتبتك — فتحنا نسختك المحفوظة دون رفع نسخة ثانية."
             : "This book is already in your library — opened your saved copy instead of uploading a duplicate."
           : rtl
             ? "حُفظ الكتاب فقط. لم يُرسل إلى OpenAI ولم يُخصم من رصيدك."
-            : "Book saved only. Nothing was sent to OpenAI and no API credit was used.",
+            : "Book saved only. Nothing was sent to OpenAI and no API credit was used."),
       );
       setFile(null);
       setRights1(false);
@@ -576,6 +601,11 @@ export default function Home() {
     }
   };
   const openUpload = () => {
+    if (participantMode && participant?.book_id) {
+      setNotice(rtl ? "لديك كتاب الدراسة بالفعل. الدراسة بكتاب واحد." : "You already have your study book.");
+      setTimeout(() => setNotice(""), 6000);
+      return;
+    }
     const activeCount = pilotBooks.filter((book) => !isBookArchived(book)).length;
     if (activeCount >= MAX_ACTIVE_BOOKS) {
       setView("library");
@@ -632,7 +662,7 @@ export default function Home() {
           </div>
         </div>
         <nav className="main-nav">
-          {navigation[lang].map(([id, label, icon]) => (
+          {navigation[lang].filter(([id]) => !participantMode || PARTICIPANT_VIEWS.includes(id)).map(([id, label, icon]) => (
             <button
               key={id}
               className={view === id ? "active" : ""}
@@ -645,6 +675,13 @@ export default function Home() {
             </button>
           ))}
         </nav>
+        {participantMode ? (
+        <div className="prototype-note">
+          <strong>{rtl ? "المشاركة في الدراسة" : "Study participation"}</strong>
+          <p>{participant ? `${rtl ? "رمزك" : "Code"}: ${participant.code}` : ""}</p>
+          <a className="reviewer-preview-link participant-back" href="study.html">{rtl ? "صفحة الدراسة والاستبيانات" : "Study page"}</a>
+        </div>
+        ) : (
         <div className="prototype-note">
           <strong>
             {rtl ? "حساب موحد وآمن V0.10.5" : "Secure unified account V0.10.5"}
@@ -660,6 +697,7 @@ export default function Home() {
           <ResearchIndexButtons rtl={rtl} className="reviewer-preview-link" />
           <button className="reviewer-preview-link" onClick={() => setView("study")}>{rtl ? "لوحة الدراسة (المشاركون)" : "Study dashboard"}</button>
         </div>
+        )}
         <div className="profile">
           <span>ع</span>
           <div>
@@ -791,15 +829,24 @@ export default function Home() {
             }}
           />
         )}
+        {participantMode && participant && (
+          <div className="participant-banner" role="status">
+            {participant.status === "pre_done" && !participant.book_id && <span>الخطوة التالية: اضغط «أضف كتابًا» وارفع كتاب الدراسة (حتى ٤٠٠ صفحة).</span>}
+            {participant.status === "using" && !participant.ai_approved_at && <span>كتابك مربوط بالدراسة، وبانتظار موافقة الباحث. يمكنك قراءته الآن، ويُفتح التحليل بعد الموافقة.</span>}
+            {participant.status === "using" && participant.ai_approved_at && participant.post_due_at && new Date(participant.post_due_at).getTime() <= Date.now() && <span>حان الاستبيان الثاني. <a href="study.html">افتح صفحة الدراسة</a>.</span>}
+            {participant.reward_granted_at && <span>شكرًا لإكمالك. الخلاصة والصوت لك: نزّلهما من صفحة كتابك قبل نهاية الدراسة.</span>}
+          </div>
+        )}
         {view === "progress" && <Progress rtl={rtl} title={pageTitle} books={pilotBooks.filter((book) => !isBookArchived(book))} />}
         {view === "librarian" && <Librarian rtl={rtl} title={pageTitle} />}
         {view === "feedback" && <Feedback rtl={rtl} t={t} />}
         
-        {view === "study" && <Suspense fallback={null}><ResearcherDashboard rtl={rtl} /></Suspense>}
-        {view === "guide" && <UserGuide rtl={rtl} onUpload={openUpload} onLibrary={() => setView("library")} onActivate={activateLatestVersion} activating={activating} />}
+        {view === "study" && !participantMode && <Suspense fallback={null}><ResearcherDashboard rtl={rtl} /></Suspense>}
+        {view === "guide" && participantMode && <div className="page study-page participant-guide-page" dir="rtl"><ParticipantGuide /><p><a className="secondary" href="study.html">العودة إلى صفحة الدراسة</a></p></div>}
+        {view === "guide" && !participantMode && <UserGuide rtl={rtl} onUpload={openUpload} onLibrary={() => setView("library")} onActivate={activateLatestVersion} activating={activating} />}
       </main>
       <nav className="mobile-nav">
-        {navigation[lang].slice(0, 5).map(([id, label, icon]) => (
+        {navigation[lang].filter(([id]) => !participantMode || PARTICIPANT_VIEWS.includes(id)).slice(0, 5).map(([id, label, icon]) => (
           <button
             key={id}
             className={view === id ? "active" : ""}
@@ -1067,10 +1114,12 @@ function Dashboard({
             <button className="secondary" onClick={() => setView("library")}>
               ▥ {rtl ? "افتح مكتبتي" : "Open my library"}
             </button>
+            {!participantMode && <>
             <button className="secondary reviewer-home-button" onClick={() => window.open(`${window.location.pathname}?supervisor=1`, "_blank", "noopener,noreferrer")}>
               ◉ {rtl ? "نسخة المستخدم" : "User view"}
             </button>
             <ResearchIndexButtons rtl={rtl} className="secondary reviewer-home-button" />
+            </>}
           </div>
         </div>
         <div className="quote-mark">
@@ -1774,8 +1823,18 @@ function describeAiError(value: unknown, rtl: boolean) {
   const raw = value instanceof Error ? value.message : String(value ?? "");
   if (/ANALYSIS_SOURCE_/.test(raw)) return rtl ? "تعذر تجهيز نص الكتاب كاملًا للتحليل؛ قد يحتاج تعرّفًا ضوئيًا أو تقسيمًا إضافيًا. لم يبدأ طلب التحليل المدفوع." : "Could not prepare the complete book text; OCR or further splitting may be needed. Paid analysis has not started.";
   if (/file_above_max_size|File urls cannot be larger/.test(raw)) return rtl ? "حجم PDF يتجاوز حد خدمة التحليل، وليس الرصيد. حد رفع المكتبة ما زال 150 MiB؛ حدّث الصفحة لاستخدام تجهيز النص للكتب الكبيرة." : "The PDF exceeds the analysis service file limit, not your balance. Refresh to use large-book text preparation.";
-  const code = raw.match(/(PAID_AI_DISABLED|PRIVATE_PILOT_EMAIL_REQUIRED|PAID_PILOT_BOOK_LIMIT_REACHED|DAILY_ANALYSIS_LIMIT_REACHED|DAILY_QUESTION_LIMIT_REACHED|PILOT_QUESTION_LIMIT_REACHED|OPENAI_API_KEY_MISSING|LEGAL_CONSENT_REQUIRED|BOOK_NOT_PROCESSED|ANALYSIS_NOT_READY)/)?.[1];
+  const code = raw.match(/(AWAITING_APPROVAL|STUDY_AI_PAUSED|STUDY_LIMIT_PROCESS|STUDY_LIMIT_ASK|STUDY_LIMIT_AUDIO|STUDY_LIMIT_PREVIEW|NOT_STUDY_BOOK|STUDY_STAGE_CLOSED|BOOK_TOO_LONG|NOT_PARTICIPANT|PAID_AI_DISABLED|PRIVATE_PILOT_EMAIL_REQUIRED|PAID_PILOT_BOOK_LIMIT_REACHED|DAILY_ANALYSIS_LIMIT_REACHED|DAILY_QUESTION_LIMIT_REACHED|PILOT_QUESTION_LIMIT_REACHED|OPENAI_API_KEY_MISSING|LEGAL_CONSENT_REQUIRED|BOOK_NOT_PROCESSED|ANALYSIS_NOT_READY)/)?.[1];
   const ar: Record<string, string> = {
+    AWAITING_APPROVAL: "بانتظار موافقة الباحث على كتابك. يمكنك قراءة الكتاب الآن، ويُفتح التحليل بعد الموافقة.",
+    STUDY_AI_PAUSED: "التحليل متوقف مؤقتًا من الباحث. حاول لاحقًا؛ لم يُخصم شيء.",
+    STUDY_LIMIT_PROCESS: "بلغت حد التحليلات المسموح به في الدراسة.",
+    STUDY_LIMIT_ASK: "بلغت حد الأسئلة المسموح به في الدراسة.",
+    STUDY_LIMIT_AUDIO: "بلغت حد مجموعات الصوت في الدراسة. استخدم الصوت المنشأ سابقًا.",
+    STUDY_LIMIT_PREVIEW: "بلغت حد المعاينات الصوتية في الدراسة.",
+    NOT_STUDY_BOOK: "التحليل في الدراسة متاح لكتاب الدراسة المربوط فقط.",
+    STUDY_STAGE_CLOSED: "فترة الاستخدام في الدراسة غير مفتوحة الآن.",
+    BOOK_TOO_LONG: "الكتاب أطول من حد الدراسة (٤٠٠ صفحة).",
+    NOT_PARTICIPANT: "افتح المنصة من صفحة الدراسة برمزك.",
     PAID_AI_DISABLED: "الخدمة المدفوعة ما زالت مغلقة من خادم Supabase؛ لم يُرسل الكتاب ولم يُخصم أي رصيد.",
     PRIVATE_PILOT_EMAIL_REQUIRED: "سجّل دخولك بالبريد التجريبي المعتمد أولًا. الجلسة المجهولة لا تستطيع استخدام رصيد OpenAI.",
     PAID_PILOT_BOOK_LIMIT_REACHED: "بلغت حد الكتب المدفوعة المسموح به في المختبر. لن يُخصم شيء لكتاب إضافي.",
@@ -1788,6 +1847,16 @@ function describeAiError(value: unknown, rtl: boolean) {
     ANALYSIS_NOT_READY: "أنشئ الخلاصة بهذه اللغة أولًا، ثم أنشئ الصوت.",
   };
   const en: Record<string, string> = {
+    AWAITING_APPROVAL: "Waiting for the researcher's approval of your book.",
+    STUDY_AI_PAUSED: "Analysis is paused by the researcher. Nothing was charged.",
+    STUDY_LIMIT_PROCESS: "Study analysis limit reached.",
+    STUDY_LIMIT_ASK: "Study question limit reached.",
+    STUDY_LIMIT_AUDIO: "Study audio limit reached.",
+    STUDY_LIMIT_PREVIEW: "Study preview limit reached.",
+    NOT_STUDY_BOOK: "Only your linked study book can be analysed.",
+    STUDY_STAGE_CLOSED: "The study usage period is not open.",
+    BOOK_TOO_LONG: "The book exceeds the study page limit.",
+    NOT_PARTICIPANT: "Open the platform from the study page with your code.",
     PAID_AI_DISABLED: "Paid AI is still locked on the Supabase server. Nothing was sent and no credit was used.",
     PRIVATE_PILOT_EMAIL_REQUIRED: "Sign in with the approved pilot email first. Anonymous sessions cannot use OpenAI credit.",
     PAID_PILOT_BOOK_LIMIT_REACHED: "The paid pilot book limit has been reached. No additional credit was used.",
@@ -2276,7 +2345,7 @@ function PilotWorkspace({
   };
   const handlePaidFailure = (value: unknown) => {
     const raw = value instanceof Error ? value.message : String(value ?? "");
-    if (/(ANALYSIS_SOURCE_|PAID_AI_DISABLED|PRIVATE_PILOT_EMAIL_REQUIRED|DAILY_ANALYSIS_LIMIT_REACHED|DAILY_QUESTION_LIMIT_REACHED|PILOT_QUESTION_LIMIT_REACHED|LEGAL_CONSENT_REQUIRED|BOOK_NOT_PROCESSED|ANALYSIS_NOT_READY)/.test(raw)) {
+    if (/(ANALYSIS_SOURCE_|AWAITING_APPROVAL|STUDY_|NOT_STUDY_BOOK|BOOK_TOO_LONG|NOT_PARTICIPANT|PAID_AI_DISABLED|PRIVATE_PILOT_EMAIL_REQUIRED|DAILY_ANALYSIS_LIMIT_REACHED|DAILY_QUESTION_LIMIT_REACHED|PILOT_QUESTION_LIMIT_REACHED|LEGAL_CONSENT_REQUIRED|BOOK_NOT_PROCESSED|ANALYSIS_NOT_READY)/.test(raw)) {
       finishPaidTask();
       return;
     }

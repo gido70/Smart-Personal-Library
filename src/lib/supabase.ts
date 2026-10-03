@@ -5,16 +5,30 @@ const key = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined
 
 export const supabaseConfigured = Boolean(url && key);
 
+// Study participant mode: entered only from study.html (index.html?participant=1) and kept for this tab only.
+// It reuses the participant's anonymous session (storage key "spl-study-auth"), so the owner's normal tabs
+// and session are never touched. Every paid action is still authorised server-side by spl-study-ai.
+export const participantMode: boolean = (() => {
+  try {
+    if (new URLSearchParams(window.location.search).get("participant") === "1") sessionStorage.setItem("spl-participant", "1");
+    return sessionStorage.getItem("spl-participant") === "1";
+  } catch { return false; }
+})();
+
 export const supabase = supabaseConfigured
   ? createClient(url!, key!, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+      auth: participantMode
+        ? { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: "spl-study-auth" }
+        : { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
     })
   : null;
+
+export const AI_FUNCTION = participantMode ? "spl-study-ai" : "spl-ai";
 
 export async function ensurePilotSession() {
   if (!supabase) throw new Error("SUPABASE_NOT_CONFIGURED");
   const { data } = await supabase.auth.getSession();
-  if (!data.session || (data.session.user as { is_anonymous?: boolean }).is_anonymous) {
+  if (!data.session || ((data.session.user as { is_anonymous?: boolean }).is_anonymous && !participantMode)) {
     throw new Error("AUTH_REQUIRED");
   }
   return data.session;

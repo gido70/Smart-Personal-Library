@@ -55,3 +55,4 @@
 .study-guide dl{margin:4px 0;display:grid;gap:8px}
 .study-guide dt{font-weight:700;color:var(--s-ink)}
 .study-guide dd{margin:0;color:var(--s-soft)}
+a.study-primary,a.study-secondary{display:inline-flex;align-items:center;text-decoration:none}
