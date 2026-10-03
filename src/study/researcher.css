@@ -25,3 +25,6 @@
 .rd-table tr.rd-test{opacity:.6}
 .rd-table button{padding:4px 12px;min-height:30px}
 .rd-error{background:color-mix(in srgb,var(--red,#b94a3d) 12%,var(--card));color:var(--red,#b94a3d);border:1px solid var(--red,#b94a3d);padding:10px;border-radius:10px;font-weight:700}
+.rd-guide summary{cursor:pointer;font-weight:800;font-size:1.05rem}
+.rd-guide h4{margin:12px 0 4px}
+.rd-guide ol,.rd-guide ul{margin:0;padding-inline-start:20px;line-height:1.9}

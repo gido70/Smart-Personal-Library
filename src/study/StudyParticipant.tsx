@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import "./study.css";
 import Questionnaire from "./Questionnaire";
+import ParticipantGuide from "./ParticipantGuide";
 import type { Answers, Instrument, Participant } from "./types";
 import { studyErrorMessage } from "./formLogic";
 import { ensureAnonymousSession, giveConsent, joinStudy, loadInstruments, loadParticipant, submitInstrument, withdrawFromStudy } from "./studyApi";
@@ -54,7 +55,7 @@ export default function StudyParticipant() {
         <h1>المكتبة الشخصية الذكية</h1>
         <p>المشاركة في الدراسة البحثية</p>
       </header>
-      <main>{body}</main>
+      <main>{body}{phase === "ready" && <ParticipantGuide />}</main>
       {participant && <Footer participant={participant} onWithdrawn={refresh} />}
     </div>
   );
