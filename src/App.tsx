@@ -691,11 +691,11 @@ export default function Home() {
               ? "مكتبتك قابلة للنمو. لا يبدأ التحليل أو السؤال أو الصوت الاحترافي إلا بعد تأكيدك."
               : "Your library can grow. Analysis, questions, and professional audio start only after your confirmation."}
           </p>
+          <button className="reviewer-preview-link owner-primary" onClick={() => setView("study")}>▦ {rtl ? "لوحة الدراسة (المشاركون)" : "Study dashboard"}</button>
           <button className="reviewer-preview-link" onClick={() => window.open(`${window.location.pathname}?supervisor=1`, "_blank", "noopener,noreferrer")}>
             ◉ {rtl ? "معاينة نسخة المستخدم" : "Preview user view"}
           </button>
           <ResearchIndexButtons rtl={rtl} className="reviewer-preview-link" />
-          <button className="reviewer-preview-link" onClick={() => setView("study")}>{rtl ? "لوحة الدراسة (المشاركون)" : "Study dashboard"}</button>
         </div>
         )}
         <div className="profile">
@@ -1119,6 +1119,7 @@ function Dashboard({
               ◉ {rtl ? "نسخة المستخدم" : "User view"}
             </button>
             <ResearchIndexButtons rtl={rtl} className="secondary reviewer-home-button" />
+            <button className="primary reviewer-home-button owner-study-home" onClick={() => setView("study")}>▦ {rtl ? "لوحة الدراسة" : "Study dashboard"}</button>
             </>}
           </div>
         </div>
