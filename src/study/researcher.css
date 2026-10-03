@@ -1,4 +1,5 @@
-.rd{display:grid;gap:14px;max-width:1200px}
+.rd{display:grid;gap:14px;max-width:1200px;grid-template-columns:minmax(0,1fr);min-width:0}
+.rd>*{min-width:0}
 .rd-head h2{margin:0 0 4px}
 .rd-head p{margin:0;color:var(--soft)}
 .rd-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
