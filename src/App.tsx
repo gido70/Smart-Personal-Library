@@ -691,7 +691,7 @@ export default function Home() {
               ? "مكتبتك قابلة للنمو. لا يبدأ التحليل أو السؤال أو الصوت الاحترافي إلا بعد تأكيدك."
               : "Your library can grow. Analysis, questions, and professional audio start only after your confirmation."}
           </p>
-          <button className="reviewer-preview-link owner-primary" onClick={() => setView("study")}>▦ {rtl ? "لوحة الدراسة (المشاركون)" : "Study dashboard"}</button>
+          <button className="reviewer-preview-link owner-primary" onClick={() => setView("study")}>▦ {rtl ? "لوحة الدراسة" : "Study dashboard"}</button>
           <button className="reviewer-preview-link" onClick={() => window.open(`${window.location.pathname}?supervisor=1`, "_blank", "noopener,noreferrer")}>
             ◉ {rtl ? "معاينة نسخة المستخدم" : "Preview user view"}
           </button>
@@ -752,6 +752,7 @@ export default function Home() {
         {view === "home" && (
           <nav className="mobile-home-toolbar" aria-label={rtl ? "أدوات الصفحة الرئيسية" : "Home page tools"}>
             <button className="tool-home active" aria-current="page" onClick={() => setView("home")}><i>⌂</i><span>{rtl ? "الرئيسية" : "Home"}</span></button>
+            {!participantMode && <button className="tool-study" onClick={() => setView("study")}><i>▦</i><span>{rtl ? "لوحة الدراسة" : "Study"}</span></button>}
             <button className="tool-index" onClick={() => setView("library")}><i>▥</i><span>{rtl ? "مكتبتي" : "My library"}</span></button>
             <button className="tool-guide" onClick={() => setView("guide")}><i>؟</i><span>{rtl ? "دليل الاستخدام" : "User guide"}</span></button>
             <button className="tool-refresh" onClick={activateLatestVersion} disabled={activating}><i>↻</i><span>{activating ? (rtl ? "جارٍ التنشيط" : "Activating") : (rtl ? "تنشيط الصفحة" : "Refresh page")}</span></button>
