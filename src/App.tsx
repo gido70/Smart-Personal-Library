@@ -888,6 +888,7 @@ function ReviewerPreview({ rtl, books, onOpenOriginal }: { rtl: boolean; books: 
   const [selectedBookId, setSelectedBookId] = useState(visibleBooks.find((book) => !isBookArchived(book))?.id ?? visibleBooks[0]?.id ?? "");
   const [results, setResults] = useState<Record<string, unknown> | null>(null);
   const [audioUrls, setAudioUrls] = useState<string[]>([]);
+  const [audioMeta, setAudioMeta] = useState<{ language: string; voice: string; part: number }[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const selectedBook = visibleBooks.find((book) => book.id === selectedBookId) ?? visibleBooks[0];
@@ -915,7 +916,7 @@ function ReviewerPreview({ rtl, books, onOpenOriginal }: { rtl: boolean; books: 
           ?? data.analyses[0];
         setResults((paid?.content as Record<string, unknown>) ?? null);
         const urls = await Promise.all(data.audio.map((item) => getPrivateAudioUrl(item.storage_path)));
-        if (!cancelled) setAudioUrls(urls);
+        if (!cancelled) { setAudioUrls(urls); setAudioMeta(data.audio.map((item) => ({ language: String(item.language), voice: String(item.voice), part: Number(item.part_no) }))); }
       })
       .catch((value) => {
         if (!cancelled) setError(value instanceof Error ? value.message : String(value));
@@ -948,7 +949,7 @@ function ReviewerPreview({ rtl, books, onOpenOriginal }: { rtl: boolean; books: 
             {loading && <section className="panel">{rtl ? "جارٍ تحميل النتائج المحفوظة…" : "Loading saved results…"}</section>}
             {!loading && results && <section className="panel reviewer-results"><h3>{rtl ? "الخلاصة والتحليل" : "Summary and analysis"}</h3><PaidResultView result={results} rtl={rtl} /></section>}
             {!loading && !results && <section className="panel"><p>{rtl ? "لا توجد خلاصة محفوظة لهذا الكتاب." : "No saved summary is available for this book."}</p></section>}
-            {audioUrls.length > 0 && <section className="panel reviewer-audio"><span className="eyebrow">{rtl ? "محفوظ وجاهز" : "Saved and ready"}</span><h3>{rtl ? "الاستماع إلى الصوت المحفوظ" : "Listen to saved audio"}</h3><div className="professional-audio-list saved-audio-only">{audioUrls.map((url, index) => <label key={url}><span>{rtl ? `الجزء ${index + 1}` : `Part ${index + 1}`}</span><audio controls preload="metadata" src={url} /></label>)}</div></section>}
+            {audioUrls.length > 0 && <section className="panel reviewer-audio"><span className="eyebrow">{rtl ? "محفوظ وجاهز" : "Saved and ready"}</span><h3>{rtl ? "الاستماع إلى الصوت المحفوظ" : "Listen to saved audio"}</h3>{Object.values(audioUrls.reduce<Record<string, { url: string; part: number; voice: string }[]>>((groups, url, index) => { const meta = audioMeta[index] ?? { language: "", voice: "", part: index + 1 }; (groups[`${meta.language}-${meta.voice}`] ??= []).push({ url, part: meta.part, voice: meta.voice }); return groups; }, {})).map((group) => { const parts = [...group].sort((a, b) => a.part - b.part); return <div className="shared-audio-group" key={parts[0].url}>{parts.length > 1 && <ContinuousAudio key={parts.map((p) => p.url).join("|")} urls={parts.map((p) => p.url)} rtl={rtl} />}<details className="shared-audio-parts" open={parts.length === 1}><summary>{rtl ? `الأجزاء منفصلة (${parts.length})${parts[0].voice ? ` · ${parts[0].voice}` : ""}` : `Separate parts (${parts.length})`}</summary><div className="professional-audio-list saved-audio-only">{parts.map((p) => <label key={p.url}><span>{rtl ? `الجزء ${p.part}` : `Part ${p.part}`}</span><audio controls preload="metadata" src={p.url} /></label>)}</div></details></div>; })}</section>}
             {error && <div className="reader-error inline">{error}</div>}
             <section className="panel reviewer-feedback-form">
               <span className="eyebrow">{rtl ? "التقييم والملاحظات" : "Evaluation and notes"}</span>
