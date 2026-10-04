@@ -11,6 +11,7 @@ type Row = {
   followup_due_at: string | null; reward_granted_at: string | null; rebind_count: number; created_at: string;
 };
 type Resp = { participant_id: string; instrument_key: string; instrument_version: string; attention_passed: boolean | null; submitted_at: string; started_at: string | null; answers: Record<string, unknown> };
+type Fb = { id: string; created_at: string; device: string | null; answers: Record<string, unknown> };
 type InstRow = { key: string; version: string; definition: { sections: { title: string; items?: { code: string; text: string | null; text_en?: string }[] }[] } };
 type Settings = { ai_enabled: boolean; max_pages: number; max_process: number; max_asks: number; max_audio_sets: number; max_previews: number };
 type Invite = { code: string; invite: string };
@@ -50,6 +51,7 @@ export default function ResearcherDashboard({ rtl }: { rtl: boolean }) {
   const [busy, setBusy] = useState("");
   const [insts, setInsts] = useState<InstRow[]>([]);
   const [open, setOpen] = useState<string | null>(null);
+  const [fb, setFb] = useState<Fb[]>([]);
 
   const load = useCallback(async () => {
     if (!supabase) return;
@@ -57,16 +59,18 @@ export default function ResearcherDashboard({ rtl }: { rtl: boolean }) {
     const { data: ok } = await supabase.rpc("spl_study_is_researcher");
     setAllowed(Boolean(ok));
     if (!ok) return;
-    const [p, r, ins, s] = await Promise.all([
+    const [p, r, ins, f, s] = await Promise.all([
       supabase.from("spl_study_participants").select("id,code,is_test,status,consent_version,interview_ok,book_pages,book_linked_at,ai_approved_at,post_due_at,followup_due_at,reward_granted_at,rebind_count,created_at").order("code"),
       supabase.from("spl_study_responses").select("participant_id,instrument_key,instrument_version,attention_passed,submitted_at,started_at,answers"),
       supabase.from("spl_study_instruments").select("key,version,definition"),
+      supabase.from("spl_design_feedback").select("id,created_at,device,answers").order("created_at", { ascending: false }).limit(200),
       supabase.rpc("spl_study_settings", { p_ai_enabled: null }),
     ]);
     if (p.error || r.error || s.error) setError("تعذر تحميل بيانات الدراسة. حدّث الصفحة.");
     setRows((p.data ?? []) as Row[]);
     setResps((r.data ?? []) as Resp[]);
     setInsts((ins.data ?? []) as InstRow[]);
+    setFb((f.data ?? []) as Fb[]);
     if (s.data?.ok) setSettings(s.data as Settings);
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -219,6 +223,13 @@ export default function ResearcherDashboard({ rtl }: { rtl: boolean }) {
         )}
       </section>
 
+
+      <section className="rd-card">
+        <h3>ملاحظات الزملاء على التصميم ({fb.length})</h3>
+        <p className="rd-muted">تقييم تكويني من عرض المستخدم المشترك: لتحسين المنصة قبل التجميد، وليس بيانات الدراسة.</p>
+        {fb.length > 0 && <div className="rd-flow">{([["FB_READ", "وضوح الخط"], ["FB_CARDS", "البطاقات"], ["FB_AUDIO", "الصوت"], ["FB_RETURN", "العودة للأصل"]] as [string, string][]).map(([k, l]) => { const v = fb.map(x => x.answers[k]).filter((x): x is number => typeof x === "number"); return <div key={k}><strong>{v.length ? (v.reduce((a, b) => a + b, 0) / v.length).toFixed(1) : "—"}</strong><span>{l} (من ٥، ن={v.length})</span></div>; })}</div>}
+        {fb.length > 0 && <div className="rd-table"><table><thead><tr><th>التاريخ</th><th>الجهاز</th><th>الخط</th><th>البطاقات</th><th>الصوت</th><th>العودة</th><th>أعجبه</th><th>يقترح</th></tr></thead><tbody>{fb.map(x => <tr key={x.id}><td>{d(x.created_at)}</td><td>{x.device ?? "—"}</td>{["FB_READ", "FB_CARDS", "FB_AUDIO", "FB_RETURN"].map(k => <td key={k}>{x.answers[k] === "na" ? "لم يستمع" : String(x.answers[k] ?? "—")}</td>)}<td>{String(x.answers.FB_BEST ?? "—")}</td><td>{String(x.answers.FB_SUGGEST ?? "—")}</td></tr>)}</tbody></table></div>}
+      </section>
       <section className="rd-card">
         <h3>المشاركون ({rows.length})</h3>
         <div className="rd-table"><table>
