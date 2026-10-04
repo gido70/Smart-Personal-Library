@@ -1873,6 +1873,22 @@ function describeAiError(value: unknown, rtl: boolean) {
   return code ? (rtl ? ar[code] : en[code]) : raw || (rtl ? "تعذر إكمال الطلب." : "The request could not be completed.");
 }
 
+// Reading layout for saved results (owner book page, reviewer view and shared user view).
+// Content is unchanged; only presentation: section tabs, summary reading cards, adjustable text size.
+const READING_SCALE_KEY = "spl-reading-scale";
+function splitSummary(text: string): string[] {
+  const clean = text.trim();
+  if (!clean) return [];
+  const paras = clean.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+  const units = paras.length > 1 ? paras : clean.split(/(?<=[.!؟?])\s+/u);
+  const cards: string[] = []; let cur = "";
+  for (const u of units) {
+    const words = (cur + " " + u).trim().split(/\s+/).length;
+    if (cur && words > 170) { cards.push(cur.trim()); cur = u; } else cur = cur ? `${cur}${paras.length > 1 ? "\n\n" : " "}${u}` : u;
+  }
+  if (cur.trim()) cards.push(cur.trim());
+  return cards;
+}
 export function PaidResultView({ result, rtl }: { result: Record<string, unknown>; rtl: boolean }) {
   const data = result as PaidBookResult;
   const ideas = data.overview?.key_ideas ?? [];
@@ -1880,24 +1896,64 @@ export function PaidResultView({ result, rtl }: { result: Record<string, unknown
   const strengths = data.critical?.strengths ?? [];
   const limitations = data.critical?.limitations ?? [];
   const inferences = data.critical?.platform_inferences ?? [];
+  const summary = String(data.overview?.summary ?? "");
+  const cards = useMemo(() => splitSummary(summary), [summary]);
+  const posKey = `spl-reading-pos-${summary.slice(0, 40)}`;
+  const [card, setCard] = useState(() => { try { return Math.min(Number(localStorage.getItem(posKey) || 0), Math.max(0, cards.length - 1)); } catch { return 0; } });
+  const [scale, setScale] = useState(() => { try { return Number(localStorage.getItem(READING_SCALE_KEY)) || 1; } catch { return 1; } });
+  const [tab, setTab] = useState("summary");
+  const [continuous, setContinuous] = useState(false);
+  useEffect(() => { try { localStorage.setItem(posKey, String(card)); } catch { /* optional */ } }, [card, posKey]);
+  const changeScale = (d: number) => setScale(v => { const n = Math.min(1.6, Math.max(0.9, Math.round((v + d) * 10) / 10)); try { localStorage.setItem(READING_SCALE_KEY, String(n)); } catch { /* optional */ } return n; });
+  const words = summary.trim() ? summary.trim().split(/\s+/).length : 0;
+  const tabs: [string, string, boolean][] = [
+    ["summary", rtl ? "الخلاصة" : "Summary", true],
+    ["ideas", rtl ? "الأفكار" : "Ideas", ideas.length > 0],
+    ["chapters", rtl ? "الفصول" : "Chapters", (data.chapters?.length ?? 0) > 0],
+    ["critical", rtl ? "القراءة النقدية" : "Critical", strengths.length + limitations.length + inferences.length > 0],
+    ["returns", rtl ? "العودة إلى الكتاب" : "Return", returns.length > 0],
+    ["all", rtl ? "عرض الكل" : "All", true],
+  ];
+  const show = (id: string) => tab === "all" || tab === id;
   return (
-    <div className="paid-result-view">
+    <div className="paid-result-view reading-view" style={{ ["--reading-scale" as string]: String(scale) }}>
       <div className="paid-result-meta">
         <span>✓ {rtl ? "تحليل محفوظ" : "Saved analysis"}</span>
         {data.metadata?.author && <span>{rtl ? "المؤلف" : "Author"}: {data.metadata.author}</span>}
         {data.metadata?.subject && <span>{rtl ? "الموضوع" : "Subject"}: {data.metadata.subject}</span>}
         {data.metadata?.pages_if_known && <span>{rtl ? "الصفحات" : "Pages"}: {String(data.metadata.pages_if_known)}</span>}
       </div>
-      <section>
-        <h4>{rtl ? "الخلاصة الذكية" : "AI overview"}</h4>
-        <p className="paid-summary">{data.overview?.summary || (rtl ? "لم تُحفظ خلاصة." : "No overview was saved.")}</p>
-      </section>
-      {ideas.length > 0 && <section><h4>{rtl ? "الأفكار المحورية" : "Key ideas"}</h4><ol>{ideas.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ol></section>}
-      {(data.chapters?.length ?? 0) > 0 && <section><h4>{rtl ? "الفصول" : "Chapters"}</h4><div className="chapters">{data.chapters?.map((chapter, index) => <details key={index} open={index === 0}><summary><b>{String(index + 1).padStart(2, "0")}</b><span>{chapter.title || (rtl ? "فصل" : "Chapter")}</span><em>{chapter.pages_if_known ? `${rtl ? "ص" : "p."} ${chapter.pages_if_known}` : ""}</em></summary><p>{chapter.summary}</p></details>)}</div></section>}
-      {(strengths.length > 0 || limitations.length > 0) && <section><h4>{rtl ? "القراءة النقدية" : "Critical reading"}</h4><div className="analysis-grid"><div><h4>✓ {rtl ? "نقاط القوة" : "Strengths"}</h4><ul>{strengths.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul></div><div><h4>△ {rtl ? "الحدود" : "Limitations"}</h4><ul>{limitations.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul></div></div></section>}
-      {inferences.length > 0 && <section className="inference"><b>{rtl ? "استنتاجات المنصة" : "Platform inferences"}</b><ul>{inferences.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul></section>}
-      {returns.length > 0 && <section><h4>{rtl ? "مواضع العودة إلى الكتاب" : "Return to the source"}</h4><ol className="return-list paid-return-list">{returns.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ol></section>}
-      {Boolean(data.trust_notes) && <p className="disclosure-note">{rtl ? "ملاحظات الثقة: " : "Trust notes: "}{readableItem(data.trust_notes)}</p>}
+      <div className="reading-bar">
+        <nav className="reading-tabs" aria-label={rtl ? "أقسام الخلاصة" : "Result sections"}>
+          {tabs.filter(([, , ok]) => ok).map(([id, label]) => <button key={id} type="button" className={tab === id ? "on" : ""} aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}
+        </nav>
+        <div className="reading-size" role="group" aria-label={rtl ? "حجم الخط" : "Text size"}>
+          <button type="button" onClick={() => changeScale(-0.1)} aria-label={rtl ? "تصغير الخط" : "Smaller text"}>A−</button>
+          <span>{Math.round(scale * 100)}%</span>
+          <button type="button" onClick={() => changeScale(0.1)} aria-label={rtl ? "تكبير الخط" : "Larger text"}>A+</button>
+        </div>
+      </div>
+      {show("summary") && <section>
+        <h4>{rtl ? "الخلاصة الذكية" : "AI overview"}{words > 0 && <small className="reading-time"> · {rtl ? `نحو ${Math.max(1, Math.round(words / 180))} دقائق قراءة` : `about ${Math.max(1, Math.round(words / 180))} min read`}</small>}</h4>
+        {!summary.trim() ? <p className="paid-summary">{rtl ? "لم تُحفظ خلاصة." : "No overview was saved."}</p>
+          : continuous || tab === "all" || cards.length <= 1 ? <p className="paid-summary">{summary}</p>
+          : <div className="reading-card">
+              <p className="paid-summary">{cards[card]}</p>
+              <div className="reading-nav">
+                <button type="button" className="secondary" disabled={card === 0} onClick={() => setCard(c => Math.max(0, c - 1))}>{rtl ? "→ السابق" : "← Previous"}</button>
+                <span aria-live="polite">{rtl ? `${card + 1} من ${cards.length}` : `${card + 1} of ${cards.length}`}</span>
+                <button type="button" className="primary" disabled={card >= cards.length - 1} onClick={() => setCard(c => Math.min(cards.length - 1, c + 1))}>{rtl ? "التالي ←" : "Next →"}</button>
+              </div>
+              <div className="reading-dots" aria-hidden="true">{cards.map((_, k) => <i key={k} className={k === card ? "on" : k < card ? "done" : ""} />)}</div>
+            </div>}
+        {cards.length > 1 && tab !== "all" && <button type="button" className="reading-toggle" onClick={() => setContinuous(v => !v)}>{continuous ? (rtl ? "اعرضها بطاقات" : "Show as cards") : (rtl ? "اعرض الخلاصة متصلة" : "Show as one text")}</button>}
+      </section>}
+      {show("ideas") && ideas.length > 0 && <section><h4>{rtl ? "الأفكار المحورية" : "Key ideas"}</h4><ol>{ideas.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ol></section>}
+      {show("chapters") && (data.chapters?.length ?? 0) > 0 && <section><h4>{rtl ? "الفصول" : "Chapters"}</h4><div className="chapters">{data.chapters?.map((chapter, index) => <details key={index} open={index === 0}><summary><b>{String(index + 1).padStart(2, "0")}</b><span>{chapter.title || (rtl ? "فصل" : "Chapter")}</span><em>{chapter.pages_if_known ? `${rtl ? "ص" : "p."} ${chapter.pages_if_known}` : ""}</em></summary><p>{chapter.summary}</p></details>)}</div></section>}
+      {show("critical") && (strengths.length > 0 || limitations.length > 0) && <section><h4>{rtl ? "القراءة النقدية" : "Critical reading"}</h4><div className="analysis-grid"><div><h4>✓ {rtl ? "نقاط القوة" : "Strengths"}</h4><ul>{strengths.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul></div><div><h4>△ {rtl ? "الحدود" : "Limitations"}</h4><ul>{limitations.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul></div></div></section>}
+      {show("critical") && inferences.length > 0 && <section className="inference"><b>{rtl ? "استنتاجات المنصة" : "Platform inferences"}</b><ul>{inferences.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul></section>}
+      {show("returns") && returns.length > 0 && <section><h4>{rtl ? "مواضع العودة إلى الكتاب" : "Return to the source"}</h4><ol className="return-list paid-return-list">{returns.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ol></section>}
+      {Boolean(data.trust_notes) && show("summary") && <p className="disclosure-note">{rtl ? "ملاحظات الثقة: " : "Trust notes: "}{readableItem(data.trust_notes)}</p>}
     </div>
   );
 }
