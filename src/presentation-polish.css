@@ -133,3 +133,10 @@
 @media(max-width:760px){.reviewer-layout{grid-template-columns:minmax(0,1fr)!important}}
 .ff-preview{margin:0;padding:8px 12px;border-radius:10px;background:color-mix(in srgb,var(--gold) 14%,var(--card));border-inline-start:4px solid var(--gold);font-size:14px}
 .journal-note{max-width:760px;margin:-6px 0 14px;padding:8px 12px;border-radius:10px;background:color-mix(in srgb,var(--gold) 12%,var(--card));border-inline-start:4px solid var(--gold);color:var(--ink)}
+.page-chip{display:inline-flex;align-items:center;margin-top:8px;min-height:34px;padding:4px 12px;border-radius:999px;border:1px solid var(--green2);background:transparent;color:var(--green2);font-weight:700;font-size:13px;cursor:pointer}
+.paid-return-list .page-chip{margin:4px 6px 0 0}
+.q-cards{display:grid;gap:10px;margin-top:10px}
+.q-card{display:grid;gap:8px;padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--line)}
+.q-card b{line-height:1.7}.q-card p{margin:0;line-height:1.9}
+.q-card button{justify-self:start;min-height:40px}
+.reading-view .page-chip,.paid-result-view .page-chip{display:inline-flex!important;width:auto!important;min-height:32px!important;padding:3px 12px!important;border-radius:999px!important;box-shadow:none!important;background:transparent!important;color:var(--green2)!important;border:1px solid var(--green2)!important;font-size:13px!important;line-height:1.4!important}

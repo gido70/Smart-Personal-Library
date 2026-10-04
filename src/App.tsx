@@ -48,6 +48,7 @@ import { downloadPdfReport, downloadSavedAudio, downloadWordReport } from "./lib
 import { participantMode, signInLibraryAccount, signOutLibraryAccount, signUpLibraryAccount, supabase, supabaseConfigured } from "./lib/supabase";
 import ParticipantGuide from "./study/ParticipantGuide";
 import FormativeFeedback from "./FormativeFeedback";
+import { firstPage, logStudy, startStudySession } from "./lib/studyLog";
 import "./study/study.css";
 import { PAID_PILOT_MAX_BOOKS, ZERO_COST_MODE } from "./lib/config";
 import { runLocalStructuralAnalysis, type LocalAnalysisProgress } from "./lib/localAnalysis";
@@ -352,7 +353,7 @@ export default function Home() {
     const { data } = client.auth.onAuthStateChange((event, session) => { if (event === "SIGNED_OUT" && navigator.onLine) { localStorage.removeItem("spl-offline-owner"); setOfflineOwner(""); } applySession(session); });
     return () => data.subscription.unsubscribe();
   }, []);
-  useEffect(() => { if (participantMode && authState === "authenticated") void loadParticipant(); }, [authState, loadParticipant]);
+  useEffect(() => { if (participantMode && authState === "authenticated") { void loadParticipant(); startStudySession(); } }, [authState, loadParticipant]);
   useEffect(() => {
     let cancelled = false;
     const prepareCurrentWorker = async () => {
@@ -495,6 +496,7 @@ export default function Home() {
     authState === "authenticated" ? accountEmail : null,
   );
   const openReaderFor = (book: PilotBook, initialPage?: number) => {
+    logStudy(initialPage ? "jump_to_page" : "open_original", initialPage ? { page: initialPage } : {}, book.id);
     setReaderBook({ id: book.id, title: book.title, storagePath: book.storage_path, initialPage, sourceLanguage: book.source_language });
     setView("reader");
   };
@@ -1869,6 +1871,17 @@ function describeAiError(value: unknown, rtl: boolean) {
   return code ? (rtl ? ar[code] : en[code]) : raw || (rtl ? "تعذر إكمال الطلب." : "The request could not be completed.");
 }
 
+function QuestionCards({ items, rtl }: { items: { id: string; q: string; a: string }[]; rtl: boolean }) {
+  const [i, setI] = useState(0);
+  const [shown, setShown] = useState(false);
+  const it = items[Math.min(i, items.length - 1)];
+  if (!it) return null;
+  const go = (n: number) => { setI(Math.max(0, Math.min(items.length - 1, n))); setShown(false); };
+  return <div className="q-cards">
+    <div className="q-card"><b>{it.q}</b>{shown ? <p>{it.a}</p> : <button type="button" className="secondary" onClick={() => setShown(true)}>{rtl ? "أظهر الإجابة" : "Show answer"}</button>}</div>
+    {items.length > 1 && <div className="reading-nav"><button type="button" className="secondary" disabled={i === 0} onClick={() => go(i - 1)}>{rtl ? "→ السابق" : "← Previous"}</button><span>{rtl ? `${i + 1} من ${items.length}` : `${i + 1} of ${items.length}`}</span><button type="button" className="primary" disabled={i >= items.length - 1} onClick={() => go(i + 1)}>{rtl ? "التالي ←" : "Next →"}</button></div>}
+  </div>;
+}
 // Reading layout for saved results (owner book page, reviewer view and shared user view).
 // Content is unchanged; only presentation: section tabs, summary reading cards, adjustable text size.
 const READING_SCALE_KEY = "spl-reading-scale";
@@ -1885,7 +1898,7 @@ function splitSummary(text: string): string[] {
   if (cur.trim()) cards.push(cur.trim());
   return cards;
 }
-export function PaidResultView({ result, rtl }: { result: Record<string, unknown>; rtl: boolean }) {
+export function PaidResultView({ result, rtl, onOpenPage, bookId }: { result: Record<string, unknown>; rtl: boolean; onOpenPage?: (page: number) => void; bookId?: string }) {
   const data = result as PaidBookResult;
   const ideas = data.overview?.key_ideas ?? [];
   const returns = data.overview?.return_to_source ?? [];
@@ -1900,6 +1913,11 @@ export function PaidResultView({ result, rtl }: { result: Record<string, unknown
   const [tab, setTab] = useState("summary");
   const [continuous, setContinuous] = useState(false);
   useEffect(() => { try { localStorage.setItem(posKey, String(card)); } catch { /* optional */ } }, [card, posKey]);
+  useEffect(() => {
+    const type = tab === "ideas" ? "view_map" : tab === "chapters" ? "view_chapters" : "view_summary";
+    logStudy(type, tab === "summary" ? { tab, card: card + 1, of: cards.length } : { tab }, bookId);
+  }, [tab, card, cards.length, bookId]);
+  const pageChip = (value: unknown) => { const pg = firstPage(value); return onOpenPage && pg ? <button type="button" className="page-chip" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenPage(pg); }}>{rtl ? `↗ ارجع إلى ص ${pg}` : `↗ Open p. ${pg}`}</button> : null; };
   const changeScale = (d: number) => setScale(v => { const n = Math.min(1.6, Math.max(0.9, Math.round((v + d) * 10) / 10)); try { localStorage.setItem(READING_SCALE_KEY, String(n)); } catch { /* optional */ } return n; });
   const words = summary.trim() ? summary.trim().split(/\s+/).length : 0;
   const tabs: [string, string, boolean][] = [
@@ -1945,10 +1963,10 @@ export function PaidResultView({ result, rtl }: { result: Record<string, unknown
         {cards.length > 1 && tab !== "all" && <button type="button" className="reading-toggle" onClick={() => setContinuous(v => !v)}>{continuous ? (rtl ? "اعرضها بطاقات" : "Show as cards") : (rtl ? "اعرض الخلاصة متصلة" : "Show as one text")}</button>}
       </section>}
       {show("ideas") && ideas.length > 0 && <section><h4>{rtl ? "الأفكار المحورية" : "Key ideas"}</h4><ol>{ideas.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ol></section>}
-      {show("chapters") && (data.chapters?.length ?? 0) > 0 && <section><h4>{rtl ? "الفصول" : "Chapters"}</h4><div className="chapters">{data.chapters?.map((chapter, index) => <details key={index} open={index === 0}><summary><b>{String(index + 1).padStart(2, "0")}</b><span>{chapter.title || (rtl ? "فصل" : "Chapter")}</span><em>{chapter.pages_if_known ? `${rtl ? "ص" : "p."} ${chapter.pages_if_known}` : ""}</em></summary><p>{chapter.summary}</p></details>)}</div></section>}
+      {show("chapters") && (data.chapters?.length ?? 0) > 0 && <section><h4>{rtl ? "الفصول" : "Chapters"}</h4><div className="chapters">{data.chapters?.map((chapter, index) => <details key={index} open={index === 0}><summary><b>{String(index + 1).padStart(2, "0")}</b><span>{chapter.title || (rtl ? "فصل" : "Chapter")}</span><em>{chapter.pages_if_known ? `${rtl ? "ص" : "p."} ${chapter.pages_if_known}` : ""}</em></summary><p>{chapter.summary}</p>{pageChip(chapter.pages_if_known)}</details>)}</div></section>}
       {show("critical") && (strengths.length > 0 || limitations.length > 0) && <section><h4>{rtl ? "القراءة النقدية" : "Critical reading"}</h4><div className="analysis-grid"><div><h4>✓ {rtl ? "نقاط القوة" : "Strengths"}</h4><ul>{strengths.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul></div><div><h4>△ {rtl ? "الحدود" : "Limitations"}</h4><ul>{limitations.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul></div></div></section>}
       {show("critical") && inferences.length > 0 && <section className="inference"><b>{rtl ? "استنتاجات المنصة" : "Platform inferences"}</b><ul>{inferences.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul></section>}
-      {show("returns") && returns.length > 0 && <section><h4>{rtl ? "مواضع العودة إلى الكتاب" : "Return to the source"}</h4><ol className="return-list paid-return-list">{returns.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ol></section>}
+      {show("returns") && returns.length > 0 && <section><h4>{rtl ? "مواضع العودة إلى الكتاب" : "Return to the source"}</h4><ol className="return-list paid-return-list">{returns.map((item, index) => <li key={index}>{readableItem(item)} {pageChip((item as { page?: unknown })?.page)}</li>)}</ol></section>}
       {Boolean(data.trust_notes) && show("summary") && <p className="disclosure-note">{rtl ? "ملاحظات الثقة: " : "Trust notes: "}{readableItem(data.trust_notes)}</p>}
     </div>
   );
@@ -2618,6 +2636,7 @@ function PilotWorkspace({
         requestId,
       });
       setAnswer(data.answer);
+      logStudy("question_answer", { chars: q.trim().length }, book.id);
       finishPaidTask();
       setConfirming("");
     } catch (e) {
@@ -3329,7 +3348,7 @@ function PilotWorkspace({
               </div>
               )
             )}
-            {results && <PaidResultView result={results} rtl={rtl} />}
+            {results && <PaidResultView result={results} rtl={rtl} bookId={book.id} onOpenPage={(page) => onOpenReader(page)} />}
             {results && <section className="result-downloads" aria-label={rtl ? "تنزيل المخرجات" : "Download outputs"}>
               <div><strong>{rtl ? "احتفظ بمخرجاتك" : "Keep your outputs"}</strong><small>{rtl ? "ملفان منسقان من اليمين إلى اليسار للمخرجات التحليلية، وليس نسخة من نص الكتاب الأصلي." : "Formatted analytical outputs, not a copy of the original book text."}</small></div>
               <button className="secondary" onClick={() => { setExportMessage(""); downloadWordReport(book, results, rtl, questionHistory); }}>W {rtl ? "تنزيل Word" : "Download Word"}</button>
@@ -3397,7 +3416,7 @@ function PilotWorkspace({
                     </div>
                   )}
                   {answer && <div className="answer-live"><strong>{String(answer.answer ?? "")}</strong>{Array.isArray(answer.references) && <ul>{answer.references.map((item, index) => <li key={index}>{readableItem(item)}</li>)}</ul>}<small>{rtl ? "الثقة" : "Confidence"}: {String(answer.confidence ?? "—")}</small></div>}
-                  {questionHistory.length > 0 && <details className="question-history"><summary>{rtl ? `الأسئلة المحفوظة (${questionHistory.length})` : `Saved questions (${questionHistory.length})`}</summary>{questionHistory.map((item) => <div key={item.id}><b>{item.question}</b><p>{String(item.answer.answer ?? "")}</p></div>)}</details>}
+                  {questionHistory.length > 0 && <details className="question-history" onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) logStudy("view_questions", { n: questionHistory.length }, book.id); }}><summary>{rtl ? `الأسئلة المحفوظة (${questionHistory.length})` : `Saved questions (${questionHistory.length})`}</summary><QuestionCards items={questionHistory.map((item) => ({ id: item.id, q: item.question, a: String(item.answer.answer ?? "") }))} rtl={rtl} /></details>}
                 </>
               )}
             </section>
