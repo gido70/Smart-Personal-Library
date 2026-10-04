@@ -47,6 +47,7 @@ import {
 import { downloadPdfReport, downloadSavedAudio, downloadWordReport } from "./lib/exports";
 import { participantMode, signInLibraryAccount, signOutLibraryAccount, signUpLibraryAccount, supabase, supabaseConfigured } from "./lib/supabase";
 import ParticipantGuide from "./study/ParticipantGuide";
+import FormativeFeedback from "./FormativeFeedback";
 import "./study/study.css";
 import { PAID_PILOT_MAX_BOOKS, ZERO_COST_MODE } from "./lib/config";
 import { runLocalStructuralAnalysis, type LocalAnalysisProgress } from "./lib/localAnalysis";
@@ -939,9 +940,9 @@ function ReviewerPreview({ rtl, books, onOpenOriginal }: { rtl: boolean; books: 
       <div className="reviewer-layout">
         <aside className="panel reviewer-books">
           <h3>{rtl ? "الكتب في تجربة المالك" : "Books in the owner pilot"}</h3><p>{rtl ? `${activeCount} كتب أصلية نشطة، و${archiveCount} نسخ معرفية مؤرشفة` : `${activeCount} active originals and ${archiveCount} archived knowledge copies`}</p>
-          {visibleBooks.length ? visibleBooks.map((book, index) => <button key={book.id} className={selectedBook?.id === book.id ? "active" : ""} onClick={() => setSelectedBookId(book.id)}>
-            <span>{String(index + 1).padStart(2, "0")}</span><strong>{book.title}</strong><small>{isBookArchived(book) ? (rtl ? "نسخة معرفية مؤرشفة" : "Archived knowledge copy") : (rtl ? "كتاب أصلي نشط" : "Active original")}</small>
-          </button>) : <p>{rtl ? "لا توجد كتب مختارة حاليًا." : "No books are selected yet."}</p>}
+          {visibleBooks.length ? <div className="reviewer-shelf">{visibleBooks.map((book, index) => <button key={book.id} className={selectedBook?.id === book.id ? "active" : ""} onClick={() => setSelectedBookId(book.id)}>
+            <span>{String(index + 1).padStart(2, "0")}</span><strong>{book.title}</strong><small>{isBookArchived(book) ? (rtl ? "نسخة مؤرشفة" : "Archived copy") : (rtl ? "كتاب نشط" : "Active book")}</small>
+          </button>)}</div> : <p>{rtl ? "لا توجد كتب مختارة حاليًا." : "No books are selected yet."}</p>}
         </aside>
         <main className="reviewer-content">
           {selectedBook && <>
@@ -951,11 +952,8 @@ function ReviewerPreview({ rtl, books, onOpenOriginal }: { rtl: boolean; books: 
             {!loading && !results && <section className="panel"><p>{rtl ? "لا توجد خلاصة محفوظة لهذا الكتاب." : "No saved summary is available for this book."}</p></section>}
             {audioUrls.length > 0 && <section className="panel reviewer-audio"><span className="eyebrow">{rtl ? "محفوظ وجاهز" : "Saved and ready"}</span><h3>{rtl ? "الاستماع إلى الصوت المحفوظ" : "Listen to saved audio"}</h3>{Object.values(audioUrls.reduce<Record<string, { url: string; part: number; voice: string }[]>>((groups, url, index) => { const meta = audioMeta[index] ?? { language: "", voice: "", part: index + 1 }; (groups[`${meta.language}-${meta.voice}`] ??= []).push({ url, part: meta.part, voice: meta.voice }); return groups; }, {})).map((group) => { const parts = [...group].sort((a, b) => a.part - b.part); return <div className="shared-audio-group" key={parts[0].url}>{parts.length > 1 && <ContinuousAudio key={parts.map((p) => p.url).join("|")} urls={parts.map((p) => p.url)} rtl={rtl} />}<details className="shared-audio-parts" open={parts.length === 1}><summary>{rtl ? `الأجزاء منفصلة (${parts.length})${parts[0].voice ? ` · ${parts[0].voice}` : ""}` : `Separate parts (${parts.length})`}</summary><div className="professional-audio-list saved-audio-only">{parts.map((p) => <label key={p.url}><span>{rtl ? `الجزء ${p.part}` : `Part ${p.part}`}</span><audio controls preload="metadata" src={p.url} /></label>)}</div></details></div>; })}</section>}
             {error && <div className="reader-error inline">{error}</div>}
-            <section className="panel reviewer-feedback-form">
-              <span className="eyebrow">{rtl ? "التقييم والملاحظات · تقييم تكويني" : "Evaluation and notes · formative"}</span>
-              <h3>{rtl ? "ملاحظات الزملاء على التصميم" : "Colleague feedback on the design"}</h3>
-              <p>{rtl ? "يظهر نموذج «ساعدنا في تحسين المنصة» لزملائك في عرض المستخدم المشترك (رابط user.html برمز الأرقام الستة)، وتصلك إجاباتهم في «لوحة الدراسة». هذه ملاحظات لتطوير التصميم قبل تجميد نسخة الدراسة، وليست بيانات الدراسة." : "Colleagues see the feedback form in the shared user view; answers appear in the Study dashboard. Design feedback, not study data."}</p>
-            </section>
+            {/* التقييم والملاحظات: the same form colleagues see, shown here as a non-sending preview */}
+            {rtl && <FormativeFeedback token="" preview />}
           </>}
         </main>
       </div>
