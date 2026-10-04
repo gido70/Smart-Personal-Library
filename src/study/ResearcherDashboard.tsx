@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import "./researcher.css";
+import { codebookCsv, download, instrumentCsv, toCsv, type InstRowX } from "./exportStudy";
 
 // Owner-only study dashboard: invites, participant flow, per-participant approval and the AI switch.
 // Every action is also enforced in the database (researcher-only RPCs and RLS); hiding this page is not the protection.
@@ -11,7 +12,8 @@ type Row = {
   followup_due_at: string | null; reward_granted_at: string | null; rebind_count: number; created_at: string;
 };
 type Resp = { participant_id: string; instrument_key: string; instrument_version: string; attention_passed: boolean | null; submitted_at: string; started_at: string | null; answers: Record<string, unknown> };
-type Fb = { id: string; created_at: string; device: string | null; answers: Record<string, unknown> };
+type Fb = { id: string; created_at: string; device: string | null; answers: Record<string, unknown>; source?: string };
+type Journal = { id: string; created_at: string; feature: string; rating: number | null; note: string | null };
 type InstRow = { key: string; version: string; definition: { sections: { title: string; items?: { code: string; text: string | null; text_en?: string }[] }[] } };
 type Settings = { ai_enabled: boolean; max_pages: number; max_process: number; max_asks: number; max_audio_sets: number; max_previews: number };
 type Invite = { code: string; invite: string };
@@ -52,6 +54,8 @@ export default function ResearcherDashboard({ rtl }: { rtl: boolean }) {
   const [insts, setInsts] = useState<InstRow[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [fb, setFb] = useState<Fb[]>([]);
+  const [journal, setJournal] = useState<Journal[]>([]);
+  const [withTests, setWithTests] = useState(false);
 
   const load = useCallback(async () => {
     if (!supabase) return;
@@ -59,11 +63,12 @@ export default function ResearcherDashboard({ rtl }: { rtl: boolean }) {
     const { data: ok } = await supabase.rpc("spl_study_is_researcher");
     setAllowed(Boolean(ok));
     if (!ok) return;
-    const [p, r, ins, f, s] = await Promise.all([
+    const [p, r, ins, f, j, s] = await Promise.all([
       supabase.from("spl_study_participants").select("id,code,is_test,status,consent_version,interview_ok,book_pages,book_linked_at,ai_approved_at,post_due_at,followup_due_at,reward_granted_at,rebind_count,created_at").order("code"),
       supabase.from("spl_study_responses").select("participant_id,instrument_key,instrument_version,attention_passed,submitted_at,started_at,answers"),
       supabase.from("spl_study_instruments").select("key,version,definition"),
       supabase.from("spl_design_feedback").select("id,created_at,device,answers").order("created_at", { ascending: false }).limit(200),
+      supabase.from("spl_feedback").select("id,created_at,feature,rating,note").order("created_at", { ascending: false }).limit(200),
       supabase.rpc("spl_study_settings", { p_ai_enabled: null }),
     ]);
     if (p.error || r.error || s.error) setError("تعذر تحميل بيانات الدراسة. حدّث الصفحة.");
@@ -71,6 +76,7 @@ export default function ResearcherDashboard({ rtl }: { rtl: boolean }) {
     setResps((r.data ?? []) as Resp[]);
     setInsts((ins.data ?? []) as InstRow[]);
     setFb((f.data ?? []) as Fb[]);
+    setJournal((j.data ?? []) as Journal[]);
     if (s.data?.ok) setSettings(s.data as Settings);
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -224,11 +230,24 @@ export default function ResearcherDashboard({ rtl }: { rtl: boolean }) {
       </section>
 
 
+
       <section className="rd-card">
-        <h3>ملاحظات الزملاء على التصميم ({fb.length})</h3>
+        <h3>تنزيل البيانات للتحليل</h3>
+        <p className="rd-muted">ملف لكل استبيان: صف لكل مشارك، وعمود لكل بند برمزه، بترتيب الاستبيان، مع المدة ونتيجة بند الانتباه. ويُفتح في Excel أو SPSS أو R. «دليل الترميز» يشرح كل عمود.</p>
+        <label className="rd-inline"><input type="checkbox" checked={withTests} onChange={e => setWithTests(e.target.checked)} /> ضمّ المشاركين التجريبيين (للفحص فقط)</label>
+        <div className="rd-actions">
+          {(["pre", "post", "followup"] as const).map(k => { const label = k === "pre" ? "القبلي" : k === "post" ? "البعدي" : "المتابعة"; return <button key={k} className="secondary" onClick={() => { const { csv, n } = instrumentCsv(k, insts as unknown as InstRowX[], resps, rows, withTests); if (!n) { setError(`لا توجد إجابات ${label}${withTests ? "" : " لمشاركين حقيقيين"} بعد.`); return; } download(`study-${k}-${new Date().toISOString().slice(0, 10)}.csv`, csv); }}>⬇ {label} (CSV)</button>; })}
+          <button className="secondary" onClick={() => download("study-codebook.csv", codebookCsv(insts as unknown as InstRowX[]))}>⬇ دليل الترميز</button>
+          <button className="secondary" onClick={() => download("study-participants.csv", toCsv([["participant", "is_test", "status", "consent_version", "book_pages", "approved_at", "post_due_at", "reward_at"], ...rows.filter(r => withTests || !r.is_test).map(r => [r.code, r.is_test ? 1 : 0, r.status, r.consent_version, r.book_pages, r.ai_approved_at, r.post_due_at, r.reward_granted_at])]))}>⬇ المشاركون ومراحلهم</button>
+          <button className="secondary" onClick={() => download("design-feedback.csv", toCsv([["date", "source", "device", "FB_READ", "FB_CARDS", "FB_AUDIO", "FB_RETURN", "FB_BEST", "FB_SUGGEST"], ...fb.map(x => [x.created_at, "colleague", x.device, x.answers.FB_READ, x.answers.FB_CARDS, x.answers.FB_AUDIO, x.answers.FB_RETURN, x.answers.FB_BEST, x.answers.FB_SUGGEST]), ...journal.map(x => [x.created_at, "researcher", "", "", "", "", "", x.feature + (x.rating ? ` (${x.rating}/5)` : ""), x.note])]))}>⬇ ملاحظات التصميم</button>
+        </div>
+      </section>
+      <section className="rd-card">
+        <h3>ملاحظات التصميم: الزملاء ({fb.length}) وملاحظاتي ({journal.length})</h3>
         <p className="rd-muted">تقييم تكويني من عرض المستخدم المشترك: لتحسين المنصة قبل التجميد، وليس بيانات الدراسة.</p>
         {fb.length > 0 && <div className="rd-flow">{([["FB_READ", "وضوح الخط"], ["FB_CARDS", "البطاقات"], ["FB_AUDIO", "الصوت"], ["FB_RETURN", "العودة للأصل"]] as [string, string][]).map(([k, l]) => { const v = fb.map(x => x.answers[k]).filter((x): x is number => typeof x === "number"); return <div key={k}><strong>{v.length ? (v.reduce((a, b) => a + b, 0) / v.length).toFixed(1) : "—"}</strong><span>{l} (من ٥، ن={v.length})</span></div>; })}</div>}
         {fb.length > 0 && <div className="rd-table"><table><thead><tr><th>التاريخ</th><th>الجهاز</th><th>الخط</th><th>البطاقات</th><th>الصوت</th><th>العودة</th><th>أعجبه</th><th>يقترح</th></tr></thead><tbody>{fb.map(x => <tr key={x.id}><td>{d(x.created_at)}</td><td>{x.device ?? "—"}</td>{["FB_READ", "FB_CARDS", "FB_AUDIO", "FB_RETURN"].map(k => <td key={k}>{x.answers[k] === "na" ? "لم يستمع" : String(x.answers[k] ?? "—")}</td>)}<td>{String(x.answers.FB_BEST ?? "—")}</td><td>{String(x.answers.FB_SUGGEST ?? "—")}</td></tr>)}</tbody></table></div>}
+        {journal.length > 0 && <details className="rd-journal"><summary>ملاحظاتي من «سجل التجربة» ({journal.length})</summary><div className="rd-table"><table><thead><tr><th>التاريخ</th><th>ما جربته</th><th>ساعد على الفهم</th><th>الملاحظة</th></tr></thead><tbody>{journal.map(x => <tr key={x.id}><td>{d(x.created_at)}</td><td>{x.feature}</td><td>{x.rating ?? "—"}</td><td>{x.note ?? "—"}</td></tr>)}</tbody></table></div></details>}
       </section>
       <section className="rd-card">
         <h3>المشاركون ({rows.length})</h3>

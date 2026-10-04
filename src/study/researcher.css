@@ -37,3 +37,4 @@
 .rd-answers table{min-width:0;width:100%;font-size:.85rem}
 .rd-answers td{border-bottom:1px dashed var(--line);padding:4px 6px}
 .rd-table tr.rd-test.rd-answers{opacity:1}
+.rd-journal summary{cursor:pointer;font-weight:700;margin-top:10px}
