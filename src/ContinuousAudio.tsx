@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import "./continuous-audio.css";
+import { logStudy } from "./lib/studyLog";
 
 /** Uses one player for the saved parts; never generates or purchases audio. */
 export default function ContinuousAudio({ urls, rtl }: { urls: string[]; rtl: boolean }) {
@@ -8,6 +9,8 @@ export default function ContinuousAudio({ urls, rtl }: { urls: string[]; rtl: bo
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState("");
+  const listened = useRef(0);
+  const lastTick = useRef<number | null>(null);
   const signature = JSON.stringify(urls);
   useEffect(() => {
     const audio = player.current;
@@ -36,24 +39,31 @@ export default function ContinuousAudio({ urls, rtl }: { urls: string[]; rtl: bo
     audio.src = urls[part.current];
     void play();
   };
+  const toggle = () => {
+    const audio = player.current;
+    if (!audio) return;
+    if (!audio.paused) { audio.pause(); return; }
+    if (audio.ended && part.current === urls.length - 1) { part.current = 0; setIndex(0); audio.src = urls[0]; }
+    void play();
+  };
   return <section className="continuous-audio" aria-label={rtl ? "استماع متواصل" : "Continuous listening"}>
+    {playing && <div className="ca-mini" role="region" aria-label={rtl ? "مشغل مصغّر" : "Mini player"}>
+      <button type="button" onClick={toggle} aria-label={rtl ? "إيقاف مؤقت" : "Pause"}>⏸</button>
+      <span>{rtl ? `استماع متواصل · الجزء ${index + 1} من ${urls.length}` : `Listening · part ${index + 1} of ${urls.length}`}</span>
+      <button type="button" onClick={() => player.current?.scrollIntoView({ behavior: "smooth", block: "center" })} aria-label={rtl ? "اذهب إلى المشغل" : "Go to player"}>↑</button>
+    </div>}
     <strong>{rtl ? "🚗 استماع متواصل" : "🚗 Continuous listening"}</strong>
     <p>{rtl ? "تشغيل الأجزاء المحفوظة بالترتيب تلقائيًا. ابدأ قبل القيادة." : "Play saved parts automatically in order. Start before driving."}</p>
-    <button className="primary" onClick={() => {
-      const audio = player.current;
-      if (!audio) return;
-      if (!audio.paused) { audio.pause(); return; }
-      if (audio.ended && part.current === urls.length - 1) {
-        part.current = 0; setIndex(0); audio.src = urls[0];
-      }
-      void play();
-    }}>{playing ? (rtl ? "⏸ إيقاف مؤقت" : "⏸ Pause") : (rtl ? "▶ تشغيل متواصل" : "▶ Play continuously")}</button>
+    <button className="primary" onClick={toggle}>{playing ? (rtl ? "⏸ إيقاف مؤقت" : "⏸ Pause") : (rtl ? "▶ تشغيل متواصل" : "▶ Play continuously")}</button>
     <span aria-live="polite">{rtl ? `الجزء ${index + 1} من ${urls.length}` : `Part ${index + 1} of ${urls.length}`}</span>
     <audio ref={player} controls preload="metadata" onEnded={next}
       onPlay={(event) => {
         document.querySelectorAll("audio").forEach((other) => { if (other !== event.currentTarget) other.pause(); });
         setPlaying(true); setError("");
-      }} onPause={() => setPlaying(false)}
+        lastTick.current = Date.now();
+        logStudy("audio_play", { part: part.current + 1, of: urls.length });
+      }} onPause={() => { setPlaying(false); if (lastTick.current) { listened.current += (Date.now() - lastTick.current) / 1000; lastTick.current = null; } if (listened.current >= 5) { logStudy("audio_progress", { seconds: Math.round(listened.current) }); listened.current = 0; } }}
+      onTimeUpdate={() => { if (lastTick.current && Date.now() - lastTick.current > 60000) { listened.current += (Date.now() - lastTick.current) / 1000; lastTick.current = Date.now(); logStudy("audio_progress", { seconds: Math.round(listened.current) }); listened.current = 0; } }}
       onError={() => { setPlaying(false); setError(rtl ? "تعذّر تحميل هذا الجزء. أعد فتح الكتاب لتحديث روابط التسجيلات المحفوظة." : "This part could not load. Reopen the book to refresh saved audio links."); }} />
     {error && <p role="alert">{error}</p>}
   </section>;
