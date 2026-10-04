@@ -172,7 +172,7 @@ textarea{min-height:84px;resize:vertical}
           <div class="row" style="margin-top:8px"><button class="btn ok">قبول الرد وإغلاق</button><button class="btn s">إعادة فتح</button></div></div>
         <div class="cm" style="margin-top:10px"><div class="h"><span class="tag t-good">مستحسن</span><span class="tag">احذف</span><small>الفقرة ١١</small></div>
           <div>فقرة NotebookLM خارج النطاق.</div>
-          <div class="reply"><b>✋ أتمسك بالنص</b> — المقارنة بالأدوات العامة تحدد موقع المنصة وتجيب عن سؤال «ما الجديد؟»؛ اختصرتها إلى سطرين.</div>
+          <div class="reply"><b>✋ أتمسك بالنص</b> <span class="assist">· أعدّها المساعد، واعتمدها الباحث</span> — المقارنة بالأدوات العامة تحدد موقع المنصة وتجيب عن سؤال «ما الجديد؟»؛ اختصرتها إلى سطرين.</div>
           <div class="row" style="margin-top:8px"><button class="btn ok">قبول التبرير</button><button class="btn s">إعادة فتح</button></div></div>
       </aside>
     </div>
@@ -217,6 +217,16 @@ textarea{min-height:84px;resize:vertical}
         <li>كل مساهمة موسومة باسمه في السجل.</li>
       </ul>
     </div>
+    <div class="card" style="margin-top:12px">
+      <h2>ما يراه المشرف من عملك</h2>
+      <div class="tbl"><table style="width:100%;border-collapse:collapse;font-size:14px">
+        <tr><th style="text-align:start;padding:6px;border-bottom:1px solid var(--line)">عملك</th><th style="text-align:start;padding:6px;border-bottom:1px solid var(--line)">يراه المشرف؟</th></tr>
+        <tr><td style="padding:6px;border-bottom:1px solid var(--line)">مسودة رد لم يعتمدها الباحث</td><td style="padding:6px;border-bottom:1px solid var(--line)">لا</td></tr>
+        <tr><td style="padding:6px;border-bottom:1px solid var(--line)">رد اعتمده الباحث وأرسله</td><td style="padding:6px;border-bottom:1px solid var(--line)">نعم، بوسم «أعدّها المساعد، واعتمدها الباحث»</td></tr>
+        <tr><td style="padding:6px;border-bottom:1px solid var(--line)">ملاحظات المشرف التي أدخلتها من Word</td><td style="padding:6px;border-bottom:1px solid var(--line)">نعم، منسوبة إليه، مع «أدخلها المساعد»، ويستطيع تصحيحها</td></tr>
+        <tr><td style="padding:6px">صفحتك ومسوداتك ومهامك</td><td style="padding:6px">لا</td></tr>
+      </table></div>
+    </div>
     <div class="cm" style="margin-top:12px">
       <div class="h"><span class="tag">إدخال ملاحظات من ملف Word</span></div>
       <div class="sub" style="margin:0">أرسل المشرف ملاحظاته على Word كعادته؟ أدخلها هنا لتبقى في السجل.</div>
@@ -229,8 +239,9 @@ textarea{min-height:84px;resize:vertical}
   <!-- LOG -->
   <section class="screen" id="log">
     <h1>سجل الإشراف</h1>
-    <p class="sub">كل تعليق ورد وقرار بتاريخه. يُصدَّر PDF ملحقًا للرسالة.</p>
+    <p class="sub">كل تعليق ورد وقرار بتاريخه، ومن قام به (المشرف، أو الباحث، أو المساعد). يراه الثلاثة، ويُصدَّر PDF ملحقًا للرسالة.</p>
     <div class="card"><div class="log">
+      <div><b>الباحث</b> اعتمد رد المساعد على الملاحظة ١١ وأرسله<br><small>٤ أكتوبر ٢٠٢٦، ١١:٣٠</small></div>
       <div><b>المشرف</b> قرّر «اعتماد بتعديلات طفيفة» للفصل الثالث — النسخة ١<br><small>٤ أكتوبر ٢٠٢٦، ١٠:١٥</small></div>
       <div><b>المشرف</b> علّق على الفقرة ٣ (منهجي · لازم)<br><small>٤ أكتوبر ٢٠٢٦، ١٠:٠٢</small></div>
       <div><b>الباحث</b> رفع الفصل الثالث — النسخة ١<br><small>٢ أكتوبر ٢٠٢٦</small></div>
