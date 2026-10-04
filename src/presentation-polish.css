@@ -94,3 +94,19 @@
 .shared-audio-parts .shared-audio-track{display:grid;gap:4px;margin-top:8px}
 .shared-audio-parts audio{width:100%}
 .paid-result-view{grid-template-columns:minmax(0,1fr)}.paid-result-view>*{min-width:0}
+/* Formative feedback form */
+.formative-feedback{display:grid;gap:12px}
+.formative-feedback .ff-note{color:var(--soft);margin:0}
+.ff-item{border:0;margin:0;padding:0;display:grid;gap:6px}
+.ff-item legend{font-weight:700;line-height:1.7;margin-bottom:4px}
+.ff-scale{display:grid;grid-template-columns:repeat(auto-fit,minmax(56px,1fr));gap:6px}
+.ff-scale label{display:grid;justify-items:center;gap:2px;padding:6px 2px;border:1px solid var(--line);border-radius:10px;background:var(--card2);cursor:pointer;text-align:center;min-height:56px}
+.ff-scale label.on{background:var(--green);border-color:var(--green);color:#fff}
+.dark .ff-scale label.on{color:#10241e}
+.ff-scale input{position:absolute;opacity:0;pointer-events:none}
+.ff-scale span{font-weight:800}
+.ff-scale small{font-size:11px;line-height:1.3}
+.ff-text{display:grid;gap:6px;font-weight:700}
+.ff-text textarea{min-height:80px;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--card2);color:var(--ink);font:inherit}
+.ff-consent{display:flex;gap:8px;align-items:flex-start;line-height:1.7}
+.ff-msg{color:var(--red,#b94a3d);font-weight:700;margin:0}
