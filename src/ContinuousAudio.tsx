@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import "./continuous-audio.css";
-import { logStudy } from "./lib/studyLog";
+// Study usage events are emitted as a DOM event and recorded by lib/studyLog (participants only),
+// so this component stays free of data dependencies.
+const logStudy = (type: string, payload: Record<string, unknown>) => { try { window.dispatchEvent(new CustomEvent("spl-study-event", { detail: { type, payload } })); } catch { /* no window in tests */ } };
 
 /** Uses one player for the saved parts; never generates or purchases audio. */
 export default function ContinuousAudio({ urls, rtl }: { urls: string[]; rtl: boolean }) {

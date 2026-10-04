@@ -45,3 +45,8 @@ export const firstPage = (value: unknown): number | null => {
   const n = m ? Number(m[0]) : NaN;
   return Number.isFinite(n) && n > 0 ? n : null;
 };
+
+// Components without data access (e.g. ContinuousAudio) emit "spl-study-event"; record them here.
+try {
+  if (participantMode) window.addEventListener("spl-study-event", (e) => { const d = (e as CustomEvent<{ type: StudyEvent; payload: Record<string, unknown> }>).detail; if (d?.type) logStudy(d.type, d.payload ?? {}); });
+} catch { /* no window */ }
