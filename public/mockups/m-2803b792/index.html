@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>منصة الإشراف — نموذج مرئي</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--paper:#f8f5ed;--card:#fffefa;--card2:#f4efe3;--ink:#163027;--soft:#60736c;--green:#123f33;--green2:#1f6652;--gold:#b48728;--line:#dfd5bd;--red:#b94a3d;--blue:#1f5f8b;--ok:#2e7d55}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--paper:#091a16;--card:#102b24;--card2:#18382f;--ink:#f5edd9;--soft:#a9c1b8;--green:#d6b95f;--green2:#71b89f;--gold:#e3c262;--line:#33564b;--red:#f0a092;--blue:#8cc4ea;--ok:#7fd1a5}}
+:root[data-theme="dark"]{--paper:#091a16;--card:#102b24;--card2:#18382f;--ink:#f5edd9;--soft:#a9c1b8;--green:#d6b95f;--green2:#71b89f;--gold:#e3c262;--line:#33564b;--red:#f0a092;--blue:#8cc4ea;--ok:#7fd1a5}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:'Noto Naskh Arabic','Segoe UI',Tahoma,serif;font-size:16px;line-height:1.8}
+button,select,textarea,input{font:inherit;color:inherit}
+.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--paper) 94%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.top .in{max-width:1180px;margin:auto;padding:10px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.brand{display:flex;gap:10px;align-items:center}
+.brand b{display:grid;place-items:center;width:38px;height:38px;border-radius:11px;background:var(--green);color:#fff;font-size:20px}
+.brand span{font-weight:800}
+.brand small{display:block;color:var(--soft);font-size:12px;font-weight:400}
+.roles{display:flex;gap:6px;background:var(--card2);padding:4px;border-radius:999px;border:1px solid var(--line)}
+.roles button{border:0;background:transparent;padding:6px 14px;border-radius:999px;cursor:pointer;font-weight:700;min-height:38px}
+.roles button.on{background:var(--green);color:#fff}
+.mock{max-width:1180px;margin:auto;padding:16px}
+.note{background:color-mix(in srgb,var(--gold) 14%,var(--card));border-inline-start:4px solid var(--gold);padding:8px 12px;border-radius:10px;font-size:14px;margin-bottom:14px}
+.screen{display:none}.screen.on{display:block}
+h1{font-size:clamp(1.4rem,3.5vw,1.9rem);margin:0 0 4px}
+h2{font-size:1.2rem;margin:0 0 10px}
+.sub{color:var(--soft);margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px}
+.counters{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0 16px}
+.counters div{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;display:grid}
+.counters strong{font-size:1.6rem;color:var(--green2)}
+.counters span{color:var(--soft);font-size:14px}
+.chapters{display:grid;gap:10px}
+.ch{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;cursor:pointer;text-align:start;width:100%}
+.ch:hover{border-color:var(--gold)}
+.ch .n{display:grid;place-items:center;width:40px;height:40px;border-radius:50%;background:var(--card2);color:var(--green);font-weight:900}
+.ch b{display:block}.ch small{color:var(--soft)}
+.chip{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap;border:1px solid currentColor}
+.c-wait{color:var(--gold)}.c-back{color:var(--blue)}.c-ok{color:var(--ok)}.c-none{color:var(--soft)}
+.review{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:start}
+.doc .meta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.doc .meta span{font-size:12px;padding:3px 10px;border-radius:999px;background:var(--card2)}
+.para{position:relative;display:grid;grid-template-columns:34px minmax(0,1fr);gap:8px;padding:10px 8px;border-radius:10px;cursor:pointer;border:1px solid transparent}
+.para:hover{background:var(--card2)}
+.para.sel{border-color:var(--gold);background:color-mix(in srgb,var(--gold) 10%,var(--card))}
+.para.changed{background:color-mix(in srgb,var(--ok) 10%,var(--card));border-inline-start:4px solid var(--ok)}
+.para .pn{color:var(--soft);font-size:13px;font-weight:700;text-align:center}
+.para .cnt{position:absolute;inset-inline-end:8px;top:8px;font-size:11px;background:var(--gold);color:#fff;border-radius:999px;padding:0 7px}
+.side{position:sticky;top:76px;display:grid;gap:12px}
+label.f{display:grid;gap:4px;font-weight:700;font-size:14px}
+select,textarea,input[type=text]{width:100%;border:1px solid var(--line);border-radius:10px;background:var(--card2);padding:9px;min-height:42px}
+textarea{min-height:84px;resize:vertical}
+.pills{display:flex;flex-wrap:wrap;gap:6px}
+.pills button{border:1px solid var(--line);background:var(--card2);border-radius:999px;padding:4px 12px;cursor:pointer;font-size:13px;min-height:34px}
+.pills button.on{background:var(--green);color:#fff;border-color:var(--green)}
+.btn{border:0;border-radius:12px;padding:9px 16px;min-height:44px;font-weight:800;cursor:pointer}
+.btn.p{background:var(--green);color:#fff}
+.btn.s{background:transparent;border:1px solid var(--line)}
+.btn.ok{background:var(--ok);color:#fff}
+.btn.warn{background:var(--gold);color:#fff}
+.btn.bad{background:var(--red);color:#fff}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+.cm{border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--card)}
+.cm .h{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:4px}
+.tag{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--card2);font-weight:700}
+.t-must{background:color-mix(in srgb,var(--red) 18%,var(--card));color:var(--red)}
+.t-good{background:color-mix(in srgb,var(--gold) 20%,var(--card));color:var(--gold)}
+.t-opt{background:var(--card2);color:var(--soft)}
+.resp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:8px 0}
+.resp button{border:1px solid var(--line);background:var(--card2);border-radius:10px;padding:8px;cursor:pointer;font-weight:700;min-height:44px;text-align:start}
+.resp button.on{border-color:var(--green);background:color-mix(in srgb,var(--green) 12%,var(--card))}
+.assist{font-size:12px;color:var(--blue);font-weight:700}
+.reply{border-inline-start:3px solid var(--green2);padding:6px 10px;margin-top:8px;background:var(--card2);border-radius:0 10px 10px 0;font-size:14px}
+.log{display:grid;gap:0;border-inline-start:2px solid var(--line);margin-inline-start:8px}
+.log div{position:relative;padding:6px 16px 10px}
+.log div::before{content:"";position:absolute;inset-inline-start:-7px;top:12px;width:12px;height:12px;border-radius:50%;background:var(--card);border:2px solid var(--gold)}
+.log small{color:var(--soft)}
+.back{background:none;border:0;color:var(--green2);font-weight:700;cursor:pointer;padding:0;margin-bottom:8px;min-height:36px}
+.sheet-h{display:none}
+@media(max-width:860px){
+ .review{grid-template-columns:minmax(0,1fr)}
+ .side{position:fixed;inset-inline:0;bottom:0;top:auto;z-index:30;max-height:70vh;overflow:auto;background:var(--card);border-top:1px solid var(--line);border-radius:18px 18px 0 0;padding:12px 14px calc(14px + env(safe-area-inset-bottom,0px));box-shadow:0 -10px 30px rgba(0,0,0,.18);transform:translateY(105%);transition:transform .25s ease}
+ .side.open{transform:none}
+ .sheet-h{display:flex;justify-content:space-between;align-items:center}
+ .ch{grid-template-columns:40px minmax(0,1fr)}
+ .ch .chip{grid-column:2;justify-self:start}
+}
+@media (prefers-reduced-motion:reduce){.side{transition:none}}
+</style>
+</head>
+<body>
+<div class="top"><div class="in">
+  <div class="brand"><b>إ</b><div><span>منصة الإشراف</span><small>الكتاب مصدرًا للمعرفة — رسالة ماجستير</small></div></div>
+  <div class="roles" role="tablist" aria-label="عرض حسب الدور">
+    <button class="on" data-role="sup" role="tab">المشرف</button>
+    <button data-role="res" role="tab">الباحث</button>
+    <button data-role="asst" role="tab">مساعد الباحث</button>
+    <button data-role="log" role="tab">السجل</button>
+  </div>
+</div></div>
+
+<main class="mock">
+  <div class="note">نموذج مرئي للنقاش: البيانات وهمية، والأزرار تعمل داخل النموذج فقط. بدّل الدور من الأعلى لترى ما يراه كل طرف.</div>
+
+  <!-- SUPERVISOR: dashboard -->
+  <section class="screen on" id="sup-dash">
+    <h1>أهلًا د. المشرف</h1>
+    <p class="sub">ما يحتاج انتباهك الآن.</p>
+    <div class="counters">
+      <div><strong>٢</strong><span>فصول بانتظار مراجعتك</span></div>
+      <div><strong>٥</strong><span>ردود من الباحث بانتظار قبولك</span></div>
+      <div><strong>٣ / ٦</strong><span>فصول معتمدة</span></div>
+    </div>
+    <div class="chapters">
+      <button class="ch" data-go="sup-review"><span class="n">٣</span><span><b>الفصل الثالث: المنهج</b><small>النسخة ١ · أُرسل قبل يومين · ٢٤ فقرة</small></span><span class="chip c-wait">بانتظار مراجعتك</span></button>
+      <button class="ch" data-go="sup-v2"><span class="n">٢</span><span><b>الفصل الثاني: الإطار النظري والدراسات السابقة</b><small>النسخة ٢ · ٧ فقرات تغيّرت · ٥ ردود</small></span><span class="chip c-back">أُعيد بعد التعديل</span></button>
+      <button class="ch"><span class="n">١</span><span><b>الفصل الأول: المقدمة والمشكلة</b><small>اعتُمد في ٢٨ سبتمبر بعد جولتين</small></span><span class="chip c-ok">معتمد</span></button>
+      <button class="ch"><span class="n">٤</span><span><b>الفصل الرابع: النتائج</b><small>لم يُرسل بعد · موعده المتوقع ١٥ ديسمبر</small></span><span class="chip c-none">لم يُرسل</span></button>
+    </div>
+  </section>
+
+  <!-- SUPERVISOR: review v1 -->
+  <section class="screen" id="sup-review">
+    <button class="back" data-go="sup-dash">→ الفصول</button>
+    <div class="review">
+      <article class="card doc">
+        <h2>الفصل الثالث: المنهج</h2>
+        <div class="meta"><span>النسخة ١</span><span>٢٤ فقرة</span><span>تنزيل Word الأصلي</span></div>
+        <p class="sub">اضغط على أي فقرة لتعلّق عليها.</p>
+        <div class="para" data-p="1"><span class="pn">١</span><span>تعتمد الدراسة منهج بحث علم التصميم، الذي يبني أداة لحل مشكلة محددة ثم يقيّمها ويستخلص منها مبادئ تصميم.</span></div>
+        <div class="para" data-p="2"><span class="pn">٢</span><span>تتكون الدراسة من مرحلتين: المرحلة (أ) للجدوى والاستخدام، والمرحلة (ب) للتقييم المقارن.</span></div>
+        <div class="para" data-p="3"><span class="pn">٣</span><span>تتكون عينة المرحلة الأولى من ٣٠ إلى ٥٠ قارئًا بالغًا يُدعون برموز شخصية.</span><span class="cnt">١</span></div>
+        <div class="para" data-p="4"><span class="pn">٤</span><span>تُقاس دقة الفهم بأسئلة استرجاع حر تُصحح بمعيار من ثلاث درجات بمرجعية الكتاب نفسه.</span></div>
+        <div class="para" data-p="5"><span class="pn">٥</span><span>يُستخدم مقياس سهولة الاستخدام A-SUS بنصه العربي المنشور.</span></div>
+      </article>
+      <aside class="side card" id="side">
+        <div class="sheet-h"><b>تعليق على الفقرة <span id="pnum">٣</span></b><button class="btn s" id="closeSheet" aria-label="إغلاق">✕</button></div>
+        <h2 class="desk-only">تعليق على الفقرة <span id="pnum2">٣</span></h2>
+        <label class="f">النوع
+          <select><option>منهجي</option><option>لغوي</option><option>مرجع ناقص</option><option>وسّع</option><option>احذف</option><option>سؤال</option><option>إشادة</option></select></label>
+        <div class="f"><b style="font-size:14px">الأولوية</b><div class="pills" data-single><button class="on">لازم</button><button>مستحسن</button><button>اختياري</button></div></div>
+        <div class="f"><b style="font-size:14px">عبارة جاهزة (اختياري)</b><div class="pills" id="quick"><button>يحتاج مرجعًا</button><button>أعد الصياغة</button><button>وسّع بمثال</button><button>خارج نطاق الدراسة</button><button>برّر هذا الاختيار</button></div></div>
+        <label class="f">التعليق<textarea id="ctext">برّر حجم العينة: لماذا ٣٠–٥٠؟ أضف مرجعًا لأحجام عينات دراسات الجدوى.</textarea></label>
+        <button class="btn p">حفظ التعليق</button>
+        <hr style="border:0;border-top:1px solid var(--line);width:100%">
+        <h2>قرار هذه الجولة</h2>
+        <div class="row"><button class="btn ok">اعتماد</button><button class="btn warn">اعتماد بتعديلات طفيفة</button><button class="btn bad">تعديلات جوهرية</button></div>
+        <label class="f">ملخص للباحث (اختياري)<textarea placeholder="انطباعك العام عن الفصل…"></textarea></label>
+      </aside>
+    </div>
+  </section>
+
+  <!-- SUPERVISOR: v2 changed only -->
+  <section class="screen" id="sup-v2">
+    <button class="back" data-go="sup-dash">→ الفصول</button>
+    <div class="review">
+      <article class="card doc">
+        <h2>الفصل الثاني — النسخة ٢</h2>
+        <div class="meta"><span>تُعرض الفقرات المتغيرة فقط (٧)</span><span>عرض الفصل كاملًا</span></div>
+        <div class="para changed"><span class="pn">٤</span><span>وتؤطَّر الظاهرة بفجوة النية والسلوك (Sheeran, 2002) والتسويف (Steel, 2007)، مع إضافة دراسات عربية عن القراءة الرقمية.</span></div>
+        <div class="para changed"><span class="pn">٩</span><span>وتشير دراسة Etkin وآخرين (2025) إلى أن الملخصات المولّدة قد تحسّن فهم القراء الأضعف…</span></div>
+      </article>
+      <aside class="side card" style="position:sticky;transform:none">
+        <h2>ردود الباحث (٥)</h2>
+        <div class="cm"><div class="h"><span class="tag t-must">لازم</span><span class="tag">مرجع ناقص</span><small>الفقرة ٤</small></div>
+          <div>أين الدراسات العربية؟</div>
+          <div class="reply"><b>✅ تم التعديل</b> — أضيفت ثلاث دراسات عربية في الفقرة ٤ (الجديدة).</div>
+          <div class="row" style="margin-top:8px"><button class="btn ok">قبول الرد وإغلاق</button><button class="btn s">إعادة فتح</button></div></div>
+        <div class="cm" style="margin-top:10px"><div class="h"><span class="tag t-good">مستحسن</span><span class="tag">احذف</span><small>الفقرة ١١</small></div>
+          <div>فقرة NotebookLM خارج النطاق.</div>
+          <div class="reply"><b>✋ أتمسك بالنص</b> — المقارنة بالأدوات العامة تحدد موقع المنصة وتجيب عن سؤال «ما الجديد؟»؛ اختصرتها إلى سطرين.</div>
+          <div class="row" style="margin-top:8px"><button class="btn ok">قبول التبرير</button><button class="btn s">إعادة فتح</button></div></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- RESEARCHER: response matrix -->
+  <section class="screen" id="res">
+    <h1>الردود على ملاحظات المشرف</h1>
+    <p class="sub">الفصل الثالث · النسخة ١ · القرار: <b>اعتماد بتعديلات طفيفة</b></p>
+    <div class="counters">
+      <div><strong>٤</strong><span>ملاحظات بانتظار ردك</span></div>
+      <div><strong>١</strong><span>مسودة من المساعد بانتظار اعتمادك</span></div>
+    </div>
+    <div class="cm">
+      <div class="h"><span class="tag t-must">لازم</span><span class="tag">منهجي</span><small>الفقرة ٣</small></div>
+      <div>برّر حجم العينة: لماذا ٣٠–٥٠؟ أضف مرجعًا لأحجام عينات دراسات الجدوى.</div>
+      <div class="resp" data-single>
+        <button class="on">✅ تم التعديل</button><button>◐ تم جزئيًا</button><button>✋ أتمسك بالنص</button><button>❓ أحتاج توضيحًا</button>
+      </div>
+      <label class="f">أين؟<input type="text" value="الفقرة ٣ (الجديدة)"></label>
+      <label class="f">ماذا فعلت؟<textarea>أضفت تبريرًا بأن المرحلة (أ) وصفية للجدوى، وأن ٣٠–٥٠ ضمن المدى الشائع لدراسات الجدوى، مع مرجعين.</textarea></label>
+      <div class="row" style="margin-top:8px"><button class="btn p">حفظ الرد</button></div>
+    </div>
+    <div class="cm" style="margin-top:12px">
+      <div class="h"><span class="tag t-opt">اختياري</span><span class="tag">لغوي</span><small>الفقرة ١</small><span class="assist">✎ مسودة من المساعد</span></div>
+      <div>«الذي يبني» ← «الذي يقوم على بناء».</div>
+      <div class="resp"><button>✅ تم التعديل</button><button>◐ تم جزئيًا</button><button class="on">✋ أتمسك بالنص</button><button>❓ أحتاج توضيحًا</button></div>
+      <label class="f">التبرير (إلزامي عند التمسك)<textarea>«يبني» أوجز وأدق، والمعنى واحد.</textarea></label>
+      <div class="row" style="margin-top:8px"><button class="btn p">اعتماد المسودة وإرسالها</button><button class="btn s">تعديل</button></div>
+    </div>
+    <div class="card" style="margin-top:12px"><b>رفع النسخة ٢</b><p class="sub" style="margin:4px 0 8px">ارفع ملف Word المعدّل؛ تُحسب الفقرات المتغيرة تلقائيًا وتُرسل مع ردودك.</p><button class="btn s">اختر ملف Word</button></div>
+  </section>
+
+  <!-- ASSISTANT -->
+  <section class="screen" id="asst">
+    <h1>مساعد الباحث</h1>
+    <p class="sub">تجهّز المسودات والملفات. لا يصل شيء للمشرف قبل اعتماد الباحث.</p>
+    <div class="card">
+      <ul style="margin:0;padding-inline-start:20px">
+        <li>يستطيع: كتابة مسودات الردود، ورفع النسخ، وإدخال ملاحظات المشرف إن وصلت على Word.</li>
+        <li>لا يستطيع: الإرسال للمشرف مباشرة، ولا رؤية القرارات الداخلية للباحث.</li>
+        <li>كل مساهمة موسومة باسمه في السجل.</li>
+      </ul>
+    </div>
+    <div class="cm" style="margin-top:12px">
+      <div class="h"><span class="tag">إدخال ملاحظات من ملف Word</span></div>
+      <div class="sub" style="margin:0">أرسل المشرف ملاحظاته على Word كعادته؟ أدخلها هنا لتبقى في السجل.</div>
+      <label class="f">الفقرة<input type="text" value="٧"></label>
+      <label class="f">نص الملاحظة كما كتبها المشرف<textarea>أعد ترتيب الأسئلة الفرعية.</textarea></label>
+      <div class="row" style="margin-top:8px"><button class="btn p">إضافة (تُنسب للمشرف، أدخلها المساعد)</button></div>
+    </div>
+  </section>
+
+  <!-- LOG -->
+  <section class="screen" id="log">
+    <h1>سجل الإشراف</h1>
+    <p class="sub">كل تعليق ورد وقرار بتاريخه. يُصدَّر PDF ملحقًا للرسالة.</p>
+    <div class="card"><div class="log">
+      <div><b>المشرف</b> قرّر «اعتماد بتعديلات طفيفة» للفصل الثالث — النسخة ١<br><small>٤ أكتوبر ٢٠٢٦، ١٠:١٥</small></div>
+      <div><b>المشرف</b> علّق على الفقرة ٣ (منهجي · لازم)<br><small>٤ أكتوبر ٢٠٢٦، ١٠:٠٢</small></div>
+      <div><b>الباحث</b> رفع الفصل الثالث — النسخة ١<br><small>٢ أكتوبر ٢٠٢٦</small></div>
+      <div><b>المشرف</b> قبل ٥ ردود وأغلقها في الفصل الثاني<br><small>٣٠ سبتمبر ٢٠٢٦</small></div>
+      <div><b>المساعد</b> أدخل ٣ ملاحظات من ملف Word للمشرف (الفصل الثاني)<br><small>٢٥ سبتمبر ٢٠٢٦</small></div>
+    </div><div class="row" style="margin-top:10px"><button class="btn s">⬇ تصدير السجل PDF</button></div></div>
+  </section>
+</main>
+
+<script>
+(function(){
+  const show=id=>{document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id));window.scrollTo({top:0});};
+  const roleMap={sup:'sup-dash',res:'res',asst:'asst',log:'log'};
+  document.querySelectorAll('.roles button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.roles button').forEach(x=>x.classList.toggle('on',x===b));show(roleMap[b.dataset.role]);});
+  document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>show(b.dataset.go));
+  const side=document.getElementById('side');
+  document.querySelectorAll('#sup-review .para').forEach(p=>p.onclick=()=>{document.querySelectorAll('#sup-review .para').forEach(x=>x.classList.toggle('sel',x===p));const n=p.querySelector('.pn').textContent;document.getElementById('pnum').textContent=n;document.getElementById('pnum2').textContent=n;side.classList.add('open');});
+  document.getElementById('closeSheet').onclick=()=>side.classList.remove('open');
+  document.querySelectorAll('[data-single]').forEach(g=>g.querySelectorAll('button').forEach(b=>b.onclick=()=>g.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b))));
+  document.querySelectorAll('#quick button').forEach(b=>b.onclick=()=>{const t=document.getElementById('ctext');t.value=(t.value?t.value+' ':'')+b.textContent+'.';});
+  const mq=matchMedia('(max-width:860px)');const desk=()=>document.querySelectorAll('.desk-only').forEach(e=>e.style.display=mq.matches?'none':'');desk();mq.addEventListener('change',desk);
+})();
+</script>
+</body>
+</html>
