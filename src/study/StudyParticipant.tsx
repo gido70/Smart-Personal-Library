@@ -152,6 +152,9 @@ function Stage({ participant, instruments, onSubmit, onConsented }: {
     case "consented":
       return instruments.pre ? <Questionnaire instrument={instruments.pre} draftKey={draft("pre")} onSubmit={(a, s) => onSubmit("pre", a, s)} /> : missing("pre");
     case "pre_done":
+      if (participant.is_test) {
+        return instruments.post ? <><div className="study-note">وضع تجريبي: يُفتح الاستبيان البعدي مباشرة دون انتظار، لتجربة الاستبيانات فقط.</div><Questionnaire instrument={instruments.post} draftKey={draft("post")} onSubmit={(a, s) => onSubmit("post", a, s)} /></> : missing("post");
+      }
       return (
         <div className="study-card">
           <h2>شكرًا، اكتمل الاستبيان القبلي ✅</h2>
@@ -173,7 +176,7 @@ function Stage({ participant, instruments, onSubmit, onConsented }: {
         </div>
       );
     case "post_done":
-      if (isDue(participant.followup_due_at)) {
+      if (participant.is_test || isDue(participant.followup_due_at)) {
         return instruments.followup ? <Questionnaire instrument={instruments.followup} draftKey={draft("followup")} onSubmit={(a, s) => onSubmit("followup", a, s)} /> : missing("followup");
       }
       return (
