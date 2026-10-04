@@ -140,3 +140,4 @@
 .q-card b{line-height:1.7}.q-card p{margin:0;line-height:1.9}
 .q-card button{justify-self:start;min-height:40px}
 .reading-view .page-chip,.paid-result-view .page-chip{display:inline-flex!important;width:auto!important;min-height:32px!important;padding:3px 12px!important;border-radius:999px!important;box-shadow:none!important;background:transparent!important;color:var(--green2)!important;border:1px solid var(--green2)!important;font-size:13px!important;line-height:1.4!important}
+.prototype-note a.owner-supervision{display:flex;align-items:center;justify-content:center;text-decoration:none}.welcome-actions a.owner-study-home{text-decoration:none;align-items:center;justify-content:center}
