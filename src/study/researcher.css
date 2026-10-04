@@ -45,3 +45,8 @@
 .rd-note{border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--card);color:var(--ink)}
 .rd-summary{position:sticky;top:10px;max-height:80vh;overflow:auto;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--card2)}
 @media(max-width:860px){.rd-score-grid{grid-template-columns:minmax(0,1fr)}.rd-summary{position:static;max-height:none}}
+.rd-ai{display:grid;gap:4px;padding:8px 10px;border-radius:10px;border:1px dashed var(--line);background:var(--card);font-size:14px}
+.rd-ai.review{border-color:var(--gold);background:color-mix(in srgb,var(--gold) 10%,var(--card))}
+.rd-flag{margin-inline-start:8px;font-size:12px;font-weight:800;color:var(--gold)}
+.rd-evidence{color:var(--soft)}
+.rd-ai button{justify-self:start;min-height:34px}
