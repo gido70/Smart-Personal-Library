@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import "./researcher.css";
+import ScoringPanel from "./ScoringPanel";
 import { codebookCsv, download, instrumentCsv, toCsv, type InstRowX } from "./exportStudy";
 
 // Owner-only study dashboard: invites, participant flow, per-participant approval and the AI switch.
@@ -56,6 +57,7 @@ export default function ResearcherDashboard({ rtl }: { rtl: boolean }) {
   const [fb, setFb] = useState<Fb[]>([]);
   const [journal, setJournal] = useState<Journal[]>([]);
   const [withTests, setWithTests] = useState(false);
+  const [scoring, setScoring] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!supabase) return;
@@ -231,6 +233,7 @@ export default function ResearcherDashboard({ rtl }: { rtl: boolean }) {
 
 
 
+      {scoring && (() => { const r = rows.find(x => x.id === scoring); if (!r) return null; const post = respOf(r.id, "post"), fu = respOf(r.id, "followup"); return <div id="rd-scoring"><ScoringPanel participantId={r.id} code={r.code} answers={{ post: post?.answers, followup: fu?.answers }} onClose={() => setScoring(null)} /></div>; })()}
       <section className="rd-card">
         <h3>تنزيل البيانات للتحليل</h3>
         <p className="rd-muted">ملف لكل استبيان: صف لكل مشارك، وعمود لكل بند برمزه، بترتيب الاستبيان، مع المدة ونتيجة بند الانتباه. ويُفتح في Excel أو SPSS أو R. «دليل الترميز» يشرح كل عمود.</p>
@@ -270,6 +273,7 @@ export default function ResearcherDashboard({ rtl }: { rtl: boolean }) {
                 <td>{att(fu)}</td>
                 <td className="rd-rowact">
                   {(pre || post || fu) && <button className="secondary" onClick={() => setOpen(open === r.id ? null : r.id)}>{open === r.id ? "إخفاء" : "الإجابات"}</button>}
+                  {(post || fu) && <button className="secondary" onClick={() => { setScoring(r.id); setTimeout(() => document.getElementById("rd-scoring")?.scrollIntoView({ behavior: "smooth" }), 50); }}>التصحيح</button>}
                   {r.is_test && <button className="secondary rd-del" disabled={busy === r.id} onClick={() => void removeTest(r)}>حذف</button>}
                 </td>
               </tr>,
