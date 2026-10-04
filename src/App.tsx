@@ -696,6 +696,7 @@ export default function Home() {
           </p>
           <button className="reviewer-preview-link owner-primary" onClick={() => setView("study")}>▦ {rtl ? "لوحة الدراسة" : "Study dashboard"}</button>
           <a className="reviewer-preview-link owner-supervision" href="https://gido70.github.io/Smart-Personal-Library/mockups/m-2803b792/" target="_blank" rel="noopener noreferrer">✎ {rtl ? "منصة الإشراف (نموذج مرئي)" : "Supervision (mockup)"}</a>
+          <a className="reviewer-preview-link owner-supervision" href="https://gido70.github.io/Smart-Personal-Library/maps/map-71a2d164/" target="_blank" rel="noopener noreferrer">◈ {rtl ? "خريطة المشروع" : "Project map"}</a>
           <button className="reviewer-preview-link" onClick={() => window.open(`${window.location.pathname}?supervisor=1`, "_blank", "noopener,noreferrer")}>
             ◉ {rtl ? "معاينة نسخة المستخدم" : "Preview user view"}
           </button>
