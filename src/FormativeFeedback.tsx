@@ -10,7 +10,7 @@ const SCALE: [string, string][] = [
 ];
 const LABELS = ["لا أوافق بشدة", "لا أوافق", "محايد", "أوافق", "أوافق بشدة"];
 
-export default function FormativeFeedback({ token, bookId }: { token: string; bookId?: string }) {
+export default function FormativeFeedback({ token, bookId, preview = false }: { token: string; bookId?: string; preview?: boolean }) {
   const [answers, setAnswers] = useState<Record<string, number | "na" | string>>({});
   const [consent, setConsent] = useState(false);
   const [state, setState] = useState<"idle" | "sending" | "done" | "error">("idle");
@@ -32,6 +32,7 @@ export default function FormativeFeedback({ token, bookId }: { token: string; bo
   if (state === "done") return <section className="panel formative-feedback"><h3>شكرًا لك ✅</h3><p>وصلت ملاحظاتك إلى الباحث، وستُستخدم لتحسين المنصة.</p></section>;
   return (
     <section className="panel formative-feedback">
+      {preview && <p className="ff-preview">معاينة لك وحدك: هكذا يرى زملاؤك هذا النموذج في رابطهم. الإرسال يعمل من رابطهم فقط، وتصلك إجاباتهم في «لوحة الدراسة».</p>}
       <span className="eyebrow">رأيك في التصميم</span>
       <h3>ساعدنا في تحسين المنصة</h3>
       <p className="ff-note">نجرّب المنصة مع عدد قليل من القراء قبل الدراسة. ملاحظاتك لتطوير التصميم فقط، ولا تُنشر باسمك. أقل من دقيقتين.</p>
@@ -48,7 +49,7 @@ export default function FormativeFeedback({ token, bookId }: { token: string; bo
       <label className="ff-text">ما الذي تقترح تغييره؟ (اختياري)<textarea value={String(answers.FB_SUGGEST ?? "")} onChange={(e) => set("FB_SUGGEST", e.target.value)} maxLength={1500} /></label>
       <label className="ff-consent"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /> أوافق أن تُستخدم ملاحظاتي لتطوير المنصة، دون ذكر اسمي.</label>
       {msg && <p role="alert" className="ff-msg">{msg}</p>}
-      <button type="button" className="primary" disabled={state === "sending"} onClick={() => void send()}>{state === "sending" ? "جارٍ الإرسال…" : "إرسال الملاحظات"}</button>
+      <button type="button" className="primary" disabled={preview || state === "sending"} onClick={() => void send()}>{state === "sending" ? "جارٍ الإرسال…" : "إرسال الملاحظات"}</button>
     </section>
   );
 }
