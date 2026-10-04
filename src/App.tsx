@@ -4148,6 +4148,7 @@ function Feedback({ rtl, t }: { rtl: boolean; t: typeof text.ar }) {
   return (
     <div className="page">
       <PageTitle title={t.journal} description={t.journalSub} />
+      <p className="journal-note">{rtl ? "يومياتك أنت على التصميم أثناء استخدامك المنصة. تظهر في «لوحة الدراسة» ضمن «ملاحظات التصميم» بجانب ملاحظات الزملاء، وتُنزَّل معها. ليست بيانات الدراسة." : "Your own design notes; shown in the Study dashboard with colleague feedback. Not study data."}</p>
       <form
         className="feedback panel"
         onSubmit={async (e) => {

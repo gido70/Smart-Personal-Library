@@ -132,3 +132,4 @@
 .reviewer-layout>*{min-width:0}
 @media(max-width:760px){.reviewer-layout{grid-template-columns:minmax(0,1fr)!important}}
 .ff-preview{margin:0;padding:8px 12px;border-radius:10px;background:color-mix(in srgb,var(--gold) 14%,var(--card));border-inline-start:4px solid var(--gold);font-size:14px}
+.journal-note{max-width:760px;margin:-6px 0 14px;padding:8px 12px;border-radius:10px;background:color-mix(in srgb,var(--gold) 12%,var(--card));border-inline-start:4px solid var(--gold);color:var(--ink)}
