@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>خريطة النسخة المعرفية — المكتبة الشخصية الذكية</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap');
+    :root{--ink:#123f35;--gold:#bd8724;--paper:#fbf8ef;--panel:#fffdf8;--line:#decda8;--done:#dcecdf;--partial:#fff0c9;--todo:#f5dddd;--muted:#64736d}
+    *{box-sizing:border-box} body{margin:0;background:var(--paper);color:var(--ink);font-family:'Noto Naskh Arabic',serif;line-height:1.85}
+    main{max-width:1120px;margin:auto;padding:28px 18px 56px} h1,h2,h3{margin:0 0 12px;font-family:'Amiri','Noto Naskh Arabic',serif;font-weight:700} h1{font-size:clamp(2rem,4.5vw,3.25rem);line-height:1.25} h2{font-size:1.55rem} h3{font-size:1.16rem} p{margin:6px 0}
+    .hero{background:linear-gradient(135deg,#0e4a3e,#176554);color:#fff;border-radius:26px;padding:30px;box-shadow:0 18px 46px #123f3520}
+    .hero small{color:#f0cd7a}.hero p{max-width:830px;color:#f7f1df}.legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}.pill{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;color:#173c34;background:#fff}.dot{width:10px;height:10px;border-radius:50%}.done{background:var(--done)}.partial{background:var(--partial)}.todo{background:var(--todo)}
+    .flow{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:26px 0}.step{position:relative;min-height:154px;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px}.step:not(:last-child)::after{content:"←";position:absolute;left:-16px;top:48%;z-index:2;color:var(--gold);font-size:24px}.n{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--ink);color:#fff;margin-bottom:8px}.step p{font-size:.86rem;color:var(--muted)}
+    .branches{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.branch{border-top:5px solid var(--ink);border-radius:18px;background:var(--panel);padding:20px;box-shadow:0 10px 26px #123f3512}.branch[data-state="done"]{border-color:#4b8b61}.branch[data-state="partial"]{border-color:#d5a23b}.branch[data-state="todo"]{border-color:#b86262}.status{display:inline-block;border-radius:999px;padding:3px 9px;font-size:.78rem;margin-bottom:8px}.branch ul{margin:8px 0;padding-right:20px}.branch li{margin:4px 0}
+    .decision{margin-top:24px;background:#f4ead2;border:1px solid var(--line);border-radius:20px;padding:22px}.decision strong{color:#784f06}
+    table{width:100%;border-collapse:collapse;margin-top:24px;background:var(--panel);border-radius:18px;overflow:hidden}th,td{padding:13px;border-bottom:1px solid #e8dcc2;text-align:right;vertical-align:top}th{background:#154e41;color:#fff}tr:last-child td{border-bottom:0}
+    details{margin-top:18px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px 18px}summary{cursor:pointer;font-weight:bold;color:var(--ink)}blockquote{margin:12px 0 0;border-right:4px solid var(--gold);padding:12px 18px;background:#fff8e7}
+    .version{font-family:'Plus Jakarta Sans',sans-serif;font-weight:700}.checkpoint{margin-top:24px;background:linear-gradient(135deg,#123f35,#1f6655);color:#fff;border-radius:20px;padding:22px}.checkpoint h2{color:#f3d785}.checkpoint ul{margin:8px 0 0;padding-right:20px}.checkpoint li{margin:5px 0}
+    .tree{margin:24px 0;background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:22px}.tree h2{color:var(--gold)}.tree ul{list-style:none;margin:0;padding-right:22px;border-right:2px solid #decda8}.tree>ul{padding-right:0;border:0}.tree li{position:relative;margin:8px 0}.tree li::before{content:"";position:absolute;right:-22px;top:16px;width:16px;border-top:2px solid #decda8}.tree>ul>li::before{display:none}.tree a{color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--gold)}.tree a:hover{color:#8b5c0c}.evidence{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}.evidence article{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px}.evidence strong{display:block;color:var(--gold)}
+    footer{margin-top:28px;text-align:center;color:var(--muted);font-size:.82rem}
+    @media(max-width:900px){.flow{grid-template-columns:repeat(2,1fr)}.step:not(:last-child)::after{display:none}.branches{grid-template-columns:1fr 1fr}}
+    @media(max-width:560px){main{padding:14px 10px 36px}.hero{padding:22px 18px;border-radius:18px}.flow,.branches,.evidence{grid-template-columns:1fr}.step{min-height:auto}th,td{padding:10px;font-size:.86rem}table{display:block;overflow-x:auto}}
+    @media print{body{background:#fff}.hero,.branch,.step{box-shadow:none}details{break-inside:avoid}}
+  </style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <small>المكتبة الشخصية الذكية · رسالة الدكتوراه · <span class="version">V1.8.6</span></small>
+    <h1>من الكتاب الأصلي إلى النسخة المعرفية</h1>
+    <p>الفكرة ليست تخزين PDF إلى الأبد، بل حفظ القيمة المعرفية التي دفع المستخدم لإنتاجها: فهرسة، تصنيف، خلاصة، تحليل، صوت وأسئلة—مع عدم إزالة الأصل الثقيل إلا بعد نجاح حفظ غلافه الحقيقي وإمكان استعادته لاحقًا دون تكرار المعالجة.</p>
+    <div class="legend"><span class="pill"><i class="dot done"></i>منفذ</span><span class="pill"><i class="dot partial"></i>منفذ جزئيًا</span><span class="pill"><i class="dot todo"></i>مطلوب</span></div>
+  </section>
+
+  <nav class="tree" aria-label="الفهرس الشجري للدراسة">
+    <h2>الخريطة الشجرية — من الأصل إلى الفروع</h2>
+    <ul>
+      <li><strong>الأصل: المكتبة الشخصية الذكية</strong>
+        <ul>
+          <li><a href="#knowledge-life">الفرع الأول: دورة حياة الكتاب والنسخة المعرفية</a>
+            <ul><li><a href="#dynamic-shelves">الرفوف الديناميكية وآخر ستة كتب</a></li><li><a href="#naming">المسميات ومنع التشتت</a></li></ul>
+          </li>
+          <li><a href="#mobile">الفرع الثاني: تجربة الهاتف والتطبيق المستقبلي</a>
+            <ul><li><a href="#covers">الأغلفة والذاكرة على Samsung/Android</a></li><li><a href="#mobile-release">واجهة الموبايل V1.8.6</a></li></ul>
+          </li>
+          <li><a href="#audio">الفرع الثالث: الصوت الاحترافي المدفوع</a>
+            <ul><li><a href="#audio-progress">التجزئة والحفظ والاستكمال</a></li><li><a href="#results-audit">تدقيق ظهور 18 مقطعًا والملخصات</a></li></ul>
+          </li>
+          <li><a href="#research">الفرع الرابع: المنهج والقياس البحثي</a>
+            <ul><li><a href="#hypothesis">الفرضيات ومؤشرات الاختبار</a></li><li><a href="#next">الخطوات التالية</a></li></ul>
+          </li>
+        </ul>
+      </li>
+    </ul>
+  </nav>
+
+  <section class="flow" id="knowledge-life" aria-label="دورة حياة الكتاب">
+    <article class="step"><span class="n">1</span><h3>كتاب أصلي</h3><p>PDF كامل ضمن ستة كتب نشطة.</p></article>
+    <article class="step"><span class="n">2</span><h3>معالجة مدفوعة</h3><p>خلاصة وتحليل وصوت وأسئلة وفصول.</p></article>
+    <article class="step"><span class="n">3</span><h3>أرشفة مؤكدة</h3><p>شرح للمستخدم ثم موافقته الصريحة.</p></article>
+    <article class="step"><span class="n">4</span><h3>حفظ الغلاف الحقيقي</h3><p>لا يُحذف PDF إن تعذّر حفظ غلاف الصفحة الأولى.</p></article>
+    <article class="step"><span class="n">5</span><h3>نسخة معرفية</h3><p>غلاف أصلي وفهرسة وتصنيف ونتائج محفوظة.</p></article>
+    <article class="step"><span class="n">6</span><h3>استعادة آمنة</h3><p>رفع الملف نفسه وربطه بالسجل دون إعادة النتائج المدفوعة.</p></article>
+  </section>
+
+  <section class="branches">
+    <article class="branch" data-state="done"><span class="status done">منفذ</span><h2>حفظ النتائج</h2><ul><li>يبقى سجل الكتاب بعد الأرشفة.</li><li>تبقى الخلاصة والتحليل والأسئلة.</li><li>تبقى الملفات الصوتية والغلاف الحقيقي.</li><li>يبقى التصنيف وبطاقة الفهرسة.</li></ul></article>
+    <article class="branch" data-state="done"><span class="status done">منفذ</span><h2>سلامة القرار</h2><ul><li>الأرشفة لا تتم فور الضغط.</li><li>نافذة تأكيد تشرح ما سيبقى.</li><li>الحذف النهائي خيار مستقل.</li><li>تحذير الحذف يذكر جميع النتائج.</li></ul></article>
+    <article class="branch" data-state="done"><span class="status done">منفذ</span><h2>هوية النسخة المعرفية</h2><ul><li>اسم «نسخة معرفية محفوظة» ظاهر بوضوح.</li><li>للأرشيف تبويب وبطاقة وحالة مستقلة.</li><li>تُفتح الخلاصة والتحليل والصوت مباشرة.</li><li>استُبدل فتح الأصل المحذوف بإعادة رفعه.</li></ul></article>
+    <article class="branch" data-state="partial"><span class="status partial">منفذ جزئيًا</span><h2>البحث والتصنيف</h2><ul><li>تصنيف الأرشيف قابل للتصفية.</li><li>ينقص تمييز النسخة المعرفية في البحث العام.</li><li>النتيجة يجب أن توضح: كامل أم ملخّص.</li></ul></article>
+    <article class="branch" data-state="done"><span class="status done">منفذ</span><h2>الاستعادة ومنع التكرار</h2><ul><li>زر إعادة رفع الأصل مفعل ويفتح نافذة الرفع.</li><li>بصمة SHA-256 تعيد ربط الملف المطابق بسجله.</li><li>تبقى النتائج المدفوعة محفوظة ولا تبدأ تلقائيًا.</li><li>تبقى مطابقة الطبعات المختلفة تحسينًا لاحقًا.</li></ul></article>
+    <article class="branch" data-state="todo"><span class="status todo">مطلوب</span><h2>القياس البحثي</h2><ul><li>حجم التخزين الموفر.</li><li>تكلفة التحليل التي لم تتكرر.</li><li>العودة للخلاصة والصوت.</li><li>نسبة استعادة الأصل.</li></ul></article>
+  </section>
+
+  <section class="checkpoint" id="mobile-release">
+    <h2>آخر نقطة موثقة — 31 أغسطس 2026</h2>
+    <ul><li>دُمج إصدار <span class="version">V1.8.6</span> في الفرع الرئيسي عبر طلب الدمج رقم 26 بعد اعتماد المعاينة على الهاتف.</li><li>أصبحت الصفحة الرئيسية موجهة للموبايل: تقلصت المساحات الترحيبية، واتسعت مساحة الكتب، وأصبح «أمين المكتبة» و«رحلة كتابك» قابلين للطي، وجُمعت الأدوات الثانوية في قائمة مختصرة.</li><li>بقي تصميم الحاسوب كما هو؛ التعديلات محصورة في نقاط العرض الصغيرة.</li><li>نجح البناء والاختبارات ونشر Vercel، ثم فُتحت النسخة المنشورة وتحقق اتصال تسجيل الدخول بـ Supabase.</li><li>تعرض اللوحة ستة كتب، وستة تحليلات محتسبة، و18 مقطعًا صوتيًا محتسبًا؛ لكن التدقيق كشف فرقًا بين العدّاد وما يظهر داخل بعض صفحات الكتب، وسُجل ذلك كمشكلة مفتوحة لا كفقد مؤكد للبيانات.</li></ul>
+  </section>
+
+  <details open id="dynamic-shelves"><summary>قرار تصميم الرفوف الديناميكية ومنع فراغ المنصة</summary>
+    <p><strong>القرار:</strong> لا تعرض الصفحة الرئيسية جميع محتويات المكتبة، بل تعرض معاينة محدودة من أحدث ستة كتب في الحالة المختارة. هذا الحد ليس حجم مكتبة المستخدم، وإنما نافذة عرض تساعد على بقاء الواجهة مركزة وغير فارغة.</p>
+    <ul>
+      <li>إذا كانت لدى المستخدم مئة نسخة معرفية مؤرشفة، تعرض الرئيسية أحدث ست نسخ معرفية أرشفها، بينما تبقى جميع النسخ المئة متاحة داخل صفحة «مكتبتي» وإدارة الأرشيف.</li>
+      <li>إذا أعاد المستخدم الكتب الستة المعروضة كلها إلى الحالة النشطة، يصبح عدد النسخ المعرفية المعروضة صفرًا؛ لأنها لم تعد مؤرشفة، وتظهر الكتب في رف الكتب النشطة.</li>
+      <li>إذا أرشف المستخدم الكتب النشطة كلها، يصبح رف الكتب النشطة فارغًا، ويعرض رف النسخ المعرفية أحدث ستة كتب مؤرشفة.</li>
+      <li>الكتاب الواحد لا يظهر بوصفه «كتابًا أصليًا نشطًا» و«نسخة معرفية مؤرشفة» في الوقت نفسه؛ انتقاله بين الحالتين يغيّر موضع ظهوره.</li>
+      <li>الغرض من آخر ستة كتب هو منع شعور المستخدم بأن المنصة خالية مع الحفاظ على بساطة الصفحة، لا إنشاء نسخ مكررة من الكتب.</li>
+    </ul>
+  </details>
+
+  <details open id="naming"><summary>ملاحظة تجربة المستخدم والمسميات</summary>
+    <p>كشف الفحص النوعي أن تشابه «عرض مكتبتي»، و«الكتب الأصلية»، و«النسخ المعرفية» قد يسبب التباسًا حتى لمالك النظام؛ لأن الصفحة الرئيسية وصفحة الإدارة تعرضان السجلات نفسها بأشكال مختلفة. لذلك يُسجل تحسين المسميات بوصفه تعديلًا لاحقًا، من دون تغيير المنطق التشغيلي الحالي.</p>
+    <ul>
+      <li>المسمى المقترح للكتب الأصلية: «الكتب النشطة — ملف PDF موجود».</li>
+      <li>المسمى المقترح في الرئيسية: «أحدث النسخ المعرفية المؤرشفة».</li>
+      <li>المسمى المقترح في صفحة المكتبة: «إدارة النسخ المعرفية».</li>
+      <li>يجب تمييز المعاينة المختصرة من صفحة الإدارة الكاملة بنص واضح.</li>
+      <li>عند عدم وجود كتب في حالة معينة، يُفضل عرض حالة فارغة صريحة بدل نماذج تبدو ككتب حقيقية.</li>
+    </ul>
+  </details>
+
+  <details id="hypothesis"><summary>صياغة الفرضية البحثية ومؤشرات الاختبار</summary>
+    <blockquote>يفترض التصميم أن عرض أحدث ستة سجلات من كل حالة يقلل الإحساس بفراغ المنصة، ويحد الحمل البصري، ويحافظ في الوقت نفسه على إمكانية الوصول إلى المكتبة الكاملة. كما يفترض أن الفصل اللغوي والبصري الواضح بين «كتاب نشط» و«نسخة معرفية مؤرشفة» يقلل أخطاء الفهم والتوقع لدى المستخدم.</blockquote>
+    <p><strong>مؤشرات يمكن قياسها في باب التجارب:</strong> قدرة المستخدم على تفسير الحالتين دون مساعدة، الزمن اللازم للوصول إلى كتاب مؤرشف، نسبة الاعتقاد الخاطئ بوجود نسخ مكررة، فهم معنى الرقم 6، وعدد مرات استخدام إعادة الرفع أو صفحة الإدارة.</p>
+  </details>
+
+  <details open id="audio"><summary>مشكلة حرجة مفتوحة — موثوقية اختيار الصوت المدفوع</summary>
+    <p><strong>الملاحظة الميدانية:</strong> عند تجربة عينات الأصوات الاحترافية ظهرت أصوات متداخلة، وفي بعض المحاولات كان الانطباع الصوتي مخالفًا لما يتوقعه المستخدم من اختيار صوت امرأة أو رجل. ظهرت المشكلة أثناء اختبار Marin وCedar وCoral وOnyx وNova والأصوات الإضافية من الهاتف.</p>
+    <p><strong>درجة الخطورة:</strong> حرجة قبل التوسع في الدفع؛ لأن المستخدم لا يدفع مقابل إنتاج صوت عام، بل مقابل صوت محدد وجميل وواضح اختاره بعد سماع عينة. أي اختلاف بين العينة والنتيجة الكاملة، أو تشغيل أكثر من عينة في الوقت نفسه، يضر الثقة وقد يُفهم بوصفه دفعًا مقابل نتيجة لم يوافق عليها المستخدم.</p>
+    <ul>
+      <li>يجب ألا يعمل أكثر من مشغل صوت واحد في اللحظة نفسها؛ بدء عينة جديدة يوقف جميع العينات والأجزاء الأخرى فورًا.</li>
+      <li>يجب ربط كل عينة ربطًا صريحًا باسم الصوت ولغته ومفتاحه التقني، ومنع إعادة استخدام ملف مخزن لصوت مختلف.</li>
+      <li>يجب أن يكون الصوت المستخدم في الشراء الكامل هو الصوت نفسه الذي اختاره المستخدم وسمع عينته، لا قيمة سابقة محفوظة أو اختيارًا تلقائيًا.</li>
+      <li>لا يجوز وصف الصوت بأنه «امرأة» أو «رجل» إلا إذا كانت هوية الصوت مدعومة ومضمونة من مزود الصوت؛ وإلا يعرض الاسم والوصف السمعي فقط لتجنب وعد غير دقيق.</li>
+      <li>يجب إظهار اسم الصوت المختار بوضوح في شاشة التأكيد النهائية، مع مطالبة المستخدم بسماع عينته الحالية قبل السماح بالدفع.</li>
+      <li>يجب اختبار تطابق العينة والصوت الكامل عبر الهاتف والحاسوب، وعبر العربية والإنجليزية، وعند التنقل السريع بين الأصوات.</li>
+    </ul>
+    <blockquote>معيار القبول المقترح: لا يبدأ الدفع إلا بعد تشغيل عينة الصوت المختار، ويجب أن يطابق كل جزء من الناتج الكامل الصوت المختار نفسه دون تداخل أو تبدل في هوية الراوي أو طبقته.</blockquote>
+    <p><strong>مراجعة الاقتراح الخارجي:</strong> رُفض تقييد العربية على Onyx وNova بوصفهما «رجلًا» و«امرأة»؛ لأن وثائق المزود لا تقدم ضمانًا رسميًا لهوية جندرية ثابتة لهذه الأصوات، كما أن الأصوات محسنة أساسًا للإنجليزية. ورُفض بتر الملخص إلى 3800 حرف لأنه يهدم هدف الملخص المسموع الطويل. كذلك لا يوجد معامل seed موثق في واجهة إنشاء الصوت، والبث لا يزيل حد الإدخال ولا يجعل الطلبات المنفصلة جلسة صوتية واحدة.</p>
+    <p><strong>التحسينات المنفذة في مرشح V1.8.5:</strong></p>
+    <ul>
+      <li>تشغيل مشغل واحد فقط؛ بدء عينة أو جزء يوقف جميع المشغلات الأخرى لمنع التداخل.</li>
+      <li>لا يُفتح تأكيد الشراء الكامل إلا بعد انتهاء عينة الصوت المختار حاليًا، ويتصفّر هذا الإذن عند تغيير الصوت.</li>
+      <li>يرسل طلب العينة مفتاح الصوت المختار صراحة، ويرفض المتصفح استجابة العينة أو الصوت الكامل إذا أعادت مفتاح صوت مختلفًا.</li>
+      <li>رُفعت القطعة إلى 3900 حرف، تحت حد 4096، لتقليل نقاط الانتقال بين الطلبات من دون بتر النص؛ وأضيف تقسيم آمن للجملة المفردة الطويلة في الخادم والواجهة بالخوارزمية نفسها.</li>
+      <li>رُفعت نسخة ذاكرة عينات الصوت إلى v3 حتى لا تعاد ملفات قديمة سبق توليدها قبل تحصينات الاتساق.</li>
+      <li>أضيف تنبيه صريح بأن الأصوات مولدة آليًا ومحسنة أساسًا للإنجليزية، وأن الانطباع الجندري في العربية غير مضمون؛ لذلك تكون العينة العربية هي معيار الاختيار.</li>
+    </ul>
+    <p><strong>التحقق المنجز:</strong> نجح بناء الإنتاج، ونجحت اختبارات الوحدة والصوت المدفوع والإصدار والواجهة والتذكيرات والمكتبة جميعًا. يبقى ثبات طبقة الراوي عبر الأجزاء فرضية تحتاج اختبارًا سمعيًا ميدانيًا؛ فالتحقق البرمجي يضمن مفتاح الصوت وعدم التداخل، لكنه لا يستطيع ضمان السلوك التعبيري الداخلي للنموذج.</p>
+    <blockquote>تصميم التجربة الصوتية: لكل صوت عربي مختار تُشغل العينة حتى نهايتها، ثم يولد ملخص متعدد الأجزاء. يقيم ثلاثة محكمين مستقلين التطابق بين العينة والأجزاء، وثبات الراوي، والوضوح، وجودة العربية، مع تسجيل الجهاز والمتصفح وعدد الأجزاء.</blockquote>
+  </details>
+
+  <details open id="audio-progress"><summary>سير التلخيص والصوت — المؤشر والحفظ الآمن</summary>
+    <p><strong>التلخيص:</strong> يبدأ كعملية واحدة بعد موافقة المستخدم؛ يظهر مؤشر أحمر متحرك ورسالة بأن التحليل والتلخيص قيد التنفيذ، ويُمنع الضغط المتكرر. عند النجاح تظهر الخلاصة والتحليل والفصول، وعند انقطاع الاتصال تظهر رسالة استعادة ولا يُفترض النجاح صمتًا.</p>
+    <p><strong>الصوت الجديد:</strong> يبدأ بعدد صفر عند رفع الكتاب لأن الرفع وحده لا يشتري صوتًا. بعد التأكيد يقسم الملخص إلى أجزاء، ويعرض التقدم مثل «حُفظ 1 من 3»، ثم يزيد عداد المقاطع مع كل جزء محفوظ.</p>
+    <ul><li>لكل مهمة صوتية هوية ثابتة من الكتاب واللغة والصوت المختار.</li><li>يحفظ كل جزء فور اكتماله.</li><li>إذا توقف الاتصال، يستكمل الناقص فقط ولا يعيد شراء الأجزاء المحفوظة.</li><li>عدد الأجزاء متغير بحسب طول الملخص، وليس رقمًا ثابتًا لكل كتاب.</li><li>بعد الاكتمال تظهر مشغلات مستقلة مرتبة: الجزء الأول، الثاني، وهكذا.</li></ul>
+  </details>
+
+  <details open id="results-audit"><summary>تدقيق الملخصات و18 مقطعًا صوتيًا — نتيجة أولية</summary>
+    <p><strong>المشاهدة الميدانية:</strong> تعرض الرئيسية ستة كتب وستة تحليلات و18 مقطعًا. فُتح الكتاب الأول فظهر ملخصه وتحليله كاملين، بينما لم تعرض صفحة الكتاب مقاطعه المحفوظة عند اختيار Marin. كما ظهر كتاب The Instant AI Agency بلا ملخص مع أن بطاقة المكتبة وصفته بأنه مكتمل.</p>
+    <p><strong>التفسير البرمجي الأول:</strong> عداد الصوت يحسب جميع صفوف الصوت، لكن صفحة الكتاب ترشحها حسب معرّف الكتاب ولغة النتيجة والصوت المختار حاليًا؛ لذلك يمكن أن تبقى المقاطع محفوظة ومحتسبة ثم تختفي من الصفحة إذا كان صوتها القديم مختلفًا. كذلك تستخدم بطاقة المكتبة حالة <span class="version">ready</span> كبديل، وقد تقول «مكتمل» حتى إذا لم تجد الصفحة ملخصًا مرتبطًا بالسجل الحالي.</p>
+    <div class="evidence"><article><strong>مؤكد</strong>الكتاب الأول يملك ملخصًا وتحليلًا محفوظين.</article><article><strong>مرجح</strong>الصوتيات القديمة مخفية بسبب اختلاف الصوت أو اللغة أو معرّف الكتاب.</article><article><strong>مطلوب إثباته</strong>مطابقة معرّفات الكتب الستة مع صفوف التحليل والصوت باستعلام قراءة من قاعدة البيانات.</article></div>
+    <blockquote>قاعدة النزاهة البحثية: لا توصف النتائج بأنها محذوفة قبل فحص العلاقات في قاعدة البيانات، ولا توصف بأنها سليمة بالكامل لمجرد ظهور العدد الإجمالي.</blockquote>
+  </details>
+
+  <details open id="covers"><summary>مناقشة Claude–Codex — تحسين أغلفة Samsung المقترح لـ V1.8.5</summary>
+    <p><strong>المشكلة المرصودة:</strong> كان مكوّن الغلاف يحمّل ملف PDF الكامل لكل كتاب ظاهر ويشغّل معالجة pdf.js مستقلة لكل بطاقة. يرفع ذلك استهلاك الذاكرة والشبكة، ويُعد تفسيرًا قويًا لاختفاء أغلفة أو بطاقات على Samsung/Android، لكنه لا يثبت أنه السبب الوحيد قبل الاختبار على الجهاز الحقيقي.</p>
+    <p><strong>اقتراح Claude:</strong> حفظ غلاف JPEG صغير للكتاب النشط بعد أول رسم ناجح، واستعمال التحميل الكسول عبر IntersectionObserver، وتحديد معالجة ملفي PDF فقط في الوقت نفسه.</p>
+    <p><strong>مراجعة Codex:</strong> اعتُمد جوهر الاقتراح، مع ثلاثة تحصينات قبل التفعيل:</p>
+    <ul>
+      <li>تحرير صفحة ومستند وعامل pdf.js بعد كل عملية لتقليل بقاء الذاكرة محجوزة على الهاتف.</li>
+      <li>إذا كانت الصورة المصغرة مفقودة أو تالفة، يعود الكتاب النشط تلقائيًا إلى PDF ويعيد إنشاء الغلاف بدل الاكتفاء بغلاف نموذجي.</li>
+      <li>اعتماد مسار حتمي <span class="version">cover.jpg</span> مشتق من مسار الكتاب، دون إعادة كتابة كائن metadata كامل بما قد يمحو تعديل فهرسة أو أرشفة متزامنًا.</li>
+    </ul>
+    <p><strong>التحقق المنجز:</strong> نجح TypeScript وVite production build، ونجحت الحزمة الكاملة لاختبارات الوحدة والصوت المدفوع والإصدار والواجهة والتذكيرات والمكتبة، ومنها التحميل الكسول، حد التزامن، مسار الغلاف، الرجوع الآمن، وتحرير ذاكرة pdf.js. لا تحتاج الفكرة إلى Migration أو تعديل قاعدة البيانات.</p>
+    <p><strong>النطاق:</strong> التحسين عام للهواتف والمتصفحات ذات الذاكرة أو الشبكة المحدودة، وليس خاصًا بـ Samsung؛ لكنه تحسين لتطبيق الويب/PWA الحالي ولا يحول المنصة وحده إلى تطبيق أصلي منشور في متجر.</p>
+    <p><strong>حدود الدليل:</strong> النتيجة مرجحة وليست مؤكدة ميدانيًا حتى تُنشر معاينة آمنة وتُختبر على جهاز Samsung نفسه. إذا بقي الخلل، تُراجع جلسة Supabase، Service Worker، وخصائص ملفات PDF الثقيلة.</p>
+    <blockquote>التصميم البحثي: مقارنة زمن ظهور الأغلفة، عدد الأغلفة المكتملة، واستقرار الصفحة قبل الإصلاح وبعده على الجهاز نفسه، مع أول زيارة بلا cache ثم زيارة ثانية تستخدم الصور المصغرة المحفوظة.</blockquote>
+  </details>
+
+  <details open id="mobile"><summary>تصميم الموبايل أولًا — قرار V1.8.6</summary>
+    <p>أظهر التسجيل الميداني أن بطاقات الترحيب، و«أمين المكتبة»، و«رحلة كتابك» كانت تستهلك ارتفاع الشاشة قبل الوصول إلى الكتب. وبما أن الاستخدام المتوقع يغلب عليه الهاتف، وأن المنصة مرشحة للتحول إلى تطبيق، اعتُمدت أولوية المحتوى الأساسي على الشاشات الصغيرة.</p>
+    <ul><li>الكتب تظهر مبكرًا وبمساحة أكبر مع تمرير أفقي مناسب للمس.</li><li>بطاقة المتابعة مختصرة، بينما التفاصيل الثانوية قابلة للفتح عند الحاجة.</li><li>«أمين المكتبة» و«رحلة كتابك» مطويان افتراضيًا على الهاتف فقط.</li><li>اللغة والتنبيهات ظاهران، والأدوات الأقل استخدامًا داخل قائمة مختصرة.</li><li>لا يتغير الهيكل المرئي للحاسوب، بما يحافظ على الهوية الجمالية الأصلية.</li></ul>
+    <blockquote>الفرضية: تقليل المساحة السابقة للرف يزيد سرعة الوصول إلى الكتب ويخفض التمرير غير الضروري دون إخفاء وظائف المنصة.</blockquote>
+  </details>
+
+  <section class="decision">
+    <h2>القرار التشغيلي الواضح</h2>
+    <p><strong>إذا أردت الاحتفاظ بالخلاصة والصوت: استخدم «الأرشفة» فقط.</strong> لا تستخدم «الحذف النهائي»، لأنه يمحو الكتاب وبطاقة الفهرسة والغلاف والخلاصة والتحليل والصوت والأسئلة.</p>
+  </section>
+
+  <table>
+    <thead><tr><th>الحالة</th><th>PDF</th><th>النتائج المدفوعة</th><th>مكان الظهور</th><th>الإجراء التالي</th></tr></thead>
+    <tbody>
+      <tr><td>كتاب كامل نشط</td><td>موجود</td><td>بحسب الإنجاز</td><td>الرف النشط</td><td>قراءة أو تحليل أو أرشفة</td></tr>
+      <tr><td>نسخة معرفية محفوظة</td><td>مؤرشف</td><td>محفوظة</td><td>الأرشيف وتصنيفاته</td><td>فتح النتائج أو إعادة رفع الأصل من الزر المفعل</td></tr>
+      <tr><td>حذف نهائي</td><td>محذوف</td><td>محذوفة</td><td>لا تظهر</td><td>لا استعادة</td></tr>
+    </tbody>
+  </table>
+
+  <details open id="research"><summary>السردية البحثية المختصرة</summary><blockquote>تقترح المكتبة الشخصية الذكية نموذجًا لا يعامل الكتاب الرقمي بوصفه ملفًا يجب الاحتفاظ به إلى الأبد، بل بوصفه مدخلًا مؤقتًا لإنتاج أصل معرفي شخصي دائم. بعد اكتمال المعالجة، يستطيع المستخدم أرشفة الأصل الثقيل مع إبقاء غلافه الحقيقي وفهرسته وتصنيفه وخلاصته وتحليله وصوته وأسئلته. أضافت الإصدارات المتتابعة حماية الغلاف، ومنع تكرار الدفع، واستكمال الصوت المجزأ، ثم أعادت V1.8.6 ترتيب الصفحة للهاتف كي يصبح الكتاب هو مركز التجربة. ويحقق ذلك توازنًا بين الاستدامة التخزينية، وحماية القيمة المدفوعة، وسهولة الاستخدام، واستمرارية التعلم، مع تسجيل المشكلات المفتوحة بدل إخفائها.</blockquote></details>
+
+  <details id="next"><summary>الخطوات التنفيذية التالية</summary><ol><li>تنفيذ استعلام قراءة يطابق الكتب الستة مع التحليلات والصوتيات الـ18 دون تعديل البيانات.</li><li>تعديل صفحة الكتاب لتكتشف الأصوات المحفوظة وتعرضها بدل إخفائها عند اختلاف الاختيار الحالي.</li><li>جعل حالة «مكتمل» تعتمد على وجود نتيجة مرتبطة فعلًا، لا على حالة الكتاب وحدها.</li><li>إعادة رفع ملف مطابق واختبار ثبات الغلاف وعودة النتائج دون دفع مكرر.</li><li>قياس أثر واجهة V1.8.6 على زمن الوصول إلى الكتاب وعدد حركات التمرير في الهاتف.</li><li>ربط البحث العام بالحالتين مع تمييز الكتاب الكامل من النسخة المعرفية.</li></ol></details>
+
+  <footer>وثيقة دراسة قابلة للعرض والطباعة والعمل دون اتصال — آخر تحديث: 31 أغسطس 2026 · V1.8.6</footer>
+</main>
+</body>
+</html>
